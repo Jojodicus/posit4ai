@@ -1,1 +1,6 @@
+# tool installation
 xposit-tools/
+
+# binary outputs
+*.o
+*.elf

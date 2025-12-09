@@ -33,7 +33,7 @@ cd llvm-xposit
 git am < ../0001-patch-for-modern-cpp.patch
 cd ..
 ```
-5. Build llvm-xposit:
+5. Build llvm-xposit (takes a long time):
 ```
 cd llvm-xposit
 mkdir -p $XPOSIT_INSTALL_DIR
@@ -56,9 +56,8 @@ cd ../..
 ```
 6. Test compilation of PERCIVAL testsuite:
 ```
-cd PERCIVAL
 # compile
-clang --target=riscv64-unknown-elf --sysroot=$XPOSIT_GCC_DIR -march=rv64gcxposit posit64_testsuite_llvm.c -c -o posit64_testsuite_llvm.o
+clang --target=riscv64-unknown-elf --sysroot=$XPOSIT_GCC_DIR -march=rv64gcxposit PERCIVAL/posit64_testsuite_llvm.c -c -o posit64_testsuite_llvm.o
 # link
 riscv64-unknown-elf-gcc posit64_testsuite_llvm.o -o posit64_testsuite_llvm.elf
 ```
@@ -66,7 +65,7 @@ riscv64-unknown-elf-gcc posit64_testsuite_llvm.o -o posit64_testsuite_llvm.elf
 you should now have a (portable) binary `posit64_testsuite_llvm.elf` with posit support. You can verify the asm with:
 
 ```
-riscv64-unknown-elf-objdump -dCS --visualize-jumps=extended-color posit64_testsuite_llvm.elfi | less -R
+riscv64-unknown-elf-objdump -dCS --visualize-jumps=extended-color posit64_testsuite_llvm.elf | less -R
 ```
 
 notice the `.insn 4, ...` in the test subroutines, these are our posit instructions
