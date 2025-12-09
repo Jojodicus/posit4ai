@@ -1,0 +1,6 @@
+[submodule "llvm-xposit"]
+	path = llvm-xposit
+	url = https://github.com/artecs-group/llvm-xposit
+[submodule "PERCIVAL"]
+	path = PERCIVAL
+	url = https://github.com/artecs-group/PERCIVAL
