@@ -30,7 +30,7 @@ git submodule update --init --recursive
 4. Patch llvm-xposit:
 ```
 cd llvm-xposit
-git am < ../0001-patch-for-modern-cpp.patch
+git apply < ../0001-patch-for-modern-cpp.patch
 cd ..
 ```
 5. Build llvm-xposit (takes a long time):
