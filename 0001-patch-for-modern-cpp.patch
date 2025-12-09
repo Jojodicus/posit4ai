@@ -1,0 +1,63 @@
+From 2063d1721f995211794f09dcd4158ac7834ad9a3 Mon Sep 17 00:00:00 2001
+From: Jojo <johannes@dittrich.pro>
+Date: Tue, 9 Dec 2025 15:07:10 +0100
+Subject: [PATCH] patch for modern cpp
+
+---
+ llvm/include/llvm/ADT/SmallVector.h     | 1 +
+ llvm/include/llvm/Support/Base64.h      | 1 +
+ llvm/include/llvm/Support/Signals.h     | 1 +
+ llvm/include/llvm/XRay/YAMLXRayRecord.h | 1 +
+ 4 files changed, 4 insertions(+)
+
+diff --git a/llvm/include/llvm/ADT/SmallVector.h b/llvm/include/llvm/ADT/SmallVector.h
+index 466acb83d466..47df5218e534 100644
+--- a/llvm/include/llvm/ADT/SmallVector.h
++++ b/llvm/include/llvm/ADT/SmallVector.h
+@@ -24,6 +24,7 @@
+ #include <initializer_list>
+ #include <iterator>
+ #include <limits>
++#include <cstdint>
+ #include <memory>
+ #include <new>
+ #include <type_traits>
+diff --git a/llvm/include/llvm/Support/Base64.h b/llvm/include/llvm/Support/Base64.h
+index 62064a35aa34..da4ae1688574 100644
+--- a/llvm/include/llvm/Support/Base64.h
++++ b/llvm/include/llvm/Support/Base64.h
+@@ -13,6 +13,7 @@
+ #ifndef LLVM_SUPPORT_BASE64_H
+ #define LLVM_SUPPORT_BASE64_H
+ 
++#include <cstdint>
+ #include <string>
+ 
+ namespace llvm {
+diff --git a/llvm/include/llvm/Support/Signals.h b/llvm/include/llvm/Support/Signals.h
+index 44f5a750ff5c..937e0572d4a7 100644
+--- a/llvm/include/llvm/Support/Signals.h
++++ b/llvm/include/llvm/Support/Signals.h
+@@ -14,6 +14,7 @@
+ #ifndef LLVM_SUPPORT_SIGNALS_H
+ #define LLVM_SUPPORT_SIGNALS_H
+ 
++#include <cstdint>
+ #include <string>
+ 
+ namespace llvm {
+diff --git a/llvm/include/llvm/XRay/YAMLXRayRecord.h b/llvm/include/llvm/XRay/YAMLXRayRecord.h
+index 606260693fc4..33b6019f6e59 100644
+--- a/llvm/include/llvm/XRay/YAMLXRayRecord.h
++++ b/llvm/include/llvm/XRay/YAMLXRayRecord.h
+@@ -12,6 +12,7 @@
+ #ifndef LLVM_XRAY_YAMLXRAYRECORD_H
+ #define LLVM_XRAY_YAMLXRAYRECORD_H
+ 
++#include <cstdint>
+ #include <type_traits>
+ 
+ #include "llvm/Support/YAMLTraits.h"
+-- 
+2.51.2
+
