@@ -10,7 +10,7 @@ When using other distros, refer to the documentation of the [RISC-V GNU Compiler
 
 1. Install requirements (should already be installed on a typical installation):
 ```
-paru -S base-devel # or pacman, yay, pamac, ...
+paru -S base-devel cmake # or pacman, yay, pamac, ...
 ```
 2. Install RISC-V GCC toolchain for raw ELFs from AUR (or do so manually, see toolchain docs):
 ```
