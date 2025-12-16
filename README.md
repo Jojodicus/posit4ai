@@ -12,9 +12,9 @@ When using other distros, refer to the documentation of the [RISC-V GNU Compiler
 ```
 paru -S base-devel # or pacman, yay, pamac, ...
 ```
-2. Install RISC-V (gcc) toolchain from Cachy repos (or AUR):
+2. Install RISC-V GCC toolchain for raw ELFs from AUR (or do so manually, see toolchain docs):
 ```
-paru -S riscv
+paru -S riscv-gnu-toolchain-bin
 ```
 3. Clone this repo:
 ```
@@ -23,7 +23,7 @@ cd posit4ai
 # if you did not clone recursively (by accident):
 git submodule update --init --recursive
 ```
-3. Source env var script (use a posix-compliant shell like bash or zsh):
+3. Source env var script (works on posix shells like bash/zsh, as well as fish):
 ```
 . preparepath.sh
 ```
@@ -69,6 +69,6 @@ riscv64-unknown-elf-objdump -dCS --visualize-jumps=extended-color posit64_testsu
 ```
 
 notice the `.insn 4, ...` in the test subroutines, these are our posit instructions
-(we are using the stock risc-v objdump, so it has no idea about the xposit extension)
+(we are using the stock RISC-V objdump, so it has no idea about the Xposit extension)
 
 
