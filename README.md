@@ -79,6 +79,25 @@ notice the `.insn 4, ...` in the test subroutines, these are our posit instructi
 Using a forked version of the [Spike](https://github.com/riscv-software-src/riscv-isa-sim) ISA Simulator,
 you can run simple statically linked ELFs with Xposit support.
 
+1. Build the Proxy Kernel
+```sh
+mkdir riscv-pk/build
+cd riscv-pk/build
+../configure --prefix=$RISCV --host=riscv64-unknown-elf
+make -j4
+cd ../..
+```
+2. Compile a minimal C program without Posits
+```sh
+riscv64-unknown-elf-gcc csrc/hello-world.c -o hello-world.elf
+```
+3. Test with Spike and the Proxy Kernel
+```sh
+spike riscv-pk/build/pk hello-world.elf
+```
+
+For now, only tested with spike from the CachyOS repos.
+
 TODO:
 - [ ] Integrate Spike into repo
 - [ ] Give instructions on how to build and install spike + pk
