@@ -4,3 +4,6 @@
 [submodule "PERCIVAL"]
 	path = PERCIVAL
 	url = https://github.com/artecs-group/PERCIVAL
+[submodule "riscv-pk"]
+	path = riscv-pk
+	url = https://github.com/riscv-software-src/riscv-pk
