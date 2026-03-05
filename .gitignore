@@ -4,3 +4,10 @@ xposit-tools/
 # binary outputs
 *.o
 *.elf
+
+# Research Project Artifacts
+posit-research/vivado_proj/
+posit-research/**/*.log
+posit-research/**/*.jou
+posit-research/**/*.csv
+posit-research/**/.Xil/

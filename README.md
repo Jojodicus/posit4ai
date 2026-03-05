@@ -102,3 +102,4 @@ TODO:
 - [ ] Integrate Spike into repo
 - [ ] Give instructions on how to build and install spike + pk
 - [ ] Fork and patch Spike for Xposit support
+- [ ] Dockerize
