@@ -9,6 +9,11 @@ set percival_dir [file normalize [file join $root_dir .. PERCIVAL]]
 # Create project
 create_project -force $proj_name $proj_dir -part $target_part
 
+# Create Simulation Filesets
+if {[get_filesets -quiet sim_harness] == ""} { create_fileset -simset sim_harness }
+if {[get_filesets -quiet sim_axi] == ""} { create_fileset -simset sim_axi }
+if {[get_filesets -quiet sim_pau] == ""} { create_fileset -simset sim_pau }
+
 # Set project properties
 set_property target_language Verilog [current_project]
 set_property default_lib xil_defaultlib [current_project]
@@ -61,6 +66,7 @@ add_files -norecurse [glob $root_dir/rtl/pau/*.vhd]
 add_files -norecurse $percival_dir/core/pau_top.sv
 add_files -norecurse $percival_dir/core/fpu_wrap.sv
 add_files -norecurse $root_dir/harness/pau_fpu_harness.sv
+add_files -norecurse $root_dir/harness/pau_fpu_harness_axi.sv
 
 # Set Include Paths
 set_property include_dirs [list \
@@ -70,6 +76,16 @@ set_property include_dirs [list \
 
 
 set_property top pau_fpu_harness [current_fileset]
+
+# Add Testbenches
+add_files -fileset sim_harness -norecurse $root_dir/tb/tb_pau_fpu_harness.sv
+set_property top tb_pau_fpu_harness [get_filesets sim_harness]
+
+add_files -fileset sim_axi -norecurse $root_dir/tb/tb_pau_fpu_harness_axi.sv
+set_property top tb_pau_fpu_harness_axi [get_filesets sim_axi]
+
+add_files -fileset sim_pau -norecurse $root_dir/tb/tb_pau_top.sv
+set_property top tb_pau_top [get_filesets sim_pau]
 
 # Create Clocking Wizard
 create_ip -name clk_wiz -vendor xilinx.com -library ip -version 6.0 -module_name clk_wiz_0
