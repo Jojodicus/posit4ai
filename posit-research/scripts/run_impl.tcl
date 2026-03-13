@@ -1,0 +1,187 @@
+# Full Implementation Flow: Synthesis -> Place -> Route -> Bitstream
+# Configurable clock frequency via environment variable CLOCK_FREQ_MHZ
+
+set proj_name "posit_research"
+set proj_dir "./vivado_proj"
+set root_dir [file normalize [file join [file dirname [info script]] ..]]
+
+# Get clock frequency from environment (default: 100 MHz)
+if {[info exists env(CLOCK_FREQ_MHZ)]} {
+    set clock_freq_mhz $env(CLOCK_FREQ_MHZ)
+} else {
+    set clock_freq_mhz 100
+}
+
+set clock_period_ns [expr {1000.0 / $clock_freq_mhz}]
+
+puts "=========================================="
+puts "Full Implementation Flow"
+puts "Target: pau_fpu_harness_axi"
+puts "Clock: ${clock_freq_mhz} MHz (${clock_period_ns} ns period)"
+puts "=========================================="
+
+# Open or create project
+# Close any existing open project first to avoid conflicts
+catch {close_project -quiet}
+
+if {[file exists ${proj_dir}/${proj_name}.xpr]} {
+    open_project ${proj_dir}/${proj_name}.xpr
+} else {
+    puts "Project not found. Creating new project..."
+    source [file join $root_dir scripts project_setup.tcl]
+    # Project is already open after create_project in project_setup.tcl
+}
+
+# Set top-level to AXI harness for implementation
+set_property top pau_fpu_harness_axi [current_fileset]
+
+# Update clocking wizard IP with requested frequency
+puts "Updating clocking wizard to ${clock_freq_mhz} MHz output..."
+set_property -dict [list \
+    CONFIG.PRIM_IN_FREQ {100.000} \
+    CONFIG.CLKOUT1_REQUESTED_OUT_FREQ "$clock_freq_mhz" \
+] [get_ips clk_wiz_0]
+generate_target all [get_ips clk_wiz_0]
+
+# Update constraint file with requested clock period
+set constraint_file [file normalize $root_dir/constraints/pau_axi_timing.xdc]
+if {[file exists $constraint_file]} {
+    # Read constraint file
+    set fp [open $constraint_file r]
+    set constraint_content [read $fp]
+    close $fp
+
+    # Update clock period in constraint
+    regsub {create_clock -period [0-9.]+} $constraint_content \
+           "create_clock -period $clock_period_ns" constraint_content
+
+    # Write updated constraint
+    set fp [open $constraint_file w]
+    puts $fp $constraint_content
+    close $fp
+
+    puts "Updated constraint file with ${clock_period_ns} ns period"
+}
+
+update_compile_order -fileset sources_1
+
+# Create reports directory
+file mkdir [file normalize $root_dir/reports]
+
+puts "\n=========================================="
+puts "Running Synthesis..."
+puts "=========================================="
+
+# Reset synthesis run
+reset_run synth_1
+launch_runs synth_1 -jobs 8
+wait_on_run synth_1
+
+# Check synthesis results
+set synth_status [get_property STATUS [get_runs synth_1]]
+set synth_progress [get_property PROGRESS [get_runs synth_1]]
+
+if {$synth_progress != "100%"} {
+    puts "ERROR: Synthesis did not complete!"
+    puts "Status: $synth_status"
+    exit 1
+}
+
+puts "Synthesis complete: $synth_status"
+
+# Open synthesized design to check initial timing
+open_run synth_1
+set synth_wns [get_property SLACK [get_timing_paths]]
+puts "Post-Synthesis WNS: $synth_wns ns"
+
+if {$synth_wns < 0} {
+    puts "WARNING: Negative slack after synthesis. Implementation may not meet timing."
+}
+
+puts "\n=========================================="
+puts "Running Implementation..."
+puts "=========================================="
+
+# Reset implementation run
+reset_run impl_1
+launch_runs impl_1 -jobs 8
+wait_on_run impl_1
+
+# Check implementation results
+set impl_status [get_property STATUS [get_runs impl_1]]
+set impl_progress [get_property PROGRESS [get_runs impl_1]]
+
+if {$impl_progress != "100%"} {
+    puts "ERROR: Implementation did not complete!"
+    puts "Status: $impl_status"
+    exit 1
+}
+
+puts "Implementation complete: $impl_status"
+
+# Open implemented design and generate reports
+open_run impl_1
+
+puts "\n=========================================="
+puts "Generating Reports..."
+puts "=========================================="
+
+# Timing Summary Report
+report_timing_summary -file [file normalize $root_dir/reports/timing_summary.rpt]
+report_timing -sort_by slack -max_paths 10 -file [file normalize $root_dir/reports/timing_detailed.rpt]
+
+# Utilization Report
+report_utilization -file [file normalize $root_dir/reports/utilization.rpt]
+report_utilization -hierarchical -file [file normalize $root_dir/reports/utilization_hierarchical.rpt]
+
+# Power Report
+report_power -file [file normalize $root_dir/reports/power.rpt]
+
+# Clock Networks
+report_clock_networks -file [file normalize $root_dir/reports/clock_networks.rpt]
+
+# Get final timing results
+set final_wns [get_property SLACK [get_timing_paths]]
+set final_whs [get_property SLACK [get_timing_paths -hold]]
+
+puts "\n=========================================="
+puts "Final Timing Results"
+puts "=========================================="
+puts "WNS (Setup): $final_wns ns"
+puts "WHS (Hold):  $final_whs ns"
+
+if {$final_wns < 0} {
+    puts "WARNING: Setup timing NOT MET!"
+} else {
+    puts "Setup timing: MET"
+}
+
+if {$final_whs < 0} {
+    puts "WARNING: Hold timing NOT MET!"
+} else {
+    puts "Hold timing: MET"
+}
+
+puts "\n=========================================="
+puts "Generating Bitstream..."
+puts "=========================================="
+
+# Generate bitstream
+launch_runs impl_1 -to_step write_bitstream -jobs 8
+wait_on_run impl_1
+
+set bitstream_file [file normalize $root_dir/vivado_proj/posit_research.runs/impl_1/pau_fpu_harness_axi.bit]
+if {[file exists $bitstream_file]} {
+    puts "\nBitstream generated successfully!"
+    puts "Location: $bitstream_file"
+} else {
+    puts "\nERROR: Bitstream generation failed!"
+    exit 1
+}
+
+puts "\n=========================================="
+puts "Implementation Complete!"
+puts "=========================================="
+puts "Reports available in: $root_dir/reports/"
+puts "Bitstream: $bitstream_file"
+puts "=========================================="

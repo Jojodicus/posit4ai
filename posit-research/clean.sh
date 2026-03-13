@@ -19,4 +19,7 @@ rm -rf harness/.Xil/
 # Remove any existing CSV results
 rm -f results.csv
 
+# Remove reports directory
+rm -rf reports/
+
 echo "Clean complete. You can now run scripts/project_setup.tcl or scripts/find_fmax.tcl"

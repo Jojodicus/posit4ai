@@ -7,7 +7,9 @@ xposit-tools/
 
 # Research Project Artifacts
 posit-research/vivado_proj/
+posit-research/reports/
 posit-research/**/*.log
 posit-research/**/*.jou
 posit-research/**/*.csv
 posit-research/**/.Xil/
+posit-research/xvlog.pb

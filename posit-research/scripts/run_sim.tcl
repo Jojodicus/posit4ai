@@ -3,6 +3,9 @@
 set proj_name "posit_research"
 set proj_dir "./vivado_proj"
 
+# Close any existing open project first to avoid conflicts
+catch {close_project -quiet}
+
 # Open project if not already open
 if {[get_projects -quiet $proj_name] == ""} {
     open_project $proj_dir/$proj_name.xpr
