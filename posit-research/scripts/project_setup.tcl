@@ -51,14 +51,18 @@ if {[llength $all_sv_files] > 0} {
 add_files -norecurse $root_dir/rtl/common_cells/src/lzc.sv
 add_files -norecurse $root_dir/rtl/common_cells/src/rr_arb_tree.sv
 # Use patched .svh files for Vivado XSim compatibility (removes default macro parameters)
+# Top-level patches (used as global includes)
 add_files -norecurse $root_dir/harness/common_cells_patches/registers.svh
 add_files -norecurse $root_dir/harness/common_cells_patches/assertions.svh
+# Symlinks in common_cells/ subdir so `include "common_cells/registers.svh"` resolves to patched versions
+add_files -norecurse $root_dir/harness/common_cells_patches/common_cells/registers.svh
+add_files -norecurse $root_dir/harness/common_cells_patches/common_cells/assertions.svh
 
 # Explicitly mark .svh files as SystemVerilog Headers (not Verilog)
-set_property file_type {SystemVerilog Header} [get_files registers.svh]
-set_property file_type {SystemVerilog Header} [get_files assertions.svh]
-set_property is_global_include 1 [get_files registers.svh]
-set_property is_global_include 1 [get_files assertions.svh]
+foreach svh_file [get_files -filter {NAME =~ "*.svh"}] {
+    set_property file_type {SystemVerilog Header} $svh_file
+    set_property is_global_include 1 $svh_file
+}
 
 # FPU Files
 add_files -norecurse $root_dir/rtl/fpu/src/fpnew_fma.sv
@@ -82,9 +86,12 @@ add_files -norecurse $percival_dir/core/pau_top.sv
 add_files -norecurse $percival_dir/core/fpu_wrap.sv
 add_files -norecurse $root_dir/harness/pau_fpu_harness.sv
 add_files -norecurse $root_dir/harness/pau_fpu_harness_axi.sv
+add_files -norecurse $root_dir/harness/zynq_pau_top.sv
 
 # Set Include Paths for sources_1
+# Patched common_cells dir FIRST so our fixed .svh files override PERCIVAL originals
 set_property include_dirs [list \
+    [file normalize $root_dir/harness/common_cells_patches] \
     [file normalize $root_dir/rtl/common_cells/include] \
     [file normalize $root_dir/rtl/fpu/src/fpu_div_sqrt_mvp/hdl] \
 ] [current_fileset]
@@ -92,6 +99,7 @@ set_property include_dirs [list \
 # Set Include Paths for all simulation filesets
 foreach simset {sim_harness sim_axi sim_pau} {
     set_property include_dirs [list \
+        [file normalize $root_dir/harness/common_cells_patches] \
         [file normalize $root_dir/rtl/common_cells/include] \
         [file normalize $root_dir/rtl/fpu/src/fpu_div_sqrt_mvp/hdl] \
     ] [get_filesets $simset]
@@ -130,10 +138,15 @@ if {[get_filesets -quiet constrs_1] == ""} {
     create_fileset -constrset constrs_1
 }
 
-# Add constraint file if it exists
-set constraint_file [file normalize $root_dir/constraints/pau_axi_timing.xdc]
-if {[file exists $constraint_file]} {
-    add_files -fileset constrs_1 -norecurse $constraint_file
+# Add constraint files
+set timing_constraint [file normalize $root_dir/constraints/pau_axi_timing.xdc]
+if {[file exists $timing_constraint]} {
+    add_files -fileset constrs_1 -norecurse $timing_constraint
+}
+
+set zedboard_constraint [file normalize $root_dir/constraints/zedboard_master_XDC_RevC_D_v3.xdc]
+if {[file exists $zedboard_constraint]} {
+    add_files -fileset constrs_1 -norecurse $zedboard_constraint
 }
 
 # Create reports directory
@@ -183,3 +196,19 @@ reorder_files -fileset sources_1 -front [lindex $pkg_files 0]
 # No need to reorder in simulation filesets - they follow sources_1 order
 
 puts "Compile order manually set: cva6 -> riscv -> ariane -> cf_math -> fpnew"
+
+# --- Create Zynq PS Block Design ---
+# This creates the PS7 + AXI protocol converter + module reference to pau_fpu_harness_axi
+puts ""
+puts "Creating Zynq PS block design..."
+source [file join $root_dir scripts create_bd.tcl]
+
+# Set top for implementation: zynq_pau_top wraps BD wrapper + pau_fpu_harness_axi
+# (build.sh overrides this to pau_fpu_harness for quick synthesis)
+set_property top zynq_pau_top [current_fileset]
+update_compile_order -fileset sources_1
+
+puts ""
+puts "Project setup complete."
+puts "  Top module (impl): zynq_pau_top"
+puts "  Top module (build): pau_fpu_harness (set by run_build.tcl)"

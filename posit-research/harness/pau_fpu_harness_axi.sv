@@ -1,30 +1,55 @@
 module pau_fpu_harness_axi import ariane_pkg::*; (
-    input  logic        clk_i,  // 100 MHz from Zedboard
+    (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 clk_i CLK" *)
+    (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF S_AXI, ASSOCIATED_RESET rst_ni, FREQ_HZ 100000000" *)
+    input  logic        clk_i,  // 100 MHz from Zynq PS FCLK_CLK0
+
+    (* X_INTERFACE_INFO = "xilinx.com:signal:reset:1.0 rst_ni RST" *)
+    (* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
     input  logic        rst_ni,
 
     // AXI-Lite Slave Interface
+    (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI AWADDR" *)
+    (* X_INTERFACE_PARAMETER = "PROTOCOL AXI4LITE, DATA_WIDTH 32, ADDR_WIDTH 32" *)
     input  logic [31:0] awaddr_i,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI AWPROT" *)
     input  logic [2:0]  awprot_i,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI AWVALID" *)
     input  logic        awvalid_i,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI AWREADY" *)
     output logic        awready_o,
 
+    (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI WDATA" *)
     input  logic [31:0] wdata_i,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI WSTRB" *)
     input  logic [3:0]  wstrb_i,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI WVALID" *)
     input  logic        wvalid_i,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI WREADY" *)
     output logic        wready_o,
 
+    (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI BRESP" *)
     output logic [1:0]  bresp_o,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI BVALID" *)
     output logic        bvalid_o,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI BREADY" *)
     input  logic        bready_i,
 
+    (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI ARADDR" *)
     input  logic [31:0] araddr_i,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI ARPROT" *)
     input  logic [2:0]  arprot_i,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI ARVALID" *)
     input  logic        arvalid_i,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI ARREADY" *)
     output logic        arready_o,
 
+    (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI RDATA" *)
     output logic [31:0] rdata_o,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI RRESP" *)
     output logic [1:0]  rresp_o,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI RVALID" *)
     output logic        rvalid_o,
+    (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI RREADY" *)
     input  logic        rready_i
 );
 
@@ -88,14 +113,14 @@ module pau_fpu_harness_axi import ariane_pkg::*; (
                 reg_req.wstrb <= wstrb_i;
                 reg_req.write <= 1'b1;
                 reg_req.valid <= 1'b1;
-            end 
+            end
             // Read Transaction
             else if (arvalid_i && !reg_req.valid && !rvalid_o) begin
                 reg_req.addr  <= araddr_i;
                 reg_req.write <= 1'b0;
                 reg_req.valid <= 1'b1;
             end
-            
+
             if (reg_req.valid && reg_rsp.ready) begin
                 reg_req.valid <= 1'b0;
                 if (reg_req.write) begin

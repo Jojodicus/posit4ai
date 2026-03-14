@@ -58,7 +58,10 @@ module tb_pau_fpu_harness_axi import ariane_pkg::*; ();
 
     initial begin
         rst_ni = 0;
-        awvalid_i = 0; wvalid_i = 0; arvalid_i = 0; bready_i = 0; rready_i = 0;
+        awaddr_i = 0; awprot_i = 0; awvalid_i = 0;
+        wdata_i = 0; wstrb_i = 0; wvalid_i = 0;
+        araddr_i = 0; arprot_i = 0; arvalid_i = 0;
+        bready_i = 0; rready_i = 0;
         repeat(10) @(posedge clk_i);
         rst_ni = 1;
         repeat(5) @(posedge clk_i);
@@ -68,12 +71,9 @@ module tb_pau_fpu_harness_axi import ariane_pkg::*; ();
         axi_write(32'h00, 32'h7F939D17);
         // Write OP_B = 0x7F6EC2BF
         axi_write(32'h08, 32'h7F6EC2BF);
-        // Write CONTROL (PADD=26 (approx based on enum), PAU=10, VALID=1)
-        // PADD is 26th in enum (0-indexed) -> 0x1A
-        // PAU is 10th in enum -> 0xA
-        // Control word: {valid[12], fu[11:8], op[7:0]}
-        // 1_1010_1010_1010 -> but wait, let's use the actual values
-        axi_write(32'h10, (1 << 12) | (10 << 8) | 8'h1A);
+        // Write CONTROL: {valid[12], fu_sel[11:8], op_sel[7:0]}
+        // PADD=123 (0x7B), PAU=10 (0xA), VALID=1
+        axi_write(32'h10, (32'h1 << 12) | (32'(PAU) << 8) | 32'(PADD));
 
         $display("AXI Test: Waiting for result...");
         do begin
