@@ -1,7 +1,8 @@
 # Full Implementation Flow: Synthesis -> Place -> Route -> Bitstream
 # Uses Zynq PS block design wrapper as top module.
 # Configurable clock frequency via environment variable CLOCK_FREQ_MHZ
-# (updates the clocking wizard inside pau_fpu_harness)
+# (updates the clocking wizard inside accel_harness for build.sh;
+#  zynq_accel_top runs at 100 MHz from PS7 FCLK_CLK0)
 
 set proj_name "posit_research"
 set proj_dir "./vivado_proj"
@@ -18,7 +19,7 @@ set clock_period_ns [expr {1000.0 / $clock_freq_mhz}]
 
 puts "=========================================="
 puts "Full Implementation Flow"
-puts "Target: zynq_pau_top (PS7 + pau_fpu_harness_axi)"
+puts "Target: zynq_accel_top (PS7 + accel_axi)"
 puts "Clock: ${clock_freq_mhz} MHz (${clock_period_ns} ns period)"
 puts "=========================================="
 
@@ -35,7 +36,7 @@ if {[file exists ${proj_dir}/${proj_name}.xpr]} {
 }
 
 # Set top-level to BD wrapper for implementation
-set_property top zynq_pau_top [current_fileset]
+set_property top zynq_accel_top [current_fileset]
 
 # Update clocking wizard IP with requested frequency
 # (clk_wiz_0 is instantiated inside pau_fpu_harness, inside the BD module reference)
@@ -156,7 +157,7 @@ puts "=========================================="
 launch_runs impl_1 -to_step write_bitstream -jobs 8
 wait_on_run impl_1
 
-set bitstream_file [file normalize $root_dir/vivado_proj/posit_research.runs/impl_1/zynq_pau_top.bit]
+set bitstream_file [file normalize $root_dir/vivado_proj/posit_research.runs/impl_1/zynq_accel_top.bit]
 if {[file exists $bitstream_file]} {
     puts "\nBitstream generated successfully!"
     puts "Location: $bitstream_file"
@@ -172,12 +173,12 @@ puts "Reports available in: $root_dir/reports/"
 puts "Bitstream: $bitstream_file"
 puts ""
 puts "AXI Slave Register Map (base: 0x43C00000):"
-puts "  0x00: OP_A [31:0]"
-puts "  0x04: OP_A [63:32]"
-puts "  0x08: OP_B [31:0]"
-puts "  0x0C: OP_B [63:32]"
-puts "  0x10: Control [12:0] = {valid_i, fu_sel[3:0], op_sel[7:0]}"
-puts "  0x14: RESULT [31:0]  (RO)"
-puts "  0x18: RESULT [63:32] (RO)"
-puts "  0x1C: Status [1:0] = {ready_o, valid_o} (RO)"
+puts "  0x00: CTRL         \[0\]=START, \[1\]=RESET"
+puts "  0x04: STATUS        \[0\]=DONE,  \[1\]=RUNNING"
+puts "  0x08: IBRAM_ADDR    instruction BRAM word index"
+puts "  0x0C: IBRAM_DATA_LO instruction bits \[31:0\]"
+puts "  0x10: IBRAM_DATA_HI instruction bits \[63:32\] (write triggers BRAM write)"
+puts "  0x14: DBRAM_ADDR    data BRAM word index"
+puts "  0x18: DBRAM_DATA    data BRAM word (32-bit)"
+puts "  0x1C: DBRAM_DATA_HI data BRAM high word (DATA_WIDTH=64 only)"
 puts "=========================================="

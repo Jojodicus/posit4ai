@@ -1,6 +1,9 @@
 
 source ./scripts/project_setup.tcl
 
+# Use accel_harness for Fmax search (no AXI / PS7 overhead; clk_wiz is inside)
+set_property top accel_harness [current_fileset]
+
 proc run_synth {freq} {
     puts "========================================"
     puts "TESTING FREQUENCY: $freq MHz"

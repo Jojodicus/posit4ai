@@ -17,7 +17,7 @@ set clock_period_ns [expr {1000.0 / $clock_freq_mhz}]
 
 puts "=========================================="
 puts "Quick Build Flow (Synthesis Only)"
-puts "Target: pau_fpu_harness"
+puts "Target: accel_harness"
 puts "Clock: ${clock_freq_mhz} MHz (${clock_period_ns} ns period)"
 puts "=========================================="
 
@@ -34,7 +34,7 @@ if {[file exists ${proj_dir}/${proj_name}.xpr]} {
 }
 
 # Set top-level to simple harness (faster synthesis, no AXI overhead)
-set_property top pau_fpu_harness [current_fileset]
+set_property top accel_harness [current_fileset]
 
 # Update clocking wizard IP with requested frequency
 puts "Updating clocking wizard to ${clock_freq_mhz} MHz output..."

@@ -23,13 +23,12 @@ All shell scripts automatically source Vivado environment from `scripts/vivado_e
 ### Build Outputs
 - **Synthesis reports** (`./build.sh`): `reports/build_timing.rpt`, `reports/build_utilization.rpt`
 - **Implementation reports** (`./impl.sh`): `reports/timing_summary.rpt`, `reports/timing_detailed.rpt`, `reports/utilization*.rpt`, `reports/power.rpt`, `reports/clock_networks.rpt`
-- **Bitstream**: `vivado_proj/posit_research.runs/impl_1/zynq_pau_top.bit`
+- **Bitstream**: `vivado_proj/posit_research.runs/impl_1/zynq_accel_top.bit`
 
 ### Testing
-Three simulation filesets run via `./test.sh`:
-- `sim_harness` - Tests `tb_pau_fpu_harness.sv` (simple wrapper)
-- `sim_axi` - Tests `tb_pau_fpu_harness_axi.sv` (AXI interface)
-- `sim_pau` - Tests `tb_pau_top.sv` (PAU core directly)
+Two simulation filesets run via `./test.sh`:
+- `sim_core` - Tests `tb_accel_core.sv` (BRAM + sequencer + arith_unit)
+- `sim_axi`  - Tests `tb_accel_axi.sv` (AXI register interface)
 
 ### Manual Vivado Invocation
 If shell scripts are insufficient:
@@ -47,93 +46,94 @@ If shell scripts are insufficient:
 ## Architecture
 
 ### Project Structure
-- `rtl/` - Symlinks to PERCIVAL sources: `common_cells/`, `fpu/` (SystemVerilog), `pau/` (VHDL)
-- `harness/` - Minimal SystemVerilog packages and top-level wrappers
-  - `cva6_config_pkg.sv`, `riscv_pkg_mini.sv`, `ariane_pkg_mini.sv` - Configuration packages
-  - `pau_fpu_harness.sv` - Simple top-level for quick synthesis (no AXI)
-  - `pau_fpu_harness_axi.sv` - AXI-Lite register interface (with X_INTERFACE attributes for BD)
-- `tb/` - Testbenches for all three simulation targets
+- `rtl/` - **Local copies** of PERCIVAL sources (editable): `common_cells/`, `fpu/`, `pau/` (VHDL)
+- `harness/` - Accelerator RTL
+  - `config_pkg.sv` - **User-facing configuration** (edit this to change arithmetic unit, width, etc.)
+  - `opcodes_pkg.sv` - Unified opcode set (same for PAU and FPU)
+  - `arith_unit.sv` - Instantiates either `pau_top` or `fpu_wrap` based on `config_pkg::ACCEL_TYPE`
+  - `accel_core.sv` - Instruction BRAM + data BRAM + sequencer + `arith_unit`
+  - `accel_axi.sv` - AXI-Lite slave wrapping `accel_core`
+  - `accel_harness.sv` - Synthesis-only top (no PS7) for `./build.sh`
+  - `zynq_accel_top.sv` - Full implementation top (PS7 + `accel_axi`) for `./impl.sh`
+  - `pau_top.sv`, `fpu_wrap.sv` - Local editable copies from PERCIVAL
+  - `cva6_config_pkg.sv`, `riscv_pkg_mini.sv`, `ariane_pkg_mini.sv` - Internal packages (do not edit)
+- `tb/` - Testbenches (`tb_accel_core.sv`, `tb_accel_axi.sv`)
 - `scripts/` - TCL scripts for Vivado automation
 - `constraints/` - Timing constraints (XDC files)
 
 ### Top-Level Architecture
 
-**zynq_pau_top** (implementation top):
+**zynq_accel_top** (implementation top):
 - Used by `./impl.sh` for full implementation and bitstream generation
-- Block design wrapper containing:
-  - `processing_system7` (Zynq PS7 ARM core, configured for Zedboard)
-  - `proc_sys_reset` (synchronized reset generation)
-  - `axi_protocol_converter` (AXI3 from PS7 → AXI4-Lite)
-  - `pau_fpu_harness_axi` (module reference - AXI-Lite slave)
-- AXI slave mapped at base address `0x43C00000`
-- Register map: operands (OP_A, OP_B), operation selectors (OP_SEL, FU_SEL), results (RESULT, VALID_O, READY_O)
-- Created by `scripts/create_bd.tcl`
+- Instantiates `zynq_ps_wrapper` (PS7 block design) and `accel_axi`
+- AXI slave at `0x43C00000`, runs at 100 MHz from PS7 FCLK_CLK0
 
-**pau_fpu_harness** (quick build top):
-- Used by `./build.sh` for fast iteration during development
-- Direct signal interface (no AXI/PS7 overhead)
-- Input registers, clocking wizard, instantiates `pau_top` and `fpu_wrap`
+**accel_harness** (quick build top):
+- Used by `./build.sh` and `find_fmax.tcl` for synthesis-only timing/utilization checks
+- Contains `clk_wiz_0` (100 MHz → target freq) and `accel_core`
 
-### Core Components
-Both harnesses instantiate:
-- `clk_wiz_0` - Xilinx Clocking Wizard IP (100 MHz input → configurable output)
-- `pau_top` - Posit Arithmetic Unit (from PERCIVAL/core/pau_top.sv)
-- `fpu_wrap` - Floating Point Unit wrapper (from PERCIVAL/core/fpu_wrap.sv)
+### Accelerator Core
+- **Instruction BRAM**: 64-bit × 256 words (dual-port: host write, sequencer fetch)
+- **Data BRAM**: DATA_WIDTH × 4096 words (true dual-port: host r/w, sequencer r/w)
+- **Sequencer**: 5-stage pipeline (FETCH→DECODE→EXEC→WAIT_ARITH→WRITEBACK)
+- **arith_unit**: maps accelerator opcodes to PAU (`QMADD`, `PADD`, …) or FPU (`FMADD`, `FADD`, …)
 
-### Package Dependencies
-Packages must be included in order (handled by `project_setup.tcl`):
-1. `cva6_config_pkg.sv` - CVA6 core configuration
-2. `riscv_pkg_mini.sv` - RISC-V types and constants
-3. `ariane_pkg_mini.sv` - Ariane/CVA6 types (defines `fu_op`, `fu_t`, `fu_data_t`)
-4. `cf_math_pkg.sv` - Common cells math utilities
-5. `fpnew_pkg.sv` - FPU types and configurations
+### Instruction Format (64-bit)
+```
+[63:56] opcode  [55:44] addr_a  [43:32] addr_b  [31:20] addr_result  [19:0] reserved/flags
+```
+
+### Package Dependencies (compile order)
+1. `config_pkg.sv` - user configuration
+2. `opcodes_pkg.sv` - accelerator opcodes
+3. `cva6_config_pkg.sv`, `riscv_pkg_mini.sv` - needed by pau_top/fpu_wrap
+4. `ariane_pkg_mini.sv` - PAU/FPU internal types (imports config_pkg)
+5. `cf_math_pkg.sv`, `fpnew_pkg.sv` - FPU support
 
 ## Configuration
 
-### Posit Width and Operation Modes
-Edit `VERILOG_DEFINE` section in `scripts/project_setup.tcl`:
-- `POSLEN_64` - Use 64-bit posits (default: 32-bit)
-- `QUIRE_DISABLED` - Disable quire accumulator support
-- `POS_LOG_MULT` - Use approximate posit multiplier
-- `POS_LOG_DIV` - Use approximate posit divider
-- `POS_LOG_SQRT` - Use approximate posit square root
-
-**Note**: After changing these macros, run `./clean.sh` before rebuilding.
-
-### Clock Frequency
-Pass frequency (MHz) as argument to build/implementation scripts:
-```bash
-./build.sh 150   # Build at 150 MHz
-./impl.sh 125    # Implement at 125 MHz
+### Arithmetic Unit and Width
+Edit **only** `harness/config_pkg.sv`:
+```sv
+parameter string ACCEL_TYPE  = "PAU";   // "PAU" or "FPU"
+parameter int    DATA_WIDTH  = 32;      // 32 or 64
+parameter int    POSIT_ES    = 2;       // posit exponent bits (PAU only)
+parameter bit    QUIRE_ENABLE = 1;      // exact quire accumulator (PAU only)
+parameter bit    APPROX_MUL  = 0;      // log-domain approximate ops (PAU only)
+parameter bit    APPROX_DIV  = 0;
+parameter bit    APPROX_SQRT = 0;
 ```
 
-Scripts automatically:
-1. Update `clk_wiz_0` IP configuration
-2. Run synthesis/implementation (clock constraints auto-generated by PS7 and clk_wiz IPs)
+After changing `config_pkg.sv`, run `./clean.sh` then rebuild.
+
+### Clock Frequency
+```bash
+./build.sh 150   # Synthesise accel_harness at 150 MHz (updates clk_wiz_0)
+./impl.sh        # Implement zynq_accel_top at 100 MHz (PS7 FCLK_CLK0)
+```
 
 ## Timing Analysis
 
 Check `reports/timing_summary.rpt` after implementation:
 - **WNS ≥ 0**: Timing met ✓
-- **WNS < 0**: Timing violation - reduce clock frequency or optimize RTL
+- **WNS < 0**: Timing violation — reduce clock frequency or optimise RTL
 
-Critical path analysis typically shows dominant delays in posit shifters and adders. Use Vivado GUI (`./open.sh` → Implemented Design → Timing → Report Timing Summary) to visualize critical paths.
+For Fmax measurement: `./build.sh [FREQ]` or `find_fmax.tcl` (synthesis only, fast).
 
 ## Common Development Patterns
 
 ### Typical Development Cycle
-1. Modify RTL in PERCIVAL repository (changes appear via symlinks in `rtl/`)
-2. `./clean.sh` (if changing macros or significant structural changes)
-3. `./test.sh` (verify functionality)
-4. `./build.sh [FREQ]` (quick synthesis check)
-5. `./impl.sh [FREQ]` (full implementation before deployment)
+1. Edit `harness/config_pkg.sv` to select PAU/FPU, width, options
+2. `./clean.sh`
+3. `./test.sh` (functional simulation)
+4. `./build.sh [FREQ]` (quick synthesis + timing)
+5. `./impl.sh` (full implementation + bitstream)
 6. `./open.sh` (inspect timing/utilization in GUI)
 
 ### Adding New RTL Files
 Edit `scripts/project_setup.tcl`:
 - Add source files with `add_files -norecurse <path>`
 - Set `.sv` files as SystemVerilog: `set_property file_type SystemVerilog [get_files <file>]`
-- Mark packages as global includes: `set_property is_global_include 1 [get_files <pkg>]`
 - Update compile order: `update_compile_order -fileset sources_1`
 
 ### Language Mixing
@@ -144,7 +144,8 @@ Edit `scripts/project_setup.tcl`:
 ## Notes
 - Project name: `posit_research`
 - Project directory: `vivado_proj/`
-- Zynq PS7 provides 100 MHz FCLK_CLK0 as input to clocking wizard
-- AXI slave registers mapped at `0x43C00000` on PS7 M_AXI_GP0
-- The PERCIVAL repository is expected at `../PERCIVAL` relative to this directory
+- AXI slave mapped at `0x43C00000` on PS7 M_AXI_GP0 (100 MHz FCLK_CLK0)
+- `rtl/` contains **local copies** (not symlinks) of common_cells, fpu, pau from PERCIVAL
+- `harness/pau_top.sv` and `harness/fpu_wrap.sv` are local editable copies from PERCIVAL
 - Block design (`zynq_ps`) created by `scripts/create_bd.tcl`, sourced from `project_setup.tcl`
+- Comparison matrix: PAU-32 vs FPU-32, PAU-32(approx) vs PAU-32(exact), PAU-64 vs PAU-32

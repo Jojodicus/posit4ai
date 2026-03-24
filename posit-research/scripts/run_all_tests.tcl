@@ -22,7 +22,7 @@ if {[file exists ${proj_dir}/${proj_name}.xpr]} {
 }
 
 # List of simulation filesets to run
-set sim_filesets [list sim_harness sim_axi sim_pau]
+set sim_filesets [list sim_core sim_axi]
 
 # Track results
 set failed_tests [list]
