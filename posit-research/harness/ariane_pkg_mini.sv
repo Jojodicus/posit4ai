@@ -36,12 +36,12 @@ package ariane_pkg;
     } fu_op;
 
     typedef struct packed {
-        fu_t                      fu;
-        fu_op                     operator;
-        riscv::xlen_t             operand_a;
-        riscv::xlen_t             operand_b;
-        riscv::xlen_t             imm;
-        logic [5:0]               trans_id;
+        fu_t         fu;
+        fu_op        operator;
+        logic [63:0] operand_a;   // explicit width (= riscv::xlen_t for XLEN=64)
+        logic [63:0] operand_b;
+        logic [63:0] imm;
+        logic [5:0]  trans_id;
     } fu_data_t;
 
     localparam TRANS_ID_BITS = 6;

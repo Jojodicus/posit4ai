@@ -4,6 +4,7 @@
 
 module zynq_accel_top (
   // Zedboard DDR and fixed I/O (passed through to PS7 block design)
+  // Port names use standard Zynq XDC names; mapped to zynq_ps_wrapper's _0_ variants below.
   inout  logic [14:0] DDR_addr,
   inout  logic [2:0]  DDR_ba,
   inout  logic        DDR_cas_n,
@@ -50,31 +51,39 @@ module zynq_accel_top (
   logic        M_AXI_LITE_rvalid;
   logic        M_AXI_LITE_rready;
 
+  // arprot / awprot are outputs from the PS master; accel_axi ignores them
+  logic [2:0] M_AXI_LITE_arprot_unused;
+  logic [2:0] M_AXI_LITE_awprot_unused;
+
   zynq_ps_wrapper u_zynq_ps (
-    .DDR_addr             ( DDR_addr             ),
-    .DDR_ba               ( DDR_ba               ),
-    .DDR_cas_n            ( DDR_cas_n            ),
-    .DDR_ck_n             ( DDR_ck_n             ),
-    .DDR_ck_p             ( DDR_ck_p             ),
-    .DDR_cke              ( DDR_cke              ),
-    .DDR_cs_n             ( DDR_cs_n             ),
-    .DDR_dm               ( DDR_dm               ),
-    .DDR_dq               ( DDR_dq               ),
-    .DDR_dqs_n            ( DDR_dqs_n            ),
-    .DDR_dqs_p            ( DDR_dqs_p            ),
-    .DDR_odt              ( DDR_odt              ),
-    .DDR_ras_n            ( DDR_ras_n            ),
-    .DDR_reset_n          ( DDR_reset_n          ),
-    .DDR_we_n             ( DDR_we_n             ),
-    .FIXED_IO_mio         ( FIXED_IO_mio         ),
-    .FIXED_IO_ddr_vrn     ( FIXED_IO_ddr_vrn     ),
-    .FIXED_IO_ddr_vrp     ( FIXED_IO_ddr_vrp     ),
-    .FIXED_IO_ps_clk      ( FIXED_IO_ps_clk      ),
-    .FIXED_IO_ps_porb     ( FIXED_IO_ps_porb     ),
-    .FIXED_IO_ps_srstb    ( FIXED_IO_ps_srstb    ),
+    // DDR — wrapper uses _0_ suffix (created via make_bd_intf_pins_external)
+    .DDR_0_addr           ( DDR_addr             ),
+    .DDR_0_ba             ( DDR_ba               ),
+    .DDR_0_cas_n          ( DDR_cas_n            ),
+    .DDR_0_ck_n           ( DDR_ck_n             ),
+    .DDR_0_ck_p           ( DDR_ck_p             ),
+    .DDR_0_cke            ( DDR_cke              ),
+    .DDR_0_cs_n           ( DDR_cs_n             ),
+    .DDR_0_dm             ( DDR_dm               ),
+    .DDR_0_dq             ( DDR_dq               ),
+    .DDR_0_dqs_n          ( DDR_dqs_n            ),
+    .DDR_0_dqs_p          ( DDR_dqs_p            ),
+    .DDR_0_odt            ( DDR_odt              ),
+    .DDR_0_ras_n          ( DDR_ras_n            ),
+    .DDR_0_reset_n        ( DDR_reset_n          ),
+    .DDR_0_we_n           ( DDR_we_n             ),
+    // FIXED_IO — wrapper uses _0_ suffix
+    .FIXED_IO_0_mio       ( FIXED_IO_mio         ),
+    .FIXED_IO_0_ddr_vrn   ( FIXED_IO_ddr_vrn     ),
+    .FIXED_IO_0_ddr_vrp   ( FIXED_IO_ddr_vrp     ),
+    .FIXED_IO_0_ps_clk    ( FIXED_IO_ps_clk      ),
+    .FIXED_IO_0_ps_porb   ( FIXED_IO_ps_porb     ),
+    .FIXED_IO_0_ps_srstb  ( FIXED_IO_ps_srstb    ),
     .FCLK_CLK0            ( FCLK_CLK0            ),
     .peripheral_aresetn   ( peripheral_aresetn   ),
+    // AXI-Lite master — prot signals unused by accel_axi
     .M_AXI_LITE_awaddr    ( M_AXI_LITE_awaddr    ),
+    .M_AXI_LITE_awprot    ( M_AXI_LITE_awprot_unused ),
     .M_AXI_LITE_awvalid   ( M_AXI_LITE_awvalid   ),
     .M_AXI_LITE_awready   ( M_AXI_LITE_awready   ),
     .M_AXI_LITE_wdata     ( M_AXI_LITE_wdata     ),
@@ -85,6 +94,7 @@ module zynq_accel_top (
     .M_AXI_LITE_bvalid    ( M_AXI_LITE_bvalid    ),
     .M_AXI_LITE_bready    ( M_AXI_LITE_bready    ),
     .M_AXI_LITE_araddr    ( M_AXI_LITE_araddr    ),
+    .M_AXI_LITE_arprot    ( M_AXI_LITE_arprot_unused ),
     .M_AXI_LITE_arvalid   ( M_AXI_LITE_arvalid   ),
     .M_AXI_LITE_arready   ( M_AXI_LITE_arready   ),
     .M_AXI_LITE_rdata     ( M_AXI_LITE_rdata     ),

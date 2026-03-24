@@ -173,7 +173,10 @@ module arith_unit
   always_comb begin
     pau_fu_data           = '0;
     pau_fu_data.fu        = PAU;
-    pau_fu_data.operator  = pau_fu_op;
+    // Drive PADD (neutral) when not actively issuing to PAU.
+    // This ensures operator_delay returns to a quire-neutral value between
+    // operations, preventing stale PositMAC output from corrupting the quire.
+    pau_fu_data.operator  = pau_valid_i_sig ? pau_fu_op : PADD;
     pau_fu_data.operand_a = {{riscv::XLEN-DATA_WIDTH{1'b0}}, pau_op_a};
     pau_fu_data.operand_b = {{riscv::XLEN-DATA_WIDTH{1'b0}}, pau_op_b};
   end

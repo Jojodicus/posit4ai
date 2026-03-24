@@ -7,7 +7,19 @@ module accel_harness
   import opcodes_pkg::*;
 (
   input  logic        clk_in,     // 100 MHz board clock (from Zedboard)
-  input  logic        rst_ni_in   // active-low reset (from board button)
+  input  logic        rst_ni_in,  // active-low reset (from board button)
+  // Synthesis stimulus inputs — allow Vivado to see non-constant logic
+  // (tie all to 0 in constraints; no LOC assignment needed for synth-only flow)
+  input  logic [$clog2(INSTR_DEPTH)-1:0] ibram_addr_in,
+  input  logic [63:0]                    ibram_wdata_in,
+  input  logic                           ibram_we_in,
+  input  logic [$clog2(DATA_DEPTH)-1:0]  dbram_addr_in,
+  input  logic [DATA_WIDTH-1:0]          dbram_wdata_in,
+  input  logic                           dbram_we_in,
+  input  logic                           start_in,
+  // Synthesis observation outputs — prevent result logic from being trimmed
+  output logic                           done_out,
+  output logic [DATA_WIDTH-1:0]          dbram_rdata_out
 );
 
   // ── Clocking wizard: board clock → synthesis target frequency ────────────────
@@ -15,6 +27,7 @@ module accel_harness
 
   clk_wiz_0 u_clk_wiz (
     .clk_in1  ( clk_in     ),
+    .reset    ( 1'b0       ),  // active-high; tie low to keep PLL running
     .clk_out1 ( clk_core   ),
     .locked   ( clk_locked )
   );
@@ -22,7 +35,7 @@ module accel_harness
   logic rst_n;
   assign rst_n = rst_ni_in & clk_locked;
 
-  // ── Input registers (prevent I/O optimisation) ────────────────────────────────
+  // ── Input registers — register from top-level ports so Vivado sees live inputs
   logic [$clog2(INSTR_DEPTH)-1:0] ibram_addr_r;
   logic [63:0]                    ibram_wdata_r;
   logic                           ibram_we_r;
@@ -32,13 +45,13 @@ module accel_harness
   logic                           start_r;
 
   always_ff @(posedge clk_core) begin
-    ibram_addr_r  <= '0;
-    ibram_wdata_r <= '0;
-    ibram_we_r    <= '0;
-    dbram_addr_r  <= '0;
-    dbram_wdata_r <= '0;
-    dbram_we_r    <= '0;
-    start_r       <= '0;
+    ibram_addr_r  <= ibram_addr_in;
+    ibram_wdata_r <= ibram_wdata_in;
+    ibram_we_r    <= ibram_we_in;
+    dbram_addr_r  <= dbram_addr_in;
+    dbram_wdata_r <= dbram_wdata_in;
+    dbram_we_r    <= dbram_we_in;
+    start_r       <= start_in;
   end
 
   // ── accel_core ────────────────────────────────────────────────────────────────
@@ -46,9 +59,8 @@ module accel_harness
   logic [63:0]         ibram_rdata_sig;
   logic [DATA_WIDTH-1:0] dbram_rdata_sig;
 
-  // Output registers to keep synthesiser from trimming outputs
-  logic done_r;
-  always_ff @(posedge clk_core) done_r <= done_sig;
+  assign done_out        = done_sig;
+  assign dbram_rdata_out = dbram_rdata_sig;
 
   accel_core u_core (
     .clk_i         ( clk_core      ),
