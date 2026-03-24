@@ -105,6 +105,8 @@ module tb_accel_core
   endfunction
 
   // ── Test program ────────────────────────────────────────────────────────────
+  logic [DATA_WIDTH-1:0] result;
+
   initial begin
     start      = 0;
     ibram_addr = 0; ibram_wdata = 0; ibram_we = 0;
@@ -141,8 +143,6 @@ module tb_accel_core
     repeat(5) @(posedge clk);
 
     // ── Read and check results ────────────────────────────────────────────────
-    logic [DATA_WIDTH-1:0] result;
-
     read_dbram(2, result);
     if (result == 32'h48000000)
       $display("PASS: data[2] = 0x%08X (2.0) ✓", result);

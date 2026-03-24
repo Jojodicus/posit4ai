@@ -109,6 +109,9 @@ module tb_accel_axi
   endfunction
 
   // ── Test ───────────────────────────────────────────────────────────────────
+  logic [31:0] status;
+  logic [31:0] result;
+
   initial begin
     s_axi_awvalid = 0; s_axi_wvalid = 0; s_axi_bready = 0;
     s_axi_arvalid = 0; s_axi_rready = 0;
@@ -130,7 +133,6 @@ module tb_accel_axi
     axi_write(32'h00, 32'h1);
 
     // Poll STATUS until DONE (bit 0)
-    logic [31:0] status;
     repeat(500) begin
       @(posedge clk);
       axi_read(32'h04, status);
@@ -147,7 +149,6 @@ module tb_accel_axi
     axi_write(32'h14, 32'd2);  // DBRAM_ADDR = 2
     repeat(3) @(posedge clk);   // allow read latency
 
-    logic [31:0] result;
     axi_read(32'h18, result);
 
     if (result == 32'h48000000)
