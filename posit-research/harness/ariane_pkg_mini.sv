@@ -62,7 +62,7 @@ package ariane_pkg;
 
     // Posit configuration — derived from config_pkg (user edits config_pkg.sv)
     localparam int unsigned POSLEN       = config_pkg::DATA_WIDTH;
-    localparam int unsigned QUIRELEN     = config_pkg::QUIRE_BITS;
+    localparam int unsigned QUIRELEN     = 16 * config_pkg::DATA_WIDTH;
     localparam bit          QUIRE_PRESENT = config_pkg::QUIRE_ENABLE;
     localparam bit          POS_LOG_MULT  = config_pkg::APPROX_MUL;
     localparam bit          POS_LOG_DIV   = config_pkg::APPROX_DIV;

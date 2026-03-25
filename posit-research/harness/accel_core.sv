@@ -136,7 +136,7 @@ module accel_core
     dbram_porta_addr  = dbram_addr_i;
     dbram_porta_wdata = dbram_wdata_i;
     dbram_porta_we    = dbram_we_i && !running_o;
-    dbram_portb_addr  = dbram_addr_i;
+    dbram_portb_addr  = '0;  // unused by host (reads use port A)
 
     unique case (seq_state_q)
 

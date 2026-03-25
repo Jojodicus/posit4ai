@@ -19,27 +19,12 @@ package config_pkg;
   parameter int DATA_WIDTH = 32;
 
   // ============================================================
-  // PAU: Posit Exponent Bits (es)
-  // Typical values: 0, 1, 2 (standard for 32-bit), 3 (for 64-bit)
-  // Only used when ACCEL_TYPE == "PAU"
-  // ============================================================
-  parameter int POSIT_ES = 2;
-
-  // ============================================================
   // PAU: Quire Accumulator Enable
   // 1 = enable exact accumulation (quire) for QACC_* ops
-  // 0 = quire is a single posit register (loses exactness)
+  // 0 = disable quire (QACC_* ops unsupported)
   // Only used when ACCEL_TYPE == "PAU"
   // ============================================================
   parameter bit QUIRE_ENABLE = 1;
-
-  // ============================================================
-  // PAU: Quire Width Override
-  // 0 = auto: 16 * DATA_WIDTH (standard posit quire)
-  // N = use N-bit quire
-  // Only used when ACCEL_TYPE == "PAU" and QUIRE_ENABLE == 1
-  // ============================================================
-  parameter int QUIRE_WIDTH = 0;  // 0 = auto
 
   // ============================================================
   // PAU: Approximate Operations (log-domain, faster, less accurate)
@@ -57,7 +42,11 @@ package config_pkg;
   parameter int INSTR_DEPTH = 256;
   parameter int DATA_DEPTH  = 4096;
 
-  // Derived: actual quire width used by ariane_pkg
-  localparam int QUIRE_BITS = (QUIRE_WIDTH == 0) ? 16 * DATA_WIDTH : QUIRE_WIDTH;
+  // ============================================================
+  // Fixed by VHDL generation (not configurable at build time):
+  //   - Posit exponent bits (es): 2 for 32-bit, 2 for 64-bit
+  //   - Quire width: 16 * DATA_WIDTH (512 bits for 32-bit, 1024 for 64-bit)
+  // To change these, regenerate the VHDL cores via FloPoCo.
+  // ============================================================
 
 endpackage

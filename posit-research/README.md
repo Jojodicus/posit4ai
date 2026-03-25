@@ -1,218 +1,109 @@
-# PAU vs FPU (PERCIVAL)
+# PERCIVAL Posit vs Float Accelerator
 
-This allows for standalone synthesis and timing analysis of the Posit Arithmetic Unit (PAU) and the Floating Point Unit (FPU) from the PERCIVAL core, targeting the Xilinx Zedboard (Zynq-7000).
+Standalone FPGA accelerator for comparing Posit Arithmetic (PAU) vs IEEE 754 Floating Point (FPU) performance. Runs the same program on either arithmetic unit and measures timing, utilization, and power on the Xilinx Zedboard (Zynq-7000, `xc7z020clg484-1`).
+
+## Prerequisites
+
+- **Vivado 2025.2** installed at `/tools/Xilinx/2025.2/Vivado/`
+- **PERCIVAL** repo at `../PERCIVAL/` (sibling directory) — `rtl/` symlinks point there
 
 ## Quick Start
 
-The project includes convenient shell scripts for streamlined development:
-
 ```bash
-# 1. Quick synthesis and verification (default: 100 MHz)
-./build.sh
-
-# 2. Run all testbenches
-./test.sh
-
-# 3. Full FPGA implementation with bitstream generation
-./impl.sh
-
-# 4. Open Vivado GUI for inspection
-./open.sh
-
-# 5. Clean all build artifacts
-./clean.sh
+vim harness/config_pkg.sv   # select PAU or FPU, 32 or 64 bit
+./clean.sh                  # remove previous build artifacts
+./test.sh                   # run functional simulations
+./build.sh [FREQ_MHZ]       # synthesis-only (default: 100 MHz)
+./impl.sh  [FREQ_MHZ]       # full implementation + bitstream
 ```
-
-### Custom Clock Frequencies
-
-Both build and implementation scripts accept an optional clock frequency argument:
-
-```bash
-# Build at 150 MHz
-./build.sh 150
-
-# Full implementation at 125 MHz
-./impl.sh 125
-```
-
-## Workflow Scripts
-
-### build.sh - Quick Synthesis
-Fast synthesis-only flow for development iteration. Uses the simpler `pau_fpu_harness` top-level (no AXI overhead).
-
-**Usage:** `./build.sh [FREQ_MHZ]`
-
-**Output:**
-- `reports/build_timing.rpt` - Post-synthesis timing estimates
-- `reports/build_utilization.rpt` - Resource usage
-
-**When to use:** During development to quickly check if changes synthesize and get rough timing estimates.
-
-### impl.sh - Full Implementation
-Complete FPGA implementation flow: synthesis → place & route → bitstream generation. Uses the `pau_fpu_harness_axi` top-level with register-based AXI interface.
-
-**Usage:** `./impl.sh [FREQ_MHZ]`
-
-**Output:**
-- `vivado_proj/posit_research.runs/impl_1/pau_fpu_harness_axi.bit` - FPGA bitstream
-- `reports/timing_summary.rpt` - Final timing analysis
-- `reports/timing_detailed.rpt` - Detailed path analysis
-- `reports/utilization.rpt` - Resource usage
-- `reports/utilization_hierarchical.rpt` - Hierarchical breakdown
-- `reports/power.rpt` - Power analysis
-- `reports/clock_networks.rpt` - Clock tree analysis
-
-**When to use:** Before deployment, or when you need accurate timing closure results.
-
-### test.sh - Run All Testbenches
-Executes all three simulation filesets automatically.
-
-**Usage:** `./test.sh`
-
-**Simulations run:**
-- `sim_harness` - Tests `pau_fpu_harness` (simple wrapper)
-- `sim_axi` - Tests `pau_fpu_harness_axi` (AXI interface)
-- `sim_pau` - Tests `pau_top` directly
-
-**When to use:** After RTL changes to verify functionality across all test scenarios.
-
-### open.sh - Open Vivado GUI
-Opens the Vivado GUI with the project loaded. Creates the project if it doesn't exist.
-
-**Usage:** `./open.sh`
-
-**When to use:**
-- Inspect synthesis/implementation results
-- Analyze critical paths
-- Debug timing violations
-- View schematic/hierarchy
-
-### clean.sh - Clean Build Artifacts
-Removes all generated files and returns to a clean slate.
-
-**Usage:** `./clean.sh`
-
-**What it removes:**
-- `vivado_proj/` - Project directory
-- `reports/` - Generated reports
-- Log files (`.log`, `.jou`, `.pb`, `.str`)
-- IP generation artifacts (`.Xil/`)
-
-## Structure
-- `rtl/`: Symlinks to original PERCIVAL sources.
-- `harness/`: Minimal SystemVerilog packages and the top-level benchmark wrapper.
-- `scripts/`: TCL scripts for Vivado automation and Fmax discovery.
-- `constraints/`: Timing constraint files (XDC).
-- `reports/`: Generated synthesis and implementation reports (auto-created).
 
 ## Configuration
-To change the architecture (e.g., 32-bit vs 64-bit, Approximate vs Exact), modify the `VERILOG_DEFINE` section in `scripts/project_setup.tcl`.
 
-Available Macros:
-- `POSLEN_64`: Sets Posit width to 64-bit (default is 32-bit).
-- `QUIRE_DISABLED`: Disables Quire support.
-- `POS_LOG_MULT`: Uses Approximate Posit Multiplier.
-- `POS_LOG_DIV`: Uses Approximate Posit Divider.
-- `POS_LOG_SQRT`: Uses Approximate Posit Square Root.
+Edit **`harness/config_pkg.sv`** — the only file you need to touch:
 
-## Running the Investigation
+| Parameter      | Values            | Description                                   |
+|----------------|-------------------|-----------------------------------------------|
+| `ACCEL_TYPE`   | `"PAU"` / `"FPU"` | Posit or IEEE 754 arithmetic unit             |
+| `DATA_WIDTH`   | `32` / `64`       | Operand width                                 |
+| `QUIRE_ENABLE` | `1` / `0`         | PAU exact quire accumulator (PAU only)        |
+| `APPROX_MUL`   | `0` / `1`         | Log-domain approximate multiply (PAU only)    |
+| `APPROX_DIV`   | `0` / `1`         | Log-domain approximate divide (PAU only)      |
+| `APPROX_SQRT`  | `0` / `1`         | Log-domain approximate sqrt (PAU only)        |
+| `INSTR_DEPTH`  | integer           | Instruction BRAM depth (default: 256)         |
+| `DATA_DEPTH`   | integer           | Data BRAM depth (default: 4096)               |
 
-### Recommended Workflow (Shell Scripts)
+Posit exponent bits (es=2) and quire width (16 x DATA_WIDTH) are fixed by the pre-generated VHDL cores. Changing these requires regenerating the PAU VHDL via FloPoCo.
 
-The easiest way to work with the project is using the provided shell scripts:
+After editing, always `./clean.sh` before rebuilding.
 
-```bash
-# 1. Start fresh
-./clean.sh
+## Architecture
 
-# 2. Quick verification build
-./build.sh 100
-
-# 3. Run testbenches
-./test.sh
-
-# 4. Full implementation for deployment
-./impl.sh 100
-
-# 5. Inspect results in GUI
-./open.sh
+```
+zynq_accel_top              (impl top: PS7 + AXI slave)
+  zynq_ps_wrapper           (Zynq PS7 block design, 100 MHz FCLK_CLK0)
+  accel_axi                 (AXI-Lite slave at 0x43C00000)
+    accel_core              (sequencer + BRAMs + arithmetic)
+      Instruction BRAM      (64-bit x 256, dual-port)
+      Data BRAM             (DATA_WIDTH x 4096, true dual-port)
+      Sequencer             (FETCH -> DECODE -> EXEC -> WAIT_ARITH -> WRITEBACK)
+      arith_unit            (unified opcode interface)
+        pau_top  OR  fpu_wrap   (selected by ACCEL_TYPE)
 ```
 
-### Advanced: Manual Vivado Invocation
+`accel_harness` is a synthesis-only wrapper (no PS7) used by `./build.sh` for quick timing checks.
 
-If you prefer manual control or need to use specific TCL scripts directly:
+Both units share the same instruction set (`opcodes_pkg.sv`): ADD, SUB, MUL, DIV, SQRT, and quire/accumulator ops (QACC_CLEAR, QACC_MADD, QACC_READ, etc.).
 
-**Create Project:**
-```bash
-/tools/Xilinx/2025.2/Vivado/bin/vivado -mode batch -source scripts/project_setup.tcl
+## Project Structure
+
+```
+harness/        SystemVerilog accelerator RTL + config
+  config_pkg.sv         User configuration (edit this)
+  opcodes_pkg.sv        Unified opcode definitions
+  accel_core.sv         Sequencer + BRAM + arith_unit
+  accel_axi.sv          AXI-Lite register interface
+  accel_harness.sv      Synthesis-only top (clk_wiz + accel_core)
+  zynq_accel_top.sv     Implementation top (PS7 + accel_axi)
+  arith_unit.sv         PAU/FPU opcode translation
+  pau_top.sv            PAU wrapper (local copy from PERCIVAL)
+  fpu_wrap.sv           FPU wrapper (local copy from PERCIVAL)
+rtl/            Symlinks to PERCIVAL upstream sources
+  pau/                  VHDL posit arithmetic cores
+  fpu/                  fpnew IEEE 754 FPU
+  common_cells/         Shared utilities (lzc, rr_arb_tree)
+tb/             Testbenches
+scripts/        Vivado TCL automation
+constraints/    Timing constraints (XDC)
+reports/        Generated reports (after build/impl)
 ```
 
-**Open GUI:**
+## Testing
+
 ```bash
-/tools/Xilinx/2025.2/Vivado/bin/vivado vivado_proj/posit_research.xpr
+./test.sh           # runs both testbenches
+./open.sh           # open Vivado GUI to debug waveforms
 ```
 
-**Find Maximum Frequency:**
-The binary search script will tighten the clock constraint over 4 iterations to find the highest reachable frequency.
+Two simulation filesets:
+- **sim_core** (`tb_accel_core`) — tests the accelerator core directly
+- **sim_axi** (`tb_accel_axi`) — tests the full AXI register interface
+
+## Reports
+
+| Script      | Key Report                     | What to Check                    |
+|-------------|--------------------------------|----------------------------------|
+| `./build.sh`| `reports/build_timing.rpt`     | Post-synthesis WNS estimate      |
+| `./build.sh`| `reports/build_utilization.rpt`| LUT/FF/DSP/BRAM counts          |
+| `./impl.sh` | `reports/timing_summary.rpt`   | Final WNS (must be >= 0)         |
+| `./impl.sh` | `reports/utilization*.rpt`     | Per-module resource breakdown    |
+| `./impl.sh` | `reports/power.rpt`            | Estimated power consumption      |
+
+Bitstream: `vivado_proj/posit_research.runs/impl_1/zynq_accel_top.bit`
+
+## Fmax Discovery
+
 ```bash
 /tools/Xilinx/2025.2/Vivado/bin/vivado -mode batch -source scripts/find_fmax.tcl
 ```
 
-**Legacy Synthesis Test:**
-```bash
-/tools/Xilinx/2025.2/Vivado/bin/vivado -mode batch -source scripts/test_synth.tcl
-```
-
-**Manual Simulation:**
-```bash
-/tools/Xilinx/2025.2/Vivado/bin/vivado -mode batch -source scripts/run_sim.tcl
-```
-
-## Clock Frequency Configuration
-
-The build and implementation scripts accept a clock frequency argument (in MHz):
-
-```bash
-# Default: 100 MHz (matches Zedboard board clock)
-./build.sh
-./impl.sh
-
-# Custom frequency: 150 MHz
-./build.sh 150
-./impl.sh 150
-```
-
-The scripts automatically:
-1. Update the clocking wizard IP configuration
-2. Modify the timing constraint file (`constraints/pau_axi_timing.xdc`)
-3. Run synthesis/implementation with the new frequency target
-
-**Note:** Higher frequencies may not meet timing. Check `reports/timing_summary.rpt` for WNS (Worst Negative Slack).
-
-## Output Locations
-
-### Synthesis Reports (./build.sh)
-- `reports/build_timing.rpt` - Post-synthesis timing estimates
-- `reports/build_utilization.rpt` - Resource usage
-
-### Implementation Reports (./impl.sh)
-- `reports/timing_summary.rpt` - **Most important**: Final timing results, WNS/WHS
-- `reports/timing_detailed.rpt` - Top 10 critical paths with detailed breakdown
-- `reports/utilization.rpt` - LUT, FF, DSP, BRAM usage
-- `reports/utilization_hierarchical.rpt` - Per-module resource breakdown
-- `reports/power.rpt` - Estimated power consumption
-- `reports/clock_networks.rpt` - Clock tree analysis
-
-### Bitstream (./impl.sh)
-- `vivado_proj/posit_research.runs/impl_1/pau_fpu_harness_axi.bit`
-
-## Metrics to Examine
-1. **Timing Summary:** Check the `Worst Negative Slack (WNS)` and the `Data Path Delay` of the longest path in the PAU vs FPU.
-   - Open: `reports/timing_summary.rpt`
-   - **WNS ≥ 0**: Timing met ✓
-   - **WNS < 0**: Timing violation - reduce clock frequency or optimize
-2. **Utilization Report:** Compare LUT, DSP, and Flip-Flop counts.
-   - Open: `reports/utilization.rpt` or `reports/utilization_hierarchical.rpt`
-3. **Critical Path:** Use the GUI to visualize which logic levels (shifters, adders) are dominant in the Posit pipeline.
-   - Run: `./open.sh`
-   - Navigate to: Implemented Design → Timing → Report Timing Summary
+Binary search over 4 synthesis iterations to find the maximum frequency that meets timing.

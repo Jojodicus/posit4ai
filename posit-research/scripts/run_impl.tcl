@@ -39,7 +39,7 @@ if {[file exists ${proj_dir}/${proj_name}.xpr]} {
 set_property top zynq_accel_top [current_fileset]
 
 # Update clocking wizard IP with requested frequency
-# (clk_wiz_0 is instantiated inside pau_fpu_harness, inside the BD module reference)
+# (clk_wiz_0 is used by accel_harness for build flow; not present in impl top)
 puts "Updating clocking wizard to ${clock_freq_mhz} MHz output..."
 set_property -dict [list \
     CONFIG.PRIM_IN_FREQ {100.000} \

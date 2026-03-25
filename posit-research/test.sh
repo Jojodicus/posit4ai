@@ -13,9 +13,9 @@ source scripts/vivado_env.sh
 echo "========================================"
 echo "Running All Testbenches"
 echo "========================================"
-echo "This will run:"
-echo "  - sim_core (tb_accel_core)"
-echo "  - sim_axi  (tb_accel_axi)"
+echo "Simulations:"
+echo "  sim_core  — tb_accel_core (BRAM + sequencer + arith_unit)"
+echo "  sim_axi   — tb_accel_axi  (AXI register interface)"
 echo "========================================"
 echo ""
 

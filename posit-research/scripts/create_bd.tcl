@@ -1,6 +1,6 @@
 # Create Block Design: Zynq PS7 + AXI Protocol Converter
-# Exports AXI-Lite master, clock, and reset for connection to pau_fpu_harness_axi
-# in the top-level wrapper (zynq_pau_top.sv).
+# Exports AXI-Lite master, clock, and reset for connection to accel_axi
+# in the top-level wrapper (zynq_accel_top.sv).
 #
 # Must be sourced AFTER project_setup.tcl has added all RTL sources and IPs.
 
@@ -118,7 +118,7 @@ connect_bd_net [get_bd_pins ps7/FCLK_CLK0] [get_bd_ports FCLK_CLK0]
 create_bd_port -dir O -type rst peripheral_aresetn
 connect_bd_net [get_bd_pins rst_ps7/peripheral_aresetn] [get_bd_ports peripheral_aresetn]
 
-# AXI-Lite master interface (to be connected to pau_fpu_harness_axi in top wrapper)
+# AXI-Lite master interface (to be connected to accel_axi in top wrapper)
 make_bd_intf_pins_external [get_bd_intf_pins axi_pc/M_AXI]
 # Rename from auto-generated M_AXI_0 to M_AXI_LITE
 set_property name M_AXI_LITE [get_bd_intf_ports M_AXI_0]
@@ -167,5 +167,5 @@ puts "  PS7 FCLK_CLK0:     100 MHz"
 puts "  AXI Slave base:    0x43C00000"
 puts "  BD Wrapper:        zynq_ps_wrapper"
 puts "  Exported ports:    FCLK_CLK0, peripheral_aresetn, M_AXI_LITE_*"
-puts "  Top-level wrapper: zynq_pau_top (connects BD + pau_fpu_harness_axi)"
+puts "  Top-level wrapper: zynq_accel_top (connects BD + accel_axi)"
 puts "=========================================="

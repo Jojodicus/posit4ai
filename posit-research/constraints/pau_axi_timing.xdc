@@ -1,4 +1,4 @@
-## Timing Constraints for PAU FPU Harness (Zynq PS7 Design)
+## Timing Constraints for PERCIVAL Accelerator (Zynq PS7 Design)
 ## Target: Xilinx Zedboard (Zynq-7000 xc7z020clg484-1)
 ##
 ## Clock constraints:
@@ -11,20 +11,9 @@
 ##   - DDR and FIXED_IO constraints handled by PS7 IP
 
 ## Clock Domain Crossing
-## The clocking wizard output (clk_research) may differ from FCLK_CLK0.
-## When both clocks run at the same frequency (default 100 MHz), they are
-## phase-aligned and no CDC issues arise. For different frequencies,
-## the AXI register interface (FCLK_CLK0 domain) and PAU/FPU compute
-## path (clk_research domain) cross clock domains through the registered
-## interfaces in pau_fpu_harness.
-##
-## Clock domain crossing is only relevant for the build flow (accel_harness)
-## where clk_wiz_0 may run at a different frequency than the input clock.
 ## The impl flow (zynq_accel_top) uses a single clock domain (FCLK_CLK0).
-## Build flow constraints are handled in run_build.tcl.
-## set_clock_groups -asynchronous \
-##     -group [get_clocks -of_objects [get_pins ...]] \
-##     -group [get_clocks -of_objects [get_pins ...]]
+## The build flow (accel_harness) has clk_wiz_0 which may run at a different
+## frequency; its constraints are handled in run_build.tcl.
 
 ## Additional Timing Exceptions
 ## Add project-specific false paths or multicycle paths below as needed

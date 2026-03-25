@@ -1,5 +1,5 @@
 # Quick Build Flow: Synthesis + Verification
-# Uses simpler pau_fpu_harness top (no AXI overhead) for faster iteration
+# Uses accel_harness top (no AXI/PS7 overhead) for faster iteration
 # Configurable clock frequency via environment variable CLOCK_FREQ_MHZ
 
 set proj_name "posit_research"

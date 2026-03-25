@@ -12,7 +12,7 @@ PERCIVAL research project comparing Posit Arithmetic Unit (PAU) vs Floating Poin
 ```bash
 ./clean.sh              # Clean all build artifacts
 ./build.sh [FREQ_MHZ]   # Fast synthesis-only (default: 100 MHz)
-./test.sh               # Run all three simulation filesets
+./test.sh               # Run simulation filesets (sim_core, sim_axi)
 ./impl.sh [FREQ_MHZ]    # Full implementation with bitstream generation
 ./open.sh               # Open Vivado GUI for inspection
 ```
@@ -46,7 +46,7 @@ If shell scripts are insufficient:
 ## Architecture
 
 ### Project Structure
-- `rtl/` - **Local copies** of PERCIVAL sources (editable): `common_cells/`, `fpu/`, `pau/` (VHDL)
+- `rtl/` - **Symlinks** to PERCIVAL upstream sources: `common_cells/`, `fpu/`, `pau/` (VHDL)
 - `harness/` - Accelerator RTL
   - `config_pkg.sv` - **User-facing configuration** (edit this to change arithmetic unit, width, etc.)
   - `opcodes_pkg.sv` - Unified opcode set (same for PAU and FPU)
@@ -97,12 +97,13 @@ Edit **only** `harness/config_pkg.sv`:
 ```sv
 parameter string ACCEL_TYPE  = "PAU";   // "PAU" or "FPU"
 parameter int    DATA_WIDTH  = 32;      // 32 or 64
-parameter int    POSIT_ES    = 2;       // posit exponent bits (PAU only)
 parameter bit    QUIRE_ENABLE = 1;      // exact quire accumulator (PAU only)
 parameter bit    APPROX_MUL  = 0;      // log-domain approximate ops (PAU only)
 parameter bit    APPROX_DIV  = 0;
 parameter bit    APPROX_SQRT = 0;
 ```
+
+Note: posit es=2 and quire width (16 x DATA_WIDTH) are fixed in the pre-generated VHDL. Changing these requires regenerating PAU cores via FloPoCo.
 
 After changing `config_pkg.sv`, run `./clean.sh` then rebuild.
 
@@ -145,7 +146,7 @@ Edit `scripts/project_setup.tcl`:
 - Project name: `posit_research`
 - Project directory: `vivado_proj/`
 - AXI slave mapped at `0x43C00000` on PS7 M_AXI_GP0 (100 MHz FCLK_CLK0)
-- `rtl/` contains **local copies** (not symlinks) of common_cells, fpu, pau from PERCIVAL
+- `rtl/` contains **symlinks** to PERCIVAL upstream (`../PERCIVAL/`); do not edit in-place
 - `harness/pau_top.sv` and `harness/fpu_wrap.sv` are local editable copies from PERCIVAL
 - Block design (`zynq_ps`) created by `scripts/create_bd.tcl`, sourced from `project_setup.tcl`
 - Comparison matrix: PAU-32 vs FPU-32, PAU-32(approx) vs PAU-32(exact), PAU-64 vs PAU-32
