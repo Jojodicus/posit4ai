@@ -27,6 +27,7 @@ module accel_harness
 
   clk_wiz_0 u_clk_wiz (
     .clk_in1  ( clk_in     ),
+    .reset    ( 1'b0       ),   // reset unused — tied deasserted
     .clk_out1 ( clk_core   ),
     .locked   ( clk_locked )
   );

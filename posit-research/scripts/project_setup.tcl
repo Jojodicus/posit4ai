@@ -122,8 +122,7 @@ create_ip -name clk_wiz -vendor xilinx.com -library ip -version 6.0 -module_name
 set_property -dict [list \
     CONFIG.PRIM_IN_FREQ {100.000} \
     CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {100.000} \
-    CONFIG.SAFE_CLK_STARTUP {true} \
-    CONFIG.USE_RESET {false} \
+    CONFIG.USE_SAFE_CLOCK_STARTUP {true} \
 ] [get_ips clk_wiz_0]
 generate_target all [get_ips clk_wiz_0]
 
