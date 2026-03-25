@@ -18,10 +18,13 @@
 ## path (clk_research domain) cross clock domains through the registered
 ## interfaces in pau_fpu_harness.
 ##
-## Set async clock groups when running at non-default frequencies:
-set_clock_groups -asynchronous \
-    -group [get_clocks -of_objects [get_pins zynq_ps_i/ps7/inst/PS7_i/FCLKCLK[0]]] \
-    -group [get_clocks -of_objects [get_pins zynq_ps_i/pau_axi/i_harness/i_clk_wiz/inst/mmcm_adv_inst/CLKOUT0]]
+## Clock domain crossing is only relevant for the build flow (accel_harness)
+## where clk_wiz_0 may run at a different frequency than the input clock.
+## The impl flow (zynq_accel_top) uses a single clock domain (FCLK_CLK0).
+## Build flow constraints are handled in run_build.tcl.
+## set_clock_groups -asynchronous \
+##     -group [get_clocks -of_objects [get_pins ...]] \
+##     -group [get_clocks -of_objects [get_pins ...]]
 
 ## Additional Timing Exceptions
 ## Add project-specific false paths or multicycle paths below as needed

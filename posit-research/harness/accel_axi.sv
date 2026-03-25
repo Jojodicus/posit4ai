@@ -87,11 +87,20 @@ module accel_axi
 
   // Wire host BRAM access (dropped when running)
   assign ibram_addr  = reg_ibram_addr[$clog2(INSTR_DEPTH)-1:0];
-  assign ibram_wdata = {reg_ibram_data_hi, reg_ibram_data_lo};
   assign dbram_addr  = reg_dbram_addr[$clog2(DATA_DEPTH)-1:0];
-  assign dbram_wdata = (DATA_WIDTH == 64)
-                       ? {reg_dbram_data_hi[DATA_WIDTH-33:0], reg_dbram_data}
-                       : reg_dbram_data[DATA_WIDTH-1:0];
+
+  // BRAM write data: bypass the shadow register for the triggering word,
+  // since the shadow register update is sequential (same clock edge as WE)
+  // and would otherwise supply the stale value.
+  //   IBRAM trigger = write to 0x10 (DATA_HI) → high word from wr_data_q
+  //   DBRAM trigger = write to 0x18 (32-bit) or 0x1C (64-bit) → from wr_data_q
+  assign ibram_wdata = ibram_we ? {wr_data_q[31:0], reg_ibram_data_lo}
+                                : {reg_ibram_data_hi, reg_ibram_data_lo};
+  assign dbram_wdata = dbram_we
+      ? ((DATA_WIDTH == 64) ? {wr_data_q[DATA_WIDTH-33:0], reg_dbram_data}
+                            : wr_data_q[DATA_WIDTH-1:0])
+      : ((DATA_WIDTH == 64) ? {reg_dbram_data_hi[DATA_WIDTH-33:0], reg_dbram_data}
+                            : reg_dbram_data[DATA_WIDTH-1:0]);
 
   // ── AXI write channel ─────────────────────────────────────────────────────────
   typedef enum logic [1:0] { WR_IDLE, WR_ADDR, WR_DATA, WR_RESP } wr_state_t;

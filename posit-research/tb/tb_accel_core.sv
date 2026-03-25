@@ -16,7 +16,7 @@
 //   1.0  = 0x40000000
 //   2.0  = 0x48000000  (expected at data[2])
 //   3.0  = 0x4C000000
-//   10.0 = 0x57800000  (expected at data[5])
+//   10.0 = 0x5A000000  (expected at data[5])
 
 `timescale 1ns/1ps
 
@@ -156,10 +156,10 @@ module tb_accel_core
       $display("FAIL: data[3] = 0x%08X (expected 0x40000000 = 1.0)", result);
 
     read_dbram(5, result);
-    if (result == 32'h57800000)
+    if (result == 32'h5A000000)
       $display("PASS: data[5] = 0x%08X (10.0) ✓", result);
     else
-      $display("FAIL: data[5] = 0x%08X (expected 0x57800000 = 10.0)", result);
+      $display("FAIL: data[5] = 0x%08X (expected 0x5A000000 = 10.0)", result);
 
     $display("[%0t] Simulation complete.", $time);
     $finish;

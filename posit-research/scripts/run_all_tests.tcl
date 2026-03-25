@@ -54,12 +54,28 @@ foreach sim_set $sim_filesets {
     } sim_error]
 
     if {$sim_result != 0} {
-        puts "FAILED: $sim_set"
+        puts "FAILED: $sim_set (simulation error)"
         puts "Error: $sim_error"
         lappend failed_tests $sim_set
     } else {
-        puts "PASSED: $sim_set"
-        lappend passed_tests $sim_set
+        # Check simulation log for FAIL/TIMEOUT strings
+        set log_file "${proj_dir}/${proj_name}.sim/${sim_set}/behav/xsim/simulate.log"
+        set has_fail 0
+        if {[file exists $log_file]} {
+            set fp [open $log_file r]
+            set log_content [read $fp]
+            close $fp
+            if {[regexp -nocase {FAIL:|TIMEOUT:} $log_content]} {
+                set has_fail 1
+            }
+        }
+        if {$has_fail} {
+            puts "FAILED: $sim_set (test assertions failed)"
+            lappend failed_tests $sim_set
+        } else {
+            puts "PASSED: $sim_set"
+            lappend passed_tests $sim_set
+        }
     }
 }
 
