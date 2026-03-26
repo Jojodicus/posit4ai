@@ -110,7 +110,7 @@ module arith_unit
   always_comb begin
     is_comb_op = 1'b0;
     case (opcode_i)
-      OP_NEG, OP_ABS, OP_MOV: is_comb_op = 1'b1;
+      OP_NEG, OP_ABS, OP_MOV, OP_RELU: is_comb_op = 1'b1;
       // FPU QACC state updates without arithmetic:
       OP_QACC_CLEAR, OP_QACC_NEG, OP_QACC_READ:
         if (ACCEL_TYPE == "FPU") is_comb_op = 1'b1;
@@ -128,7 +128,8 @@ module arith_unit
         OP_ABS: comb_result = operand_a_i[DATA_WIDTH-1]
                               ? (~operand_a_i + DATA_WIDTH'(1))
                               : operand_a_i;
-        OP_MOV: comb_result = operand_a_i;
+        OP_MOV:  comb_result = operand_a_i;
+        OP_RELU: comb_result = operand_a_i[DATA_WIDTH-1] ? '0 : operand_a_i;
         default: ;
       endcase
     end else begin  // FPU
@@ -136,6 +137,7 @@ module arith_unit
         OP_NEG:        comb_result = {~operand_a_i[DATA_WIDTH-1], operand_a_i[DATA_WIDTH-2:0]};
         OP_ABS:        comb_result = {1'b0, operand_a_i[DATA_WIDTH-2:0]};
         OP_MOV:        comb_result = operand_a_i;
+        OP_RELU:       comb_result = operand_a_i[DATA_WIDTH-1] ? '0 : operand_a_i;
         OP_QACC_CLEAR: comb_result = '0;    // not written back
         OP_QACC_NEG:   comb_result = '0;    // not written back
         OP_QACC_READ:  comb_result = acc_q;

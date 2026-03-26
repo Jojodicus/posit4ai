@@ -16,6 +16,7 @@ package opcodes_pkg;
   localparam opcode_t OP_NEG   = 8'h06;  // result = -a       (addr_b unused)
   localparam opcode_t OP_ABS   = 8'h07;  // result = |a|      (addr_b unused)
   localparam opcode_t OP_MOV   = 8'h08;  // result = a        (addr_b unused)
+  localparam opcode_t OP_RELU  = 8'h09;  // result = max(0,a) (addr_b unused)
 
   // Quire / accumulator operations (no writeback to data BRAM except QACC_READ)
   // PAU: exact quire accumulator (16*DATA_WIDTH bits)
