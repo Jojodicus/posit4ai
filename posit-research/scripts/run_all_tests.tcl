@@ -1,5 +1,5 @@
 # Automated Testbench Execution
-# Runs all three simulation filesets and reports results
+# Runs all simulation filesets (one per config variant) and reports results
 
 set proj_name "posit_research"
 set proj_dir "./vivado_proj"
@@ -21,8 +21,17 @@ if {[file exists ${proj_dir}/${proj_name}.xpr]} {
     # Project is already open after create_project in project_setup.tcl
 }
 
-# List of simulation filesets to run
-set sim_filesets [list sim_core sim_axi]
+# List of simulation filesets to run.
+# Each sim_pau*/sim_fpu* fileset compiles tb_accel_core against its own config_pkg
+# override, so the full comparison matrix is covered in one test run.
+set sim_filesets [list \
+    sim_pau32        \
+    sim_pau32_approx \
+    sim_pau64        \
+    sim_fpu32        \
+    sim_fpu64        \
+    sim_axi          \
+]
 
 # Track results
 set failed_tests [list]

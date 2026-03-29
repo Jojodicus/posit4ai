@@ -8,24 +8,31 @@ set root_dir [file normalize [file join [file dirname [info script]] ..]]
 # Create project
 create_project -force $proj_name $proj_dir -part $target_part
 
-# Create Simulation Filesets
-if {[get_filesets -quiet sim_core] == ""} { create_fileset -simset sim_core }
-if {[get_filesets -quiet sim_axi]  == ""} { create_fileset -simset sim_axi  }
+# Simulation fileset names.
+# Each accel_core fileset compiles tb_accel_core.sv against its own config_pkg override.
+# sim_axi uses PAU-32 config and tests the AXI register interface only.
+set accel_core_simsets {sim_pau32 sim_pau32_approx sim_pau64 sim_fpu32 sim_fpu64}
+set all_simsets [concat $accel_core_simsets sim_axi]
+
+foreach simset $all_simsets {
+    if {[get_filesets -quiet $simset] == ""} { create_fileset -simset $simset }
+}
 
 # Set project properties
 set_property target_language Verilog [current_project]
 set_property default_lib xil_defaultlib [current_project]
 
 # Define XSIM macro for simulation to disable unsupported SystemVerilog features
-foreach simset {sim_core sim_axi} {
+foreach simset $all_simsets {
     set_property -name {xsim.compile.xvlog.more_options} -value {-d XSIM} -objects [get_filesets $simset]
 }
 
 # ── Add Source Files ───────────────────────────────────────────────────────────
 # Packages — compilation ORDER MATTERS: config_pkg first, then riscv, then ariane
 
-# 1. User configuration (no dependencies)
+# 1. User configuration (synthesis/implementation only — simulation uses per-fileset overrides)
 add_files -norecurse $root_dir/harness/config_pkg.sv
+set_property used_in_simulation false [get_files */config_pkg.sv]
 
 # 2. Accelerator opcode set (no dependencies)
 add_files -norecurse $root_dir/harness/opcodes_pkg.sv
@@ -98,21 +105,35 @@ set inc_dirs [list \
     [file normalize $root_dir/rtl/fpu/src/fpu_div_sqrt_mvp/hdl] \
 ]
 set_property include_dirs $inc_dirs [current_fileset]
-foreach simset {sim_core sim_axi} {
+foreach simset $all_simsets {
     set_property include_dirs $inc_dirs [get_filesets $simset]
 }
 
 set_property top accel_axi [current_fileset]
 
 # ── Testbenches ────────────────────────────────────────────────────────────────
-add_files -fileset sim_core -norecurse $root_dir/tb/tb_accel_core.sv
-set_property top tb_accel_core [get_filesets sim_core]
+# Map each accel_core sim fileset to its config override + testbench.
+# config_pkg_*.sv defines package config_pkg for that fileset (overrides harness/config_pkg.sv).
+foreach {simset cfg_file} {
+    sim_pau32        tb/configs/config_pkg_pau32.sv
+    sim_pau32_approx tb/configs/config_pkg_pau32_approx.sv
+    sim_pau64        tb/configs/config_pkg_pau64.sv
+    sim_fpu32        tb/configs/config_pkg_fpu32.sv
+    sim_fpu64        tb/configs/config_pkg_fpu64.sv
+} {
+    add_files -fileset $simset -norecurse [file normalize $root_dir/$cfg_file]
+    add_files -fileset $simset -norecurse $root_dir/tb/tb_accel_core.sv
+    set_property top tb_accel_core [get_filesets $simset]
+}
 
+# sim_axi: AXI interface test — uses PAU-32 config, tests protocol not arithmetic
+add_files -fileset sim_axi -norecurse $root_dir/tb/configs/config_pkg_pau32.sv
 add_files -fileset sim_axi -norecurse $root_dir/tb/tb_accel_axi.sv
 set_property top tb_accel_axi [get_filesets sim_axi]
 
 # ── Ensure packages are used in simulation ─────────────────────────────────────
-foreach pkg {config_pkg.sv opcodes_pkg.sv cva6_config_pkg.sv riscv_pkg_mini.sv ariane_pkg_mini.sv cf_math_pkg.sv fpnew_pkg.sv} {
+# config_pkg.sv is synthesis-only; the rest are shared.
+foreach pkg {opcodes_pkg.sv cva6_config_pkg.sv riscv_pkg_mini.sv ariane_pkg_mini.sv cf_math_pkg.sv fpnew_pkg.sv} {
     catch { set_property used_in_simulation true [get_files */$pkg] }
     catch { set_property used_in_synthesis  true [get_files */$pkg] }
 }
@@ -147,26 +168,34 @@ if {[llength $all_sv_files] > 0} {
 
 # ── Set compile order (packages must come first) ───────────────────────────────
 update_compile_order -fileset sources_1
-update_compile_order -fileset sim_core
-update_compile_order -fileset sim_axi
+foreach simset $all_simsets {
+    update_compile_order -fileset $simset
+}
 
-# Explicitly place packages at front of compile order (reverse order)
-set pkg_files [list \
-    [get_files */config_pkg.sv]       \
-    [get_files */opcodes_pkg.sv]      \
-    [get_files */cva6_config_pkg.sv]  \
-    [get_files */riscv_pkg_mini.sv]   \
-    [get_files */ariane_pkg_mini.sv]  \
-    [get_files */cf_math_pkg.sv]      \
-    [get_files */fpnew_pkg.sv]        \
+# Explicitly place packages at front of compile order for sources_1 (reverse order)
+set src_pkg_files [list \
+    [get_files -of_objects [get_filesets sources_1] */config_pkg.sv]      \
+    [get_files -of_objects [get_filesets sources_1] */opcodes_pkg.sv]     \
+    [get_files -of_objects [get_filesets sources_1] */cva6_config_pkg.sv] \
+    [get_files -of_objects [get_filesets sources_1] */riscv_pkg_mini.sv]  \
+    [get_files -of_objects [get_filesets sources_1] */ariane_pkg_mini.sv] \
+    [get_files -of_objects [get_filesets sources_1] */cf_math_pkg.sv]     \
+    [get_files -of_objects [get_filesets sources_1] */fpnew_pkg.sv]       \
 ]
-reorder_files -fileset sources_1 -front [lindex $pkg_files 6]
-reorder_files -fileset sources_1 -front [lindex $pkg_files 5]
-reorder_files -fileset sources_1 -front [lindex $pkg_files 4]
-reorder_files -fileset sources_1 -front [lindex $pkg_files 3]
-reorder_files -fileset sources_1 -front [lindex $pkg_files 2]
-reorder_files -fileset sources_1 -front [lindex $pkg_files 1]
-reorder_files -fileset sources_1 -front [lindex $pkg_files 0]
+# Place packages front-to-back by iterating the list in reverse
+# (reorder_files -front each one, last in list ends up first)
+for {set i [expr {[llength $src_pkg_files] - 1}]} {$i >= 0} {incr i -1} {
+    set f [lindex $src_pkg_files $i]
+    if {$f ne ""} { reorder_files -fileset sources_1 -front $f }
+}
+
+# For each sim fileset, ensure its config_pkg override is compiled first.
+foreach simset $all_simsets {
+    set cfg_file [get_files -of_objects [get_filesets $simset] */config_pkg_*.sv]
+    if {$cfg_file ne ""} {
+        reorder_files -fileset $simset -front $cfg_file
+    }
+}
 
 puts "Compile order: config_pkg → opcodes_pkg → cva6 → riscv → ariane → cf_math → fpnew"
 
