@@ -12,7 +12,8 @@ create_project -force $proj_name $proj_dir -part $target_part
 # Each accel_core fileset compiles tb_accel_core.sv against its own config_pkg override.
 # sim_axi uses PAU-32 config and tests the AXI register interface only.
 set accel_core_simsets {sim_pau32 sim_pau32_approx sim_pau64 sim_fpu32 sim_fpu64}
-set all_simsets [concat $accel_core_simsets sim_axi]
+set axi_simsets        {sim_axi sim_axi_pau64}
+set all_simsets        [concat $accel_core_simsets $axi_simsets]
 
 foreach simset $all_simsets {
     if {[get_filesets -quiet $simset] == ""} { create_fileset -simset $simset }
@@ -126,10 +127,17 @@ foreach {simset cfg_file} {
     set_property top tb_accel_core [get_filesets $simset]
 }
 
-# sim_axi: AXI interface test — uses PAU-32 config, tests protocol not arithmetic
-add_files -fileset sim_axi -norecurse $root_dir/tb/configs/config_pkg_pau32.sv
-add_files -fileset sim_axi -norecurse $root_dir/tb/tb_accel_axi.sv
-set_property top tb_accel_axi [get_filesets sim_axi]
+# AXI integration filesets — each tests the full AXI path with a different config.
+# sim_axi      (PAU-32): verifies 32-bit DBRAM write/read path and STATUS polling.
+# sim_axi_pau64 (PAU-64): verifies DBRAM_DATA_HI 64-bit write/read path.
+foreach {simset cfg_file} {
+    sim_axi       tb/configs/config_pkg_pau32.sv
+    sim_axi_pau64 tb/configs/config_pkg_pau64.sv
+} {
+    add_files -fileset $simset -norecurse [file normalize $root_dir/$cfg_file]
+    add_files -fileset $simset -norecurse $root_dir/tb/tb_accel_axi.sv
+    set_property top tb_accel_axi [get_filesets $simset]
+}
 
 # ── Ensure packages are used in simulation ─────────────────────────────────────
 # config_pkg.sv is synthesis-only; the rest are shared.

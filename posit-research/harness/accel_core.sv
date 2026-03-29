@@ -117,7 +117,7 @@ module accel_core
   function automatic logic needs_wb(opcode_t op);
     case (op)
       OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_SQRT,
-      OP_NEG, OP_ABS, OP_MOV, OP_QACC_READ: return 1'b1;
+      OP_NEG, OP_ABS, OP_MOV, OP_RELU, OP_QACC_READ: return 1'b1;
       default: return 1'b0;
     endcase
   endfunction

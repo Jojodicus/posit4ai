@@ -11,5 +11,6 @@ posit-research/reports/
 posit-research/**/*.log
 posit-research/**/*.jou
 posit-research/**/*.csv
+posit-research/**/*.str
 posit-research/**/.Xil/
 posit-research/xvlog.pb

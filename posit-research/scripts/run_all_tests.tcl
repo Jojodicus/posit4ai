@@ -31,6 +31,7 @@ set sim_filesets [list \
     sim_fpu32        \
     sim_fpu64        \
     sim_axi          \
+    sim_axi_pau64    \
 ]
 
 # Track results
