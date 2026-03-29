@@ -208,19 +208,24 @@ module arith_unit
 
     case (opcode_i)  // un-registered opcode
       OP_ADD: begin
-        fpu_fu_op       = FADD;
-        fpu_fu_data.imm = fpu_box_b;   // result = a + b  (b in C)
+        // fpnew FADD computes B + C (A is forced to 1.0 internally by the FMA unit).
+        // Set B=a, C=b so the result is a + b.
+        fpu_fu_op             = FADD;
+        fpu_fu_data.operand_b = fpu_box_a;
+        fpu_fu_data.imm       = fpu_box_b;
       end
       OP_SUB: begin
-        fpu_fu_op       = FSUB;
-        fpu_fu_data.imm = fpu_box_b;   // result = a - b  (b in C)
+        // fpnew FSUB computes B - C.  Set B=a, C=b so the result is a - b.
+        fpu_fu_op             = FSUB;
+        fpu_fu_data.operand_b = fpu_box_a;
+        fpu_fu_data.imm       = fpu_box_b;
       end
       OP_MUL:  fpu_fu_op = FMUL;
       OP_DIV:  fpu_fu_op = FDIV;
       OP_SQRT: fpu_fu_op = FSQRT;
       OP_QACC_ADD: begin                // acc + a = FADD(acc, a)
         fpu_fu_op             = FADD;
-        fpu_fu_data.operand_a = fpu_box_acc;
+        fpu_fu_data.operand_b = fpu_box_acc;  // fpnew FADD: B+C → acc+a
         fpu_fu_data.imm       = fpu_box_a;
       end
       OP_QACC_MADD: begin               // acc + a*b = FMADD(a, b, acc)

@@ -229,7 +229,7 @@ module accel_axi
           5'h0C: s_axi_rdata = reg_ibram_data_lo;
           5'h10: s_axi_rdata = reg_ibram_data_hi;
           5'h14: s_axi_rdata = reg_dbram_addr;
-          5'h18: s_axi_rdata = {{32-DATA_WIDTH{1'b0}}, dbram_rdata[DATA_WIDTH < 32 ? DATA_WIDTH-1 : 31:0]};
+          5'h18: s_axi_rdata = dbram_rdata[31:0];  // low 32 bits (full word for 32-bit, low half for 64-bit)
           5'h1C: s_axi_rdata = (DATA_WIDTH == 64) ? dbram_rdata[63:32] : 32'b0;
           default: s_axi_rdata = '0;
         endcase
