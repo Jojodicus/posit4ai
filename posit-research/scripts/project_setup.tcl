@@ -93,6 +93,14 @@ add_files -norecurse $root_dir/rtl/Flo-Posit/PositMAC/brent_kung/no_pipe/brent_k
 # PositMAC wrappers — entities renamed to avoid collision with PERCIVAL's PositMAC
 add_files -norecurse $root_dir/harness/positmac8.vhd
 add_files -norecurse $root_dir/harness/positmac16.vhd
+# Compile each MAC wrapper into its own library to avoid internal FloPoCo entity
+# name collisions (PositDecoder_*_uid4/8, IntMultiplier_F0_uid12, etc. are reused
+# across 8-bit and 16-bit with different port widths).  In VHDL, "library work;"
+# resolves to the file's own compile library, so each MAC file finds its own
+# correctly-ported sub-entities.  brent_kung.vhd stays in 'work'; Vivado's global
+# entity binding finds it from both flo_mac8 and flo_mac16 at elaboration time.
+set_property library flo_mac8  [get_files positmac8.vhd]
+set_property library flo_mac16 [get_files positmac16.vhd]
 # Remaining Flo-Posit cores (unique entity names, direct submodule references)
 add_files -norecurse $root_dir/rtl/Flo-Posit/PositAdd/sign_magnitude/PositAdd_8_2/flopoco.vhdl
 add_files -norecurse $root_dir/rtl/Flo-Posit/PositAdd/sign_magnitude/PositAdd_16_2/flopoco.vhdl

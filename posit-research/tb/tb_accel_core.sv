@@ -145,40 +145,67 @@ module tb_accel_core
   // Stored in 64-bit containers; sliced to [DATA_WIDTH-1:0] at use.
   // All `if` branches are compile-time constant — dead branches are never executed.
   logic [63:0] V_0, V_1, V_2, V_3, V_4, V_NEG2;
+  // V_SQRT_2: expected SQRT(4)=2 result (NaR for PAU-8/16 — SQRT unsupported in FloPoCo)
+  // V_SQRT_FWD: expected ADD(SQRT(4), 2)=4 result (NaR propagates when SQRT unsupported)
+  logic [63:0] V_SQRT_2, V_SQRT_FWD;
 
   initial begin
-    if (ACCEL_TYPE == "PAU" && DATA_WIDTH == 32) begin
+    if (ACCEL_TYPE == "PAU" && DATA_WIDTH == 8) begin
+      // posit<8,2>: useed=16, regime "10" for k=0, es=2, frac=3 bits
+      V_0      = 64'h0000_0000_0000_0000;
+      V_1      = 64'h0000_0000_0000_0040; // 0100_0000
+      V_2      = 64'h0000_0000_0000_0048; // 0100_1000
+      V_3      = 64'h0000_0000_0000_004C; // 0100_1100
+      V_4      = 64'h0000_0000_0000_0050; // 0101_0000
+      V_NEG2   = 64'h0000_0000_0000_00B8; // 2's-complement of 0x48
+      V_SQRT_2 = 64'h0000_0000_0000_0080; // NaR — SQRT unsupported in FloPoCo
+      V_SQRT_FWD = 64'h0000_0000_0000_0080; // NaR propagates
+    end else if (ACCEL_TYPE == "PAU" && DATA_WIDTH == 16) begin
+      // posit<16,2>: useed=16, regime "10" for k=0, es=2, frac=11 bits
+      V_0      = 64'h0000_0000_0000_0000;
+      V_1      = 64'h0000_0000_0000_4000; // 0100_0000_0000_0000
+      V_2      = 64'h0000_0000_0000_4400; // 0100_0100_0000_0000
+      V_3      = 64'h0000_0000_0000_4600; // 0100_0110_0000_0000
+      V_4      = 64'h0000_0000_0000_4800; // 0100_1000_0000_0000
+      V_NEG2   = 64'h0000_0000_0000_BC00; // 2's-complement of 0x4400
+      V_SQRT_2 = 64'h0000_0000_0000_8000; // NaR — SQRT unsupported in FloPoCo
+      V_SQRT_FWD = 64'h0000_0000_0000_8000; // NaR propagates
+    end else if (ACCEL_TYPE == "PAU" && DATA_WIDTH == 32) begin
       // posit<32,2> — same values for exact and approx (mul ops use powers of 2)
-      V_0    = 64'h0000_0000_0000_0000;
-      V_1    = 64'h0000_0000_4000_0000;
-      V_2    = 64'h0000_0000_4800_0000;
-      V_3    = 64'h0000_0000_4C00_0000;
-      V_4    = 64'h0000_0000_5000_0000;
-      V_NEG2 = 64'h0000_0000_B800_0000;
+      V_0      = 64'h0000_0000_0000_0000;
+      V_1      = 64'h0000_0000_4000_0000;
+      V_2      = 64'h0000_0000_4800_0000;
+      V_3      = 64'h0000_0000_4C00_0000;
+      V_4      = 64'h0000_0000_5000_0000;
+      V_NEG2   = 64'h0000_0000_B800_0000;
+      V_SQRT_2 = V_2; V_SQRT_FWD = V_4;
     end else if (ACCEL_TYPE == "PAU" && DATA_WIDTH == 64) begin
       // posit<64,2>
-      V_0    = 64'h0000_0000_0000_0000;
-      V_1    = 64'h4000_0000_0000_0000;
-      V_2    = 64'h4800_0000_0000_0000;
-      V_3    = 64'h4C00_0000_0000_0000;
-      V_4    = 64'h5000_0000_0000_0000;
-      V_NEG2 = 64'hB800_0000_0000_0000;
+      V_0      = 64'h0000_0000_0000_0000;
+      V_1      = 64'h4000_0000_0000_0000;
+      V_2      = 64'h4800_0000_0000_0000;
+      V_3      = 64'h4C00_0000_0000_0000;
+      V_4      = 64'h5000_0000_0000_0000;
+      V_NEG2   = 64'hB800_0000_0000_0000;
+      V_SQRT_2 = V_2; V_SQRT_FWD = V_4;
     end else if (ACCEL_TYPE == "FPU" && DATA_WIDTH == 32) begin
       // IEEE 754 single precision
-      V_0    = 64'h0000_0000_0000_0000;
-      V_1    = 64'h0000_0000_3F80_0000;
-      V_2    = 64'h0000_0000_4000_0000;
-      V_3    = 64'h0000_0000_4040_0000;
-      V_4    = 64'h0000_0000_4080_0000;
-      V_NEG2 = 64'h0000_0000_C000_0000;
+      V_0      = 64'h0000_0000_0000_0000;
+      V_1      = 64'h0000_0000_3F80_0000;
+      V_2      = 64'h0000_0000_4000_0000;
+      V_3      = 64'h0000_0000_4040_0000;
+      V_4      = 64'h0000_0000_4080_0000;
+      V_NEG2   = 64'h0000_0000_C000_0000;
+      V_SQRT_2 = V_2; V_SQRT_FWD = V_4;
     end else begin
       // IEEE 754 double precision
-      V_0    = 64'h0000_0000_0000_0000;
-      V_1    = 64'h3FF0_0000_0000_0000;
-      V_2    = 64'h4000_0000_0000_0000;
-      V_3    = 64'h4008_0000_0000_0000;
-      V_4    = 64'h4010_0000_0000_0000;
-      V_NEG2 = 64'hC000_0000_0000_0000;
+      V_0      = 64'h0000_0000_0000_0000;
+      V_1      = 64'h3FF0_0000_0000_0000;
+      V_2      = 64'h4000_0000_0000_0000;
+      V_3      = 64'h4008_0000_0000_0000;
+      V_4      = 64'h4010_0000_0000_0000;
+      V_NEG2   = 64'hC000_0000_0000_0000;
+      V_SQRT_2 = V_2; V_SQRT_FWD = V_4;
     end
   end
 
@@ -279,8 +306,8 @@ module tb_accel_core
     check("ADD  2+1=3 (fwd[15])  [16]", V_3,    16);
 
     $display("-- Section 4: SQRT + forwarding after long stall --");
-    check("SQRT sqrt(4)=2         [17]", V_2,    17);
-    check("ADD  2+2=4 (fwd[17])  [18]", V_4,    18);
+    check("SQRT sqrt(4)=2         [17]", V_SQRT_2,   17);
+    check("ADD  2+2=4 (fwd[17])  [18]", V_SQRT_FWD, 18);
 
     $display("-- Section 5: Unary ops with forwarding --");
     check("NEG  -2.0              [19]", V_NEG2, 19);
