@@ -53,7 +53,26 @@ module arith_unit
   logic [FLEN-1:0]  fpu_result_sig;
 
   // ── Arithmetic unit instantiation (only one branch synthesised) ──────────────
-  if (ACCEL_TYPE == "PAU") begin : g_pau
+  // posit(8,2) and posit(16,2) use FloPoCo Flo-Posit cores (flo_posit_top).
+  // posit(32,2) and posit(64,2) use PERCIVAL cores (pau_top).
+  if (ACCEL_TYPE == "PAU" && (DATA_WIDTH == 8 || DATA_WIDTH == 16)) begin : g_flopau
+
+    flo_posit_top flopau_inst (
+      .clk_i,
+      .rst_ni,
+      .fu_data_i      ( pau_fu_data    ),
+      .pau_valid_i    ( pau_valid_i_sig ),
+      .pau_ready_o    ( pau_ready_o_sig ),
+      .pau_trans_id_o (                ),
+      .pau_valid_o    ( pau_valid_o_sig ),
+      .result_o       ( pau_result_sig  )
+    );
+
+    assign fpu_ready_o_sig = 1'b0;
+    assign fpu_valid_o_sig = 1'b0;
+    assign fpu_result_sig  = '0;
+
+  end else if (ACCEL_TYPE == "PAU") begin : g_pau
 
     pau_top pau_inst (
       .clk_i,

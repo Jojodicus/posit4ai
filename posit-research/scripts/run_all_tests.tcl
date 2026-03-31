@@ -25,6 +25,8 @@ if {[file exists ${proj_dir}/${proj_name}.xpr]} {
 # Each sim_pau*/sim_fpu* fileset compiles tb_accel_core against its own config_pkg
 # override, so the full comparison matrix is covered in one test run.
 set sim_filesets [list \
+    sim_pau8         \
+    sim_pau16        \
     sim_pau32        \
     sim_pau32_approx \
     sim_pau64        \

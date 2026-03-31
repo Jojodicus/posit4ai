@@ -7,3 +7,6 @@
 [submodule "riscv-pk"]
 	path = riscv-pk
 	url = https://github.com/riscv-software-src/riscv-pk
+[submodule "posit-research/rtl/Flo-Posit"]
+	path = posit-research/rtl/Flo-Posit
+	url = https://github.com/RaulMurillo/Flo-Posit

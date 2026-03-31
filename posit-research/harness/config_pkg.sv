@@ -13,8 +13,14 @@ package config_pkg;
 
   // ============================================================
   // Data Width (bits per arithmetic value)
-  // PAU supports: 32, 64
+  // PAU supports: 8, 16 (FloPoCo Flo-Posit cores, es=2)
+  //               32, 64 (PERCIVAL cores, es=2)
   // FPU supports: 32 (single), 64 (double)
+  //
+  // Notes for DATA_WIDTH 8 or 16 with PAU:
+  //   PSQRT returns NaR (not supported by FloPoCo cores).
+  //   APPROX_DIV / APPROX_SQRT have no effect.
+  //   APPROX_MUL = 1 uses PositLAM (log-domain, ~11% bounded relative error).
   // ============================================================
   parameter int DATA_WIDTH = 32;
 

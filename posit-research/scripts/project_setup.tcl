@@ -11,7 +11,7 @@ create_project -force $proj_name $proj_dir -part $target_part
 # Simulation fileset names.
 # Each accel_core fileset compiles tb_accel_core.sv against its own config_pkg override.
 # sim_axi uses PAU-32 config and tests the AXI register interface only.
-set accel_core_simsets {sim_pau32 sim_pau32_approx sim_pau64 sim_fpu32 sim_fpu64}
+set accel_core_simsets {sim_pau8 sim_pau16 sim_pau32 sim_pau32_approx sim_pau64 sim_fpu32 sim_fpu64}
 set axi_simsets        {sim_axi sim_axi_pau64}
 set all_simsets        [concat $accel_core_simsets $axi_simsets]
 
@@ -87,10 +87,30 @@ add_files -norecurse [glob $root_dir/rtl/fpu/src/fpu_div_sqrt_mvp/hdl/*.sv]
 # ── PAU Files (VHDL) ───────────────────────────────────────────────────────────
 add_files -norecurse [glob $root_dir/rtl/pau/*.vhd]
 
+# ── Flo-Posit FloPoCo Files (VHDL) ────────────────────────────────────────────
+# brent_kung adder primitive (shared by PositMAC8 and PositMAC16; only one copy needed)
+add_files -norecurse $root_dir/rtl/Flo-Posit/PositMAC/brent_kung/no_pipe/brent_kung_PositMAC_8_2_30/brent_kung.vhd
+# PositMAC wrappers — entities renamed to avoid collision with PERCIVAL's PositMAC
+add_files -norecurse $root_dir/harness/positmac8.vhd
+add_files -norecurse $root_dir/harness/positmac16.vhd
+# Remaining Flo-Posit cores (unique entity names, direct submodule references)
+add_files -norecurse $root_dir/rtl/Flo-Posit/PositAdd/sign_magnitude/PositAdd_8_2/flopoco.vhdl
+add_files -norecurse $root_dir/rtl/Flo-Posit/PositAdd/sign_magnitude/PositAdd_16_2/flopoco.vhdl
+add_files -norecurse $root_dir/rtl/Flo-Posit/PositMult/sign_magnitude/PositMult_8_2/flopoco.vhdl
+add_files -norecurse $root_dir/rtl/Flo-Posit/PositMult/sign_magnitude/PositMult_16_2/flopoco.vhdl
+add_files -norecurse $root_dir/rtl/Flo-Posit/PositDiv/8_bit/flopoco.vhdl
+add_files -norecurse $root_dir/rtl/Flo-Posit/PositDiv/16_bit/flopoco.vhdl
+add_files -norecurse $root_dir/rtl/Flo-Posit/PositLAM/PositLAM_8_2/flopoco.vhdl
+add_files -norecurse $root_dir/rtl/Flo-Posit/PositLAM/PositLAM_16_2/flopoco.vhdl
+
 # ── Accelerator RTL ────────────────────────────────────────────────────────────
 # Local copies of PERCIVAL cores (editable)
 add_files -norecurse $root_dir/harness/pau_top.sv
 add_files -norecurse $root_dir/harness/fpu_wrap.sv
+
+# FloPoCo wrapper (quire2posit_sm must precede flo_posit_top)
+add_files -norecurse $root_dir/harness/quire2posit_sm.sv
+add_files -norecurse $root_dir/harness/flo_posit_top.sv
 
 # New accelerator modules (in dependency order)
 add_files -norecurse $root_dir/harness/arith_unit.sv
@@ -116,6 +136,8 @@ set_property top accel_axi [current_fileset]
 # Map each accel_core sim fileset to its config override + testbench.
 # config_pkg_*.sv defines package config_pkg for that fileset (overrides harness/config_pkg.sv).
 foreach {simset cfg_file} {
+    sim_pau8         tb/configs/config_pkg_pau8.sv
+    sim_pau16        tb/configs/config_pkg_pau16.sv
     sim_pau32        tb/configs/config_pkg_pau32.sv
     sim_pau32_approx tb/configs/config_pkg_pau32_approx.sv
     sim_pau64        tb/configs/config_pkg_pau64.sv
