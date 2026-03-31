@@ -11,7 +11,8 @@ create_project -force $proj_name $proj_dir -part $target_part
 # Simulation fileset names.
 # Each accel_core fileset compiles tb_accel_core.sv against its own config_pkg override.
 # sim_axi uses PAU-32 config and tests the AXI register interface only.
-set accel_core_simsets {sim_pau8 sim_pau16 sim_pau32 sim_pau32_approx sim_pau64 sim_fpu32 sim_fpu64}
+set accel_core_simsets {sim_pau8 sim_pau16 sim_pau32 sim_pau32_approx sim_pau64 sim_fpu32 sim_fpu64
+                        sim_pau8_noquire sim_pau16_noquire sim_pau32_noquire}
 set axi_simsets        {sim_axi sim_axi_pau64}
 set all_simsets        [concat $accel_core_simsets $axi_simsets]
 
@@ -144,13 +145,16 @@ set_property top accel_axi [current_fileset]
 # Map each accel_core sim fileset to its config override + testbench.
 # config_pkg_*.sv defines package config_pkg for that fileset (overrides harness/config_pkg.sv).
 foreach {simset cfg_file} {
-    sim_pau8         tb/configs/config_pkg_pau8.sv
-    sim_pau16        tb/configs/config_pkg_pau16.sv
-    sim_pau32        tb/configs/config_pkg_pau32.sv
-    sim_pau32_approx tb/configs/config_pkg_pau32_approx.sv
-    sim_pau64        tb/configs/config_pkg_pau64.sv
-    sim_fpu32        tb/configs/config_pkg_fpu32.sv
-    sim_fpu64        tb/configs/config_pkg_fpu64.sv
+    sim_pau8             tb/configs/config_pkg_pau8.sv
+    sim_pau16            tb/configs/config_pkg_pau16.sv
+    sim_pau32            tb/configs/config_pkg_pau32.sv
+    sim_pau32_approx     tb/configs/config_pkg_pau32_approx.sv
+    sim_pau64            tb/configs/config_pkg_pau64.sv
+    sim_fpu32            tb/configs/config_pkg_fpu32.sv
+    sim_fpu64            tb/configs/config_pkg_fpu64.sv
+    sim_pau8_noquire     tb/configs/config_pkg_pau8_noquire.sv
+    sim_pau16_noquire    tb/configs/config_pkg_pau16_noquire.sv
+    sim_pau32_noquire    tb/configs/config_pkg_pau32_noquire.sv
 } {
     add_files -fileset $simset -norecurse [file normalize $root_dir/$cfg_file]
     add_files -fileset $simset -norecurse $root_dir/tb/tb_accel_core.sv

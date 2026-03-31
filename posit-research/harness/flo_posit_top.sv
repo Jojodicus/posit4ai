@@ -230,14 +230,21 @@ module flo_posit_top import ariane_pkg::*; (
   end
 
   // ── Result mux ───────────────────────────────────────────────────────────────
+  // Combinatorial result, valid only while the held operands still drive add_o/mul_o/div_o
+  // (i.e. in the STALL cycle when pau_valid_d is asserted).
+  // result_o is REGISTERED: latched in the same cycle pau_valid_d fires so that arith_unit
+  // reads the correct value one cycle later when pau_valid_o fires.
+  // Without this, by the time pau_valid_o fires arith_unit has already switched the operator
+  // input back to PADD-neutral, zeroing mul_a/div_a and un-negating add_b for PSUB.
+  riscv::xlen_t result_comb;
   always_comb begin
-    result_o = '0;
+    result_comb = '0;
     unique case (operator_delay)
-      PADD, PSUB: result_o = {{(riscv::XLEN-POSLEN){1'b0}}, add_o};
-      PMUL:       result_o = {{(riscv::XLEN-POSLEN){1'b0}}, mul_o};
-      PDIV:       result_o = {{(riscv::XLEN-POSLEN){1'b0}}, div_o};
-      PSQRT:      result_o = {{(riscv::XLEN-POSLEN){1'b0}}, NAR};
-      QROUND:     result_o = {{(riscv::XLEN-POSLEN){1'b0}}, q2p_in_posit};
+      PADD, PSUB: result_comb = {{(riscv::XLEN-POSLEN){1'b0}}, add_o};
+      PMUL:       result_comb = {{(riscv::XLEN-POSLEN){1'b0}}, mul_o};
+      PDIV:       result_comb = {{(riscv::XLEN-POSLEN){1'b0}}, div_o};
+      PSQRT:      result_comb = {{(riscv::XLEN-POSLEN){1'b0}}, NAR};
+      QROUND:     result_comb = {{(riscv::XLEN-POSLEN){1'b0}}, q2p_in_posit};
       // QMADD/QMSUB/QCLR/QNEG: quire-only, no scalar result
       default: ;
     endcase
@@ -298,6 +305,7 @@ module flo_posit_top import ariane_pkg::*; (
       trans_id_q     <= '0;
       pau_valid_o    <= '0;
       operator_delay <= PADD;
+      result_o       <= '0;
       if (QUIRE_PRESENT)
         quire_q      <= '0;
     end else begin
@@ -306,6 +314,10 @@ module flo_posit_top import ariane_pkg::*; (
       trans_id_q     <= trans_id_d;
       pau_valid_o    <= pau_valid_d;
       operator_delay <= operator;
+      // Latch result alongside pau_valid_d: held operands still drive correct arithmetic
+      // outputs at this point. One cycle later, when pau_valid_o fires, result_o is stable.
+      if (pau_valid_d)
+        result_o     <= result_comb;
       if (QUIRE_PRESENT)
         quire_q      <= quire_d;
       if (hold_inputs) begin
