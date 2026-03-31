@@ -99,9 +99,11 @@ module flo_posit_top import ariane_pkg::*; (
   logic [QUIRELEN-1:0] mac_c, mac_r;
 
   if (QUIRE_PRESENT) begin : g_quire
-    // Forward quire_d if a MAC/CLR/NEG just completed (same as pau_top.sv)
-    assign curr_quire = operator_delay inside {QMADD, QMSUB, QCLR, QNEG}
-                        ? quire_d : quire_q;
+    // quire_q is registered each cycle from quire_d, so it already holds the
+    // result of the previous operation — no combinatorial forwarding needed.
+    // (Forwarding quire_d into mac_c would create a combinatorial loop through
+    // the purely-combinatorial PositMAC block.)
+    assign curr_quire = quire_q;
 
     always_comb begin
       quire_d = quire_q;

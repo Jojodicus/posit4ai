@@ -67,6 +67,8 @@ module accel_axi
   logic [DATA_WIDTH-1:0]           dbram_wdata;
   logic                            dbram_we;
   logic [DATA_WIDTH-1:0]           dbram_rdata;
+  logic [63:0]                     dbram_rdata_64;
+  assign dbram_rdata_64 = 64'(dbram_rdata);
 
   // ── accel_core instantiation ─────────────────────────────────────────────────
   accel_core u_core (
@@ -229,8 +231,8 @@ module accel_axi
           5'h0C: s_axi_rdata = reg_ibram_data_lo;
           5'h10: s_axi_rdata = reg_ibram_data_hi;
           5'h14: s_axi_rdata = reg_dbram_addr;
-          5'h18: s_axi_rdata = dbram_rdata[31:0];  // low 32 bits (full word for 32-bit, low half for 64-bit)
-          5'h1C: s_axi_rdata = (DATA_WIDTH == 64) ? dbram_rdata[63:32] : 32'b0;
+          5'h18: s_axi_rdata = dbram_rdata_64[31:0];   // low 32 bits (zero-extended for <32-bit)
+          5'h1C: s_axi_rdata = dbram_rdata_64[63:32];  // high 32 bits (zero for <64-bit)
           default: s_axi_rdata = '0;
         endcase
         if (s_axi_rready) rd_state_d = RD_IDLE;
