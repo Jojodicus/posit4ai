@@ -161,13 +161,14 @@ module tb_accel_core
       V_SQRT_2 = 64'h0000_0000_0000_0080; // NaR — SQRT unsupported in FloPoCo
       V_SQRT_FWD = 64'h0000_0000_0000_0080; // NaR propagates
     end else if (ACCEL_TYPE == "PAU" && DATA_WIDTH == 16) begin
-      // posit<16,2>: useed=16, regime "10" for k=0, es=2, frac=11 bits
+      // posit<16,2>: sign(1) | regime "10"(2) | exp(2) | frac(11)
+      // k=0 → regime "10" at bits[14:13]; exp at bits[12:11]; frac at bits[10:0]
       V_0      = 64'h0000_0000_0000_0000;
-      V_1      = 64'h0000_0000_0000_4000; // 0100_0000_0000_0000
-      V_2      = 64'h0000_0000_0000_4400; // 0100_0100_0000_0000
-      V_3      = 64'h0000_0000_0000_4600; // 0100_0110_0000_0000
-      V_4      = 64'h0000_0000_0000_4800; // 0100_1000_0000_0000
-      V_NEG2   = 64'h0000_0000_0000_BC00; // 2's-complement of 0x4400
+      V_1      = 64'h0000_0000_0000_4000; // 0100_0000_0000_0000  k=0,exp=00,frac=0
+      V_2      = 64'h0000_0000_0000_4800; // 0100_1000_0000_0000  k=0,exp=01,frac=0
+      V_3      = 64'h0000_0000_0000_4C00; // 0100_1100_0000_0000  k=0,exp=01,frac=0.5
+      V_4      = 64'h0000_0000_0000_5000; // 0101_0000_0000_0000  k=0,exp=10,frac=0
+      V_NEG2   = 64'h0000_0000_0000_B800; // 2's-complement of 0x4800
       V_SQRT_2 = 64'h0000_0000_0000_8000; // NaR — SQRT unsupported in FloPoCo
       V_SQRT_FWD = 64'h0000_0000_0000_8000; // NaR propagates
     end else if (ACCEL_TYPE == "PAU" && DATA_WIDTH == 32) begin

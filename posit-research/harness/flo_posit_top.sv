@@ -109,7 +109,12 @@ module flo_posit_top import ariane_pkg::*; (
       quire_d = quire_q;
       unique case (operator_delay)
         QCLR:        quire_d = '0;
-        QNEG:        quire_d = ~quire_q + {{(QUIRELEN-1){1'b0}}, 1'b1};
+        // Gate QNEG on pau_valid_d: operator_delay stays QNEG for two cycles
+        // (STALL completion + following READY idle cycle), so without gating the
+        // negation fires twice and cancels itself out.
+        QNEG:        quire_d = pau_valid_d
+                                 ? (~quire_q + {{(QUIRELEN-1){1'b0}}, 1'b1})
+                                 : quire_q;
         QMADD, QMSUB: quire_d = pau_ready_o ? mac_r : quire_q;
         default: ;
       endcase
