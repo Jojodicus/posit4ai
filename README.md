@@ -30,13 +30,7 @@ cd posit4ai
 # if you did not clone recursively (by accident):
 git submodule update --init --recursive
 ```
-4. Patch [LLVM Xposit](https://github.com/artecs-group/llvm-xposit):
-```sh
-cd llvm-xposit
-git apply < ../0001-patch-for-modern-cpp.patch
-cd ..
-```
-5. Build [LLVM Xposit](https://github.com/artecs-group/llvm-xposit) (takes a long time):
+4. Build [forked LLVM Xposit](https://github.com/Jojodicus/llvm-xposit) (takes a long time):
 ```sh
 cd llvm-xposit
 mkdir -p $XPOSIT_INSTALL_DIR
@@ -57,7 +51,7 @@ cmake -G Ninja \
 cmake --build . --target install -j$(nproc) # may have to lower nproc if memory-bound
 cd ../..
 ```
-6. Test compilation of [PERCIVAL](https://github.com/artecs-group/PERCIVAL) testsuite:
+5. Test compilation of [PERCIVAL](https://github.com/artecs-group/PERCIVAL) testsuite:
 ```sh
 # compile
 clang --target=riscv64-unknown-elf --sysroot=$XPOSIT_GCC_DIR -march=rv64gcxposit PERCIVAL/posit64_testsuite_llvm.c -c -o posit64_testsuite_llvm.o
