@@ -71,7 +71,12 @@ module pau_top import ariane_pkg::*; (
 
                 unique case (operator_delay)
                     QCLR:      quire_d = '0;
-                    QNEG:      quire_d = ~quire_q + {{QUIRELEN-1{1'b0}}, 1'b1};
+                    // Gate on pau_valid_d: operator_delay holds QNEG for two cycles
+                    // (STALL completion + following READY idle cycle), so without
+                    // gating the negation fires twice and cancels itself out.
+                    QNEG:      quire_d = pau_valid_d
+                                           ? (~quire_q + {{QUIRELEN-1{1'b0}}, 1'b1})
+                                           : quire_q;
                     QMADD,
                     QMSUB:     quire_d = pau_ready_o ? qmadd_o : quire_q;
                     default: ; // default case to suppress unique warning
@@ -468,31 +473,33 @@ module pau_top import ariane_pkg::*; (
         assign sgnj_d = move_flip ? ~operand_a + {{POSLEN-1{1'b0}}, 1'b1}
                                   : operand_a;
 
+        // Combinatorial result mux — registered into result_o on pau_valid_d
+        riscv::xlen_t result_comb;
         always_comb begin : result_mux
-            result_o   = '0;
+            result_comb = '0;
 
             unique case (operator_delay)
-                PADD, PSUB:     result_o = {{riscv::XLEN-POSLEN{1'b0}}, add_o};
-                PMUL:           result_o = {{riscv::XLEN-POSLEN{1'b0}}, mul_o};
-                PDIV:           result_o = {{riscv::XLEN-POSLEN{1'b0}}, div_o};
-                PSQRT:          result_o = {{riscv::XLEN-POSLEN{1'b0}}, sqrt_o};
-                QROUND:         result_o = {{riscv::XLEN-POSLEN{1'b0}}, conv_q2p_o};
+                PADD, PSUB:     result_comb = {{riscv::XLEN-POSLEN{1'b0}}, add_o};
+                PMUL:           result_comb = {{riscv::XLEN-POSLEN{1'b0}}, mul_o};
+                PDIV:           result_comb = {{riscv::XLEN-POSLEN{1'b0}}, div_o};
+                PSQRT:          result_comb = {{riscv::XLEN-POSLEN{1'b0}}, sqrt_o};
+                QROUND:         result_comb = {{riscv::XLEN-POSLEN{1'b0}}, conv_q2p_o};
 
-                PCVT_P2I:       result_o = {{riscv::XLEN-32{conv_p2i_o[31]}}, conv_p2i_q};
-                PCVT_P2U:       result_o = {{riscv::XLEN-32{conv_p2u_o[31]}}, conv_p2u_q};
-                PCVT_P2L:       result_o = conv_p2l_q;
-                PCVT_P2LU:      result_o = conv_p2lu_q;
-                PCVT_I2P:       result_o = {{riscv::XLEN-POSLEN{1'b0}}, conv_i2p_q};
-                PCVT_U2P:       result_o = {{riscv::XLEN-POSLEN{1'b0}}, conv_u2p_q};
-                PCVT_L2P:       result_o = {{riscv::XLEN-POSLEN{1'b0}}, conv_l2p_q};
-                PCVT_LU2P:      result_o = {{riscv::XLEN-POSLEN{1'b0}}, conv_lu2p_q};
+                PCVT_P2I:       result_comb = {{riscv::XLEN-32{conv_p2i_o[31]}}, conv_p2i_q};
+                PCVT_P2U:       result_comb = {{riscv::XLEN-32{conv_p2u_o[31]}}, conv_p2u_q};
+                PCVT_P2L:       result_comb = conv_p2l_q;
+                PCVT_P2LU:      result_comb = conv_p2lu_q;
+                PCVT_I2P:       result_comb = {{riscv::XLEN-POSLEN{1'b0}}, conv_i2p_q};
+                PCVT_U2P:       result_comb = {{riscv::XLEN-POSLEN{1'b0}}, conv_u2p_q};
+                PCVT_L2P:       result_comb = {{riscv::XLEN-POSLEN{1'b0}}, conv_l2p_q};
+                PCVT_LU2P:      result_comb = {{riscv::XLEN-POSLEN{1'b0}}, conv_lu2p_q};
 
                 PSGNJ,
                 PSGNJN,
-                PSGNJX:         result_o = {{riscv::XLEN-POSLEN{1'b0}}, sgnj_o};
+                PSGNJX:         result_comb = {{riscv::XLEN-POSLEN{1'b0}}, sgnj_o};
 
                 PMV_P2X,
-                PMV_X2P:        result_o = {{riscv::XLEN-POSLEN{pmv_o[POSLEN - 1]}}, pmv_o};
+                PMV_X2P:        result_comb = {{riscv::XLEN-POSLEN{pmv_o[POSLEN - 1]}}, pmv_o};
                 default: ; // default case to suppress unique warning
             endcase
         end
@@ -564,6 +571,7 @@ module pau_top import ariane_pkg::*; (
                 conv_u2p_q     <= '0;
                 conv_l2p_q     <= '0;
                 conv_lu2p_q    <= '0;
+                result_o       <= '0;
             end else begin
                 state_q        <= state_d;
                 if (QUIRE_PRESENT) begin
@@ -575,6 +583,10 @@ module pau_top import ariane_pkg::*; (
                 sgnj_o         <= sgnj_d;
                 pmv_o          <= pmv_d;
                 operator_delay <= operator;
+                // Latch result alongside pau_valid_d so it's stable when
+                // pau_valid_o fires one cycle later.
+                if (pau_valid_d)
+                    result_o   <= result_comb;
                 conv_p2i_q     <= conv_p2i_o;
                 conv_p2u_q     <= conv_p2u_o;
                 conv_p2l_q     <= conv_p2l_o;

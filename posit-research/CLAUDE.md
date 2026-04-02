@@ -80,8 +80,9 @@ If shell scripts are insufficient:
 
 ### Instruction Format (64-bit)
 ```
-[63:56] opcode  [55:44] addr_a  [43:32] addr_b  [31:20] addr_result  [19:0] reserved/flags
+[63:60] opcode (4-bit)  [59:40] addr_a (20-bit)  [39:20] addr_b (20-bit)  [19:0] addr_result (20-bit)
 ```
+16 opcodes, up to 1M data addresses (DATA_DEPTH configurable, max 2^20).
 
 ### Package Dependencies (compile order)
 1. `config_pkg.sv` - user configuration

@@ -9,6 +9,8 @@
 //   4. STATUS polling: RUNNING high during a long-latency DIV, DONE asserts on HALT
 //   5. Data read path (32-bit): DBRAM_ADDR → (wait) → DBRAM_DATA
 //   6. Data read path (64-bit): DBRAM_ADDR → (wait) → DBRAM_DATA + DBRAM_DATA_HI
+//   7. AXI writes while RUNNING are ACK'd but dropped (data preserved)
+//   8. Halt-then-restart: new program after DONE, verify it runs correctly
 //
 // Simulation filesets:
 //   sim_axi       — PAU-32, exercises the 32-bit DBRAM data path
@@ -145,9 +147,9 @@ module tb_accel_axi
 
   function automatic logic [63:0] make_instr(
     input opcode_t     op,
-    input logic [11:0] a, b, res
+    input logic [19:0] a, b, res
   );
-    return {op, a, b, res, 20'b0};
+    return {op, a, b, res};
   endfunction
 
   // ── Config-derived reference values ──────────────────────────────────────────
@@ -217,13 +219,13 @@ module tb_accel_axi
     $display("===================================================================");
 
     // ── Load instruction BRAM via AXI ─────────────────────────────────────────
-    write_instr(0, make_instr(OP_ADD,        12'd0, 12'd1, 12'd5)); // 1+2=3
-    write_instr(1, make_instr(OP_DIV,        12'd2, 12'd1, 12'd6)); // 4/2=2 (long lat.)
-    write_instr(2, make_instr(OP_QACC_CLEAR, 12'd0, 12'd0, 12'd0));
-    write_instr(3, make_instr(OP_QACC_ADD,   12'd1, 12'd0, 12'd0)); // acc=2
-    write_instr(4, make_instr(OP_QACC_MADD,  12'd0, 12'd1, 12'd0)); // acc=2+2=4
-    write_instr(5, make_instr(OP_QACC_READ,  12'd0, 12'd0, 12'd7)); // d[7]=4
-    write_instr(6, make_instr(OP_HALT,       12'd0, 12'd0, 12'd0));
+    write_instr(0, make_instr(OP_ADD,        20'd0, 20'd1, 20'd5)); // 1+2=3
+    write_instr(1, make_instr(OP_DIV,        20'd2, 20'd1, 20'd6)); // 4/2=2 (long lat.)
+    write_instr(2, make_instr(OP_QACC_CLEAR, 20'd0, 20'd0, 20'd0));
+    write_instr(3, make_instr(OP_QACC_ADD,   20'd1, 20'd0, 20'd0)); // acc=2
+    write_instr(4, make_instr(OP_QACC_MADD,  20'd0, 20'd1, 20'd0)); // acc=2+2=4
+    write_instr(5, make_instr(OP_QACC_READ,  20'd0, 20'd0, 20'd7)); // d[7]=4
+    write_instr(6, make_instr(OP_HALT,       20'd0, 20'd0, 20'd0));
 
     // ── Load data BRAM via AXI ────────────────────────────────────────────────
     write_data(0, V_1);  // 1.0
@@ -247,7 +249,7 @@ module tb_accel_axi
         if (!done_seen) begin
           axi_read(32'h04, status);
           poll_count++;
-          if (status[2]) running_seen = 1;  // STATUS[2] = RUNNING
+          if (status[1]) running_seen = 1;  // STATUS[1] = RUNNING
           if (status[0]) begin               // STATUS[0] = DONE
             done_seen = 1;
             $display("[%0t] DONE after %0d polls (RUNNING was observed: %0s)",
@@ -276,6 +278,69 @@ module tb_accel_axi
 
     $display("-- Quire path via AXI --");
     check("QACC 2+(1*2)=4      via AXI [7]", V_4, 7);
+
+    // ── Test: AXI write while running is dropped ─────────────────────────────
+    // Write a known sentinel value to d[8], start a program that does NOT touch d[8],
+    // attempt to overwrite d[8] via AXI while running, verify sentinel preserved.
+    $display("-- AXI writes while running --");
+    write_data(8, V_1);  // sentinel: d[8] = 1.0
+
+    // Program: just a long DIV + HALT (doesn't touch d[8])
+    write_instr(0, make_instr(OP_DIV,  20'd2, 20'd1, 20'd9)); // 4/2=2 → d[9]
+    write_instr(1, make_instr(OP_HALT, 20'd0, 20'd0, 20'd0));
+
+    repeat(2) @(posedge clk);
+    axi_write(32'h00, 32'h1);  // START
+
+    // Immediately try to overwrite d[8] while running
+    // (accel_axi should ACK but drop the BRAM write)
+    repeat(3) @(posedge clk);
+    write_data(8, V_4);  // try to write 4.0 → should be dropped
+
+    // Wait for done
+    begin
+      automatic int done2 = 0;
+      repeat(2000) begin
+        if (!done2) begin
+          axi_read(32'h04, status);
+          if (status[0]) done2 = 1;
+        end
+      end
+      if (!done2) begin
+        $display("FAIL: accelerator did not finish in write-while-running test");
+        $finish;
+      end
+    end
+
+    repeat(3) @(posedge clk);
+    check("d[8] sentinel preserved     [8]", V_1, 8);
+    check("DIV  4/2=2 during test      [9]", V_2, 9);
+
+    // ── Test: halt-then-restart via AXI ──────────────────────────────────────
+    $display("-- Halt-then-restart via AXI --");
+
+    write_instr(0, make_instr(OP_ADD,  20'd0, 20'd1, 20'd10)); // 1+2=3
+    write_instr(1, make_instr(OP_HALT, 20'd0, 20'd0, 20'd0));
+
+    repeat(2) @(posedge clk);
+    axi_write(32'h00, 32'h1);  // START
+
+    begin
+      automatic int done3 = 0;
+      repeat(2000) begin
+        if (!done3) begin
+          axi_read(32'h04, status);
+          if (status[0]) done3 = 1;
+        end
+      end
+      if (!done3) begin
+        $display("FAIL: restart test did not finish");
+        $finish;
+      end
+    end
+
+    repeat(3) @(posedge clk);
+    check("ADD  1+2=3 (restart) via AXI[10]", V_3, 10);
 
     // ── Summary ───────────────────────────────────────────────────────────────
     $display("===================================================================");

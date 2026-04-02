@@ -1,16 +1,15 @@
 // PERCIVAL Accelerator — core: instruction BRAM + data BRAM + sequencer + arith_unit.
 //
 // Instruction format (64-bit fixed-width):
-//   [63:56] opcode       8 bits
-//   [55:44] addr_a      12 bits
-//   [43:32] addr_b      12 bits
-//   [31:20] addr_result 12 bits
-//   [19: 8] (reserved)  12 bits
-//   [ 7: 0] flags        8 bits
+//   [63:60] opcode       4 bits  (16 opcodes)
+//   [59:40] addr_a      20 bits  (up to 1M data words)
+//   [39:20] addr_b      20 bits
+//   [19: 0] addr_result 20 bits
 //
 // Sequencer pipeline:
 //   FETCH   → DECODE   → EXEC   → WAIT_ARITH   → WRITEBACK → FETCH ...
 //   (1 cy)    (1 cy)    (1 cy)    (N cy, stall)   (1 cy)
+//   Comb ops (NEG/ABS/MOV/RELU/QACC state): EXEC → WRITEBACK (skip WAIT_ARITH)
 
 module accel_core
   import config_pkg::*;
@@ -88,7 +87,7 @@ module accel_core
 
   // Decoded instruction fields (latched at DECODE→EXEC)
   opcode_t                       exec_opcode_q;
-  logic [11:0]                   exec_addr_a_q, exec_addr_b_q, exec_addr_result_q;
+  logic [19:0]                   exec_addr_a_q, exec_addr_b_q, exec_addr_result_q;
 
   // Arith unit interface
   logic [DATA_WIDTH-1:0]  arith_op_a, arith_op_b;
@@ -156,10 +155,10 @@ module accel_core
       DECODE: begin
         // ibram_portb_rdata now has the instruction (registered from FETCH)
         // Present operand addresses to data BRAM; they'll be registered in EXEC
-        dbram_porta_addr = ibram_portb_rdata[55:44];   // addr_a
-        dbram_portb_addr = ibram_portb_rdata[43:32];   // addr_b
+        dbram_porta_addr = ibram_portb_rdata[59:40];   // addr_a
+        dbram_portb_addr = ibram_portb_rdata[39:20];   // addr_b
 
-        if (ibram_portb_rdata[63:56] == OP_HALT)
+        if (ibram_portb_rdata[63:60] == OP_HALT)
           seq_state_d = HALT_S;
         else
           seq_state_d = EXEC;
@@ -167,13 +166,14 @@ module accel_core
 
       EXEC: begin
         // Operands are now available in dbram_porta_rdata / dbram_portb_rdata
-        // (latched into op_a_reg, op_b_reg by always_ff below)
         // Submit to arith_unit
         arith_valid_i = 1'b1;
         arith_op_a    = dbram_porta_rdata;
         arith_op_b    = dbram_portb_rdata;
         arith_opcode  = exec_opcode_q;
-        seq_state_d    = WAIT_ARITH;
+        // Zero-latency comb ops (NEG/ABS/MOV/RELU/QACC state ops):
+        // arith_valid_o fires in the same cycle → skip WAIT_ARITH.
+        seq_state_d   = arith_valid_o ? WRITEBACK : WAIT_ARITH;
       end
 
       WAIT_ARITH: begin
@@ -221,11 +221,11 @@ module accel_core
       pc_q        <= pc_d;
 
       // Latch decoded fields at end of DECODE (registered BRAM output is ready)
-      if (seq_state_q == DECODE && ibram_portb_rdata[63:56] != OP_HALT) begin
-        exec_opcode_q     <= ibram_portb_rdata[63:56];
-        exec_addr_a_q     <= ibram_portb_rdata[55:44];
-        exec_addr_b_q     <= ibram_portb_rdata[43:32];
-        exec_addr_result_q <= ibram_portb_rdata[31:20];
+      if (seq_state_q == DECODE && ibram_portb_rdata[63:60] != OP_HALT) begin
+        exec_opcode_q     <= ibram_portb_rdata[63:60];
+        exec_addr_a_q     <= ibram_portb_rdata[59:40];
+        exec_addr_b_q     <= ibram_portb_rdata[39:20];
+        exec_addr_result_q <= ibram_portb_rdata[19:0];
       end
 
       // Latch operands from data BRAM at end of EXEC

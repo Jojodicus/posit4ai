@@ -2,9 +2,9 @@
 //
 // AXI-Lite register map (base: 0x43C00000):
 //   0x00  CTRL       [0]=START, [1]=RESET  (write 1; self-clearing)
-//   0x04  STATUS     [0]=DONE,  [1]=RUNNING, [2]=ERROR  (read-only)
+//   0x04  STATUS     [0]=DONE,  [1]=RUNNING  (read-only)
 //   0x08  IBRAM_ADDR instruction BRAM word index (0 .. INSTR_DEPTH-1)
-//   0x0C  IBRAM_DATA_LO  instruction bits [31:0]
+//   0x0C  IBRAM_DATA_LO  instruction bits [31:0]  (addr_result[19:0], addr_b[11:0] low)
 //   0x10  IBRAM_DATA_HI  instruction bits [63:32]; write triggers BRAM write
 //   0x14  DBRAM_ADDR data BRAM word index (0 .. DATA_DEPTH-1)
 //   0x18  DBRAM_DATA data BRAM low word (DATA_WIDTH bits, zero-padded to 32)
@@ -53,7 +53,8 @@ module accel_axi
 
   // Control / status
   logic                            core_start;
-  logic                            core_reset;
+  logic                            core_reset;      // combinatorial request
+  logic                            core_reset_q;    // registered (1-cycle synchronous pulse)
   logic                            core_done;
   logic                            core_running;
 
@@ -73,7 +74,7 @@ module accel_axi
   // ── accel_core instantiation ─────────────────────────────────────────────────
   accel_core u_core (
     .clk_i,
-    .rst_ni     ( rst_ni && !core_reset ),
+    .rst_ni     ( rst_ni && !core_reset_q ),
     .start_i    ( core_start   ),
     .done_o     ( core_done    ),
     .running_o  ( core_running ),
@@ -170,6 +171,7 @@ module accel_axi
       wr_state_q        <= WR_IDLE;
       wr_addr_q         <= '0;
       wr_data_q         <= '0;
+      core_reset_q      <= 1'b0;
       reg_ibram_addr    <= '0;
       reg_ibram_data_lo <= '0;
       reg_ibram_data_hi <= '0;
@@ -177,7 +179,8 @@ module accel_axi
       reg_dbram_data    <= '0;
       reg_dbram_data_hi <= '0;
     end else begin
-      wr_state_q <= wr_state_d;
+      wr_state_q   <= wr_state_d;
+      core_reset_q <= core_reset;
 
       // Capture AW address
       if (wr_state_q == WR_IDLE && s_axi_awvalid)
@@ -226,7 +229,7 @@ module accel_axi
       RD_DATA: begin
         s_axi_rvalid = 1'b1;
         case (rd_addr_q[4:0])
-          5'h04: s_axi_rdata = {29'b0, core_running, 1'b0, core_done};  // STATUS
+          5'h04: s_axi_rdata = {30'b0, core_running, core_done};  // STATUS [0]=DONE [1]=RUNNING
           5'h08: s_axi_rdata = reg_ibram_addr;
           5'h0C: s_axi_rdata = reg_ibram_data_lo;
           5'h10: s_axi_rdata = reg_ibram_data_hi;

@@ -42,8 +42,9 @@ package config_pkg;
 
   // ============================================================
   // Memory Sizes
-  // INSTR_DEPTH: number of 64-bit instruction words
-  // DATA_DEPTH:  number of DATA_WIDTH-bit data words
+  // INSTR_DEPTH: number of 64-bit instruction words (max 2^20)
+  // DATA_DEPTH:  number of DATA_WIDTH-bit data words (max 2^20)
+  // Instruction format: 4-bit opcode + 3 × 20-bit addresses = 64 bits
   // ============================================================
   parameter int INSTR_DEPTH = 256;
   parameter int DATA_DEPTH  = 4096;

@@ -5,7 +5,7 @@
 //
 // QACC state for FPU mode:                acc_q register here; uses FMA unit.
 // QACC state for PAU mode, QUIRE_ENABLE=1: inside pau_top (internal quire register).
-// QACC state for PAU mode, QUIRE_ENABLE=0: pau_acc_q register here; uses PMUL + PADD/PSUB.
+// QACC state for PAU mode, QUIRE_ENABLE=0: acc_q register here; uses PMUL + PADD/PSUB.
 //   QACC_MADD / QACC_MSUB are two-pass: first PMUL, then PADD/PSUB via MAC_STEP → WAIT2.
 
 module arith_unit
@@ -40,8 +40,7 @@ module arith_unit
 
   // ── Result and accumulator registers ─────────────────────────────────────────
   logic [DATA_WIDTH-1:0]  result_q,    result_d;
-  logic [DATA_WIDTH-1:0]  acc_q,       acc_d;       // FPU accumulator
-  logic [DATA_WIDTH-1:0]  pau_acc_q,   pau_acc_d;   // PAU accumulator (QUIRE_ENABLE=0)
+  logic [DATA_WIDTH-1:0]  acc_q,       acc_d;       // unified accumulator (FPU or PAU no-quire)
   logic [DATA_WIDTH-1:0]  mul_result_q, mul_result_d; // temp: PMUL result in 2-pass MAC
 
   // ── PAU interface ─────────────────────────────────────────────────────────────
@@ -160,7 +159,7 @@ module arith_unit
         OP_MOV:       comb_result = operand_a_i;
         OP_RELU:      comb_result = operand_a_i[DATA_WIDTH-1] ? '0 : operand_a_i;
         // No-quire accumulator read (QUIRE_ENABLE=0; is_comb_op guard prevents reaching here otherwise)
-        OP_QACC_READ: if (!QUIRE_ENABLE) comb_result = pau_acc_q;
+        OP_QACC_READ: if (!QUIRE_ENABLE) comb_result = acc_q;
         default: ;
       endcase
     end else begin  // FPU
@@ -194,12 +193,12 @@ module arith_unit
       // mul_result_q holds the product from the first pass.
       if (opcode_q == OP_QACC_MSUB) begin
         pau_fu_op = PSUB;          // acc - product
-        pau_op_a  = pau_acc_q;
+        pau_op_a  = acc_q;
         pau_op_b  = mul_result_q;
       end else begin               // OP_QACC_MADD
         pau_fu_op = PADD;          // acc + product
         pau_op_a  = mul_result_q;
-        pau_op_b  = pau_acc_q;
+        pau_op_b  = acc_q;
       end
     end else begin
       case (opcode_i)
@@ -213,7 +212,7 @@ module arith_unit
             // No-quire: PADD(a, acc) → result = a + acc
             pau_fu_op = PADD;
             pau_op_a  = operand_a_i;
-            pau_op_b  = pau_acc_q;
+            pau_op_b  = acc_q;
           end else begin
             // Exact quire: QMADD(a, 1.0) → quire += a × 1.0 = a
             pau_fu_op = QMADD;
@@ -304,7 +303,6 @@ module arith_unit
     state_d         = state_q;
     result_d        = result_q;
     acc_d           = acc_q;
-    pau_acc_d       = pau_acc_q;
     mul_result_d    = mul_result_q;
     ready_o         = 1'b0;
     valid_o         = 1'b0;
@@ -317,19 +315,16 @@ module arith_unit
         ready_o = 1'b1;
         if (valid_i) begin
           if (is_comb_op) begin
+            // Zero-latency: result and valid_o available combinatorially this cycle.
+            // Stay in IDLE (no DONE detour). Accumulator updated at clock edge.
             result_d = comb_result;
-            // FPU accumulator state updates (no arithmetic unit needed)
-            if (ACCEL_TYPE == "FPU") begin
-              if (opcode_i == OP_QACC_CLEAR) acc_d = '0;
-              if (opcode_i == OP_QACC_NEG)
-                acc_d = {~acc_q[DATA_WIDTH-1], acc_q[DATA_WIDTH-2:0]};
-            end
-            // PAU accumulator state updates (QUIRE_ENABLE=0; no arithmetic unit needed)
-            if (ACCEL_TYPE == "PAU" && !QUIRE_ENABLE) begin
-              if (opcode_i == OP_QACC_CLEAR) pau_acc_d = '0;
-              if (opcode_i == OP_QACC_NEG)   pau_acc_d = ~pau_acc_q + DATA_WIDTH'(1);
-            end
-            state_d = DONE;
+            valid_o  = 1'b1;
+            if (opcode_i == OP_QACC_CLEAR)
+              acc_d = '0;
+            if (opcode_i == OP_QACC_NEG)
+              acc_d = (ACCEL_TYPE == "PAU") ? (~acc_q + DATA_WIDTH'(1))
+                                            : {~acc_q[DATA_WIDTH-1], acc_q[DATA_WIDTH-2:0]};
+            // state stays IDLE
           end else begin
             // Submit to arithmetic unit (1-cycle pulse)
             if (ACCEL_TYPE == "PAU") pau_valid_i_sig = 1'b1;
@@ -342,23 +337,15 @@ module arith_unit
       WAIT: begin
         if (arith_valid_o) begin
           result_d = arith_result;
-          if (ACCEL_TYPE == "PAU" && !QUIRE_ENABLE) begin
-            // No-quire PAU paths:
-            if (opcode_q inside {OP_QACC_MADD, OP_QACC_MSUB}) begin
-              // First pass (PMUL) done — latch product, issue second pass in MAC_STEP
-              mul_result_d = arith_result;
-              state_d = MAC_STEP;
-            end else begin
-              // QACC_ADD (PADD done): update accumulator; or ordinary PAU op
-              if (opcode_q == OP_QACC_ADD) pau_acc_d = arith_result;
-              state_d = DONE;
-            end
+          // No-quire PAU 2-pass MAC: first pass (PMUL) done → issue PADD/PSUB
+          if (ACCEL_TYPE == "PAU" && !QUIRE_ENABLE &&
+              opcode_q inside {OP_QACC_MADD, OP_QACC_MSUB}) begin
+            mul_result_d = arith_result;
+            state_d = MAC_STEP;
           end else begin
-            // FPU: update accumulator for QACC arithmetic ops
-            if (ACCEL_TYPE == "FPU") begin
-              if (opcode_q inside {OP_QACC_ADD, OP_QACC_MADD, OP_QACC_MSUB})
-                acc_d = arith_result;
-            end
+            // Update accumulator for QACC arithmetic ops (FPU or PAU no-quire)
+            if (opcode_q inside {OP_QACC_ADD, OP_QACC_MADD, OP_QACC_MSUB})
+              acc_d = arith_result;
             state_d = DONE;
           end
         end
@@ -375,7 +362,7 @@ module arith_unit
       WAIT2: begin
         // Waiting for the second PAU op (PADD/PSUB) result.
         if (arith_valid_o) begin
-          pau_acc_d = arith_result;
+          acc_d = arith_result;
           result_d  = arith_result;
           state_d   = DONE;
         end
@@ -390,7 +377,10 @@ module arith_unit
     endcase
   end
 
-  assign result_o = result_q;
+  // Bypass: comb_ops produce result_o combinatorially (zero-latency);
+  // registered result_q used for all other ops.
+  assign result_o = (state_q == IDLE && valid_i && is_comb_op)
+                    ? comb_result : result_q;
 
   // ── Registers ─────────────────────────────────────────────────────────────────
   always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -401,13 +391,11 @@ module arith_unit
       op_b_q       <= '0;
       result_q     <= '0;
       acc_q        <= '0;
-      pau_acc_q    <= '0;
       mul_result_q <= '0;
     end else begin
       state_q      <= state_d;
       result_q     <= result_d;
       acc_q        <= acc_d;
-      pau_acc_q    <= pau_acc_d;
       mul_result_q <= mul_result_d;
       // Latch operands when accepted
       if (state_q == IDLE && valid_i) begin
