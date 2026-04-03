@@ -124,7 +124,7 @@ module tb_accel_core
   task automatic run_program();
     @(posedge clk); start = 1;
     @(posedge clk); start = 0;
-    wait(done);
+    @(posedge done);  // wait for 0→1 edge (not level) to avoid stale done from HALT_S
     repeat(5) @(posedge clk);
   endtask
 

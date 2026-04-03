@@ -71,12 +71,11 @@ module pau_top import ariane_pkg::*; (
 
                 unique case (operator_delay)
                     QCLR:      quire_d = '0;
-                    // Gate on pau_valid_d: operator_delay holds QNEG for two cycles
-                    // (STALL completion + following READY idle cycle), so without
-                    // gating the negation fires twice and cancels itself out.
-                    QNEG:      quire_d = pau_valid_d
-                                           ? (~quire_q + {{QUIRELEN-1{1'b0}}, 1'b1})
-                                           : quire_q;
+                    // QNEG has latency=0, so operator_delay=QNEG persists for
+                    // exactly 1 cycle (arith_unit drives PADD-neutral immediately
+                    // after).  No gating needed — unlike flo_posit_top where all
+                    // ops have latency=1 and the gate prevents double-firing.
+                    QNEG:      quire_d = (~quire_q + {{QUIRELEN-1{1'b0}}, 1'b1});
                     QMADD,
                     QMSUB:     quire_d = pau_ready_o ? qmadd_o : quire_q;
                     default: ; // default case to suppress unique warning
