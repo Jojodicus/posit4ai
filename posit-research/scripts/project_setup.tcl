@@ -11,9 +11,9 @@ create_project -force $proj_name $proj_dir -part $target_part
 # Simulation fileset names.
 # Each accel_core fileset compiles tb_accel_core.sv against its own config_pkg override.
 # sim_axi uses PAU-32 config and tests the AXI register interface only.
-set accel_core_simsets {sim_pau8 sim_pau16 sim_pau32 sim_pau32_approx sim_pau64 sim_fpu32 sim_fpu64
+set accel_core_simsets {sim_pau8 sim_pau16 sim_pau32 sim_pau32_approx sim_pau32_approx_div sim_pau32_approx_sqrt sim_pau64 sim_fpu32 sim_fpu64
                         sim_pau8_noquire sim_pau16_noquire sim_pau32_noquire}
-set axi_simsets        {sim_axi sim_axi_pau64}
+set axi_simsets        {sim_axi sim_axi_pau64 sim_axi_fpu32}
 set all_simsets        [concat $accel_core_simsets $axi_simsets]
 
 foreach simset $all_simsets {
@@ -149,6 +149,8 @@ foreach {simset cfg_file} {
     sim_pau16            tb/configs/config_pkg_pau16.sv
     sim_pau32            tb/configs/config_pkg_pau32.sv
     sim_pau32_approx     tb/configs/config_pkg_pau32_approx.sv
+    sim_pau32_approx_div  tb/configs/config_pkg_pau32_approx_div.sv
+    sim_pau32_approx_sqrt tb/configs/config_pkg_pau32_approx_sqrt.sv
     sim_pau64            tb/configs/config_pkg_pau64.sv
     sim_fpu32            tb/configs/config_pkg_fpu32.sv
     sim_fpu64            tb/configs/config_pkg_fpu64.sv
@@ -167,6 +169,7 @@ foreach {simset cfg_file} {
 foreach {simset cfg_file} {
     sim_axi       tb/configs/config_pkg_pau32.sv
     sim_axi_pau64 tb/configs/config_pkg_pau64.sv
+    sim_axi_fpu32 tb/configs/config_pkg_fpu32.sv
 } {
     add_files -fileset $simset -norecurse [file normalize $root_dir/$cfg_file]
     add_files -fileset $simset -norecurse $root_dir/tb/tb_accel_axi.sv

@@ -29,6 +29,8 @@ set sim_filesets [list \
     sim_pau16            \
     sim_pau32            \
     sim_pau32_approx     \
+    sim_pau32_approx_div \
+    sim_pau32_approx_sqrt \
     sim_pau64            \
     sim_fpu32            \
     sim_fpu64            \
@@ -37,6 +39,7 @@ set sim_filesets [list \
     sim_pau32_noquire    \
     sim_axi              \
     sim_axi_pau64        \
+    sim_axi_fpu32        \
 ]
 
 # Track results
@@ -54,7 +57,7 @@ foreach sim_set $sim_filesets {
     current_fileset -simset [get_filesets $sim_set]
 
     # Set simulation runtime (long enough for typical tests)
-    set_property -name {xsim.simulate.runtime} -value {10us} -objects [get_filesets $sim_set]
+    set_property -name {xsim.simulate.runtime} -value {50us} -objects [get_filesets $sim_set]
 
     # Launch simulation
     set sim_result [catch {

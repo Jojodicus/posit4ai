@@ -1,11 +1,13 @@
 // Testbench for accel_core — configuration-aware, comprehensive.
 //
 // Compiled against different tb/configs/config_pkg_*.sv overrides by each sim fileset:
-//   sim_pau32        PAU  32-bit  exact
-//   sim_pau32_approx PAU  32-bit  approx-mul  (APPROX_MUL=1, DIV/SQRT still exact)
-//   sim_pau64        PAU  64-bit  exact
-//   sim_fpu32        FPU  32-bit
-//   sim_fpu64        FPU  64-bit
+//   sim_pau32             PAU  32-bit  exact
+//   sim_pau32_approx      PAU  32-bit  approx-mul  (APPROX_MUL=1, DIV/SQRT still exact)
+//   sim_pau32_approx_div  PAU  32-bit  approx-div  (APPROX_DIV=1)
+//   sim_pau32_approx_sqrt PAU  32-bit  approx-sqrt (APPROX_SQRT=1)
+//   sim_pau64             PAU  64-bit  exact
+//   sim_fpu32             FPU  32-bit
+//   sim_fpu64             FPU  64-bit
 //
 // ── Coverage ─────────────────────────────────────────────────────────────────────
 // All 16 opcodes exercised:
@@ -22,6 +24,10 @@
 //   - Quire/accumulator: full sequence including QACC_NEG
 //   - Halt then restart with a new program
 //   - Max BRAM address access (DATA_DEPTH-1)
+//   - Back-to-back long-latency ops (consecutive DIV/SQRT pipeline stress)
+//   - Quire accumulation stress (10-op sequence + NEG on zero)
+//   - Instruction BRAM saturation (all INSTR_DEPTH slots filled)
+//   - Approximate DIV/SQRT liveness (non-NaR output for APPROX_DIV/APPROX_SQRT)
 //
 // ── Reference encodings ───────────────────────────────────────────────────────────
 //   Value │ posit<32,2>  │ posit<64,2>          │ fp32        │ fp64
@@ -256,6 +262,31 @@ module tb_accel_core
     end
   endtask
 
+  // For approximate ops: check result is non-zero and non-NaR (liveness check).
+  // Approximate arithmetic (log-domain) doesn't produce exact results, so we
+  // only verify the output is a valid, non-special value.
+  task automatic check_not_nar(
+    input string label,
+    input int    dbram_slot
+  );
+    logic [DATA_WIDTH-1:0] got;
+    logic is_special;
+    read_dbram(dbram_slot, got);
+    if (ACCEL_TYPE == "PAU")
+      is_special = (got == '0) || (got == {1'b1, {(DATA_WIDTH-1){1'b0}}});  // 0 or NaR
+    else if (DATA_WIDTH == 32)
+      is_special = (got[30:23] == 8'hFF);  // Inf or NaN
+    else
+      is_special = (got[62:52] == 11'h7FF);
+    if (!is_special && got != '0) begin
+      $display("  PASS  %-35s  got 0x%0X (approx, non-NaR)", label, got);
+      pass_count++;
+    end else begin
+      $display("  FAIL  %-35s  got 0x%0X  expected non-zero, non-NaR", label, got);
+      fail_count++;
+    end
+  endtask
+
   // ── Test ─────────────────────────────────────────────────────────────────────
   initial begin
     pass_count = 0;
@@ -268,7 +299,10 @@ module tb_accel_core
     repeat(3) @(posedge clk);
 
     $display("===================================================================");
-    $display("Config: %s-%0d%s", ACCEL_TYPE, DATA_WIDTH, APPROX_MUL ? " approx-mul" : "");
+    $display("Config: %s-%0d%s%s%s", ACCEL_TYPE, DATA_WIDTH,
+             APPROX_MUL ? " approx-mul" : "",
+             APPROX_DIV ? " approx-div" : "",
+             APPROX_SQRT ? " approx-sqrt" : "");
     $display("===================================================================");
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -344,12 +378,22 @@ module tb_accel_core
     check("MUL  2*2=4 (fwd[13])  [14]",  V_4,    14);
 
     $display("-- Section 3: DIV + forwarding after long stall --");
-    check("DIV  4/2=2             [15]",  V_2,    15);
-    check("ADD  2+1=3 (fwd[15])  [16]",  V_3,    16);
+    if (APPROX_DIV) begin
+      check_not_nar("DIV  4/2~=2 (approx)    [15]", 15);
+      check_not_nar("ADD  ~2+1 (fwd,approx) [16]",  16);
+    end else begin
+      check("DIV  4/2=2             [15]",  V_2,    15);
+      check("ADD  2+1=3 (fwd[15])  [16]",  V_3,    16);
+    end
 
     $display("-- Section 4: SQRT + forwarding after long stall --");
-    check("SQRT sqrt(4)=2         [17]",  V_SQRT_2,   17);
-    check("ADD  2+2=4 (fwd[17])  [18]",  V_SQRT_FWD, 18);
+    if (APPROX_SQRT) begin
+      check_not_nar("SQRT sqrt(4)~=2 (approx)[17]", 17);
+      check_not_nar("ADD  ~2+2 (fwd,approx) [18]",  18);
+    end else begin
+      check("SQRT sqrt(4)=2         [17]",  V_SQRT_2,   17);
+      check("ADD  2+2=4 (fwd[17])  [18]",  V_SQRT_FWD, 18);
+    end
 
     $display("-- Section 5: Unary ops with forwarding --");
     check("NEG  -2.0              [19]",  V_NEG2, 19);
@@ -431,11 +475,126 @@ module tb_accel_core
 
     check("MOV  d[max]=2.0        [70]", V_2, 70);
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PROGRAM 4: Pipeline stress — consecutive long-latency ops
+    // Two back-to-back DIVs, then SQRT→DIV forwarding.
+    // ═══════════════════════════════════════════════════════════════════════════
+    $display("-- Pipeline stress: consecutive DIV/SQRT --");
+
+    // Restore d[0]=1.0 (may have been overwritten)
+    write_dbram(0, V_1[DATA_WIDTH-1:0]);
+
+    write_ibram(0, make_instr(OP_DIV,  20'd2,  20'd1,  20'd80)); // 4/2=2
+    write_ibram(1, make_instr(OP_DIV,  20'd2,  20'd2,  20'd81)); // 4/4=1 (stalls behind [80])
+    write_ibram(2, make_instr(OP_ADD,  20'd80, 20'd81, 20'd82)); // 2+1=3 (verifies both)
+    write_ibram(3, make_instr(OP_SQRT, 20'd2,  20'd0,  20'd83)); // sqrt(4)=2
+    write_ibram(4, make_instr(OP_DIV,  20'd83, 20'd0,  20'd84)); // 2/1=2 (fwd from SQRT)
+    write_ibram(5, make_instr(OP_HALT, 20'd0,  20'd0,  20'd0));
+
+    repeat(3) @(posedge clk);
+
+    $display("[%0t] Starting Program 4 (pipeline stress)...", $time);
+    run_program();
+    $display("[%0t] Program 4 done.", $time);
+
+    if (APPROX_DIV) begin
+      check_not_nar("DIV  4/2~=2 (b2b,approx)[80]", 80);
+      check_not_nar("DIV  4/4~=1 (b2b,approx)[81]", 81);
+      check_not_nar("ADD  ~2+~1 (approx)     [82]",  82);
+    end else begin
+      check("DIV  4/2=2 (b2b)       [80]", V_2, 80);
+      check("DIV  4/4=1 (b2b)       [81]", V_1, 81);
+      check("ADD  2+1=3 (b2b fwd)   [82]", V_3, 82);
+    end
+
+    // SQRT check: PAU-8/16 returns NaR for SQRT (FloPoCo limitation)
+    if (ACCEL_TYPE == "PAU" && (DATA_WIDTH == 8 || DATA_WIDTH == 16)) begin
+      check("SQRT sqrt(4)=NaR (8/16)[83]", V_NAR, 83);
+      // DIV of NaR/1 = NaR
+      check("DIV  NaR/1=NaR         [84]", V_NAR, 84);
+    end else if (APPROX_SQRT) begin
+      check_not_nar("SQRT sqrt(4)~=2 (approx)[83]", 83);
+      if (APPROX_DIV)
+        check_not_nar("DIV  ~2/1 (approx)     [84]", 84);
+      else
+        check_not_nar("DIV  ~2/1 (sqrt approx)[84]", 84);
+    end else if (APPROX_DIV) begin
+      check("SQRT sqrt(4)=2         [83]", V_2, 83);
+      check_not_nar("DIV  2/1~=2 (approx)   [84]", 84);
+    end else begin
+      check("SQRT sqrt(4)=2         [83]", V_2, 83);
+      check("DIV  2/1=2 (SQRT fwd)  [84]", V_2, 84);
+    end
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PROGRAM 5: Quire accumulation stress test
+    // Longer sequence: multiple QACC_ADD, QACC_MADD, QACC_MSUB, QACC_NEG.
+    // Also tests QACC_NEG on a freshly cleared (zero) accumulator.
+    // ═══════════════════════════════════════════════════════════════════════════
+    $display("-- Quire stress test --");
+
+    // Need d[0]=1.0, d[1]=2.0, d[2]=4.0 (should already be set)
+    // Also need d[5]=3.0 for QACC_MSUB(1, 3)
+    write_dbram(0, V_1[DATA_WIDTH-1:0]);
+    write_dbram(1, V_2[DATA_WIDTH-1:0]);
+    write_dbram(5, V_3[DATA_WIDTH-1:0]);
+
+    write_ibram( 0, make_instr(OP_QACC_CLEAR, 20'd0, 20'd0, 20'd0));
+    write_ibram( 1, make_instr(OP_QACC_ADD,   20'd0, 20'd0, 20'd0)); // acc=1
+    write_ibram( 2, make_instr(OP_QACC_ADD,   20'd0, 20'd0, 20'd0)); // acc=2
+    write_ibram( 3, make_instr(OP_QACC_ADD,   20'd0, 20'd0, 20'd0)); // acc=3
+    write_ibram( 4, make_instr(OP_QACC_MADD,  20'd1, 20'd1, 20'd0)); // acc=3+4=7
+    write_ibram( 5, make_instr(OP_QACC_MADD,  20'd1, 20'd1, 20'd0)); // acc=7+4=11
+    write_ibram( 6, make_instr(OP_QACC_MSUB,  20'd0, 20'd5, 20'd0)); // acc=11-3=8
+    write_ibram( 7, make_instr(OP_QACC_NEG,   20'd0, 20'd0, 20'd0)); // acc=-8
+    write_ibram( 8, make_instr(OP_QACC_MADD,  20'd5, 20'd5, 20'd0)); // acc=-8+9=1
+    write_ibram( 9, make_instr(OP_QACC_READ,  20'd0, 20'd0, 20'd90));// d[90]=1
+    // Test QACC_NEG on zero accumulator
+    write_ibram(10, make_instr(OP_QACC_CLEAR, 20'd0, 20'd0, 20'd0));
+    write_ibram(11, make_instr(OP_QACC_NEG,   20'd0, 20'd0, 20'd0)); // acc=-0=0
+    write_ibram(12, make_instr(OP_QACC_READ,  20'd0, 20'd0, 20'd91));// d[91]=0
+    write_ibram(13, make_instr(OP_HALT,        20'd0, 20'd0, 20'd0));
+
+    repeat(3) @(posedge clk);
+
+    $display("[%0t] Starting Program 5 (quire stress)...", $time);
+    run_program();
+    $display("[%0t] Program 5 done.", $time);
+
+    check("QACC stress: 3×ADD+2×MADD-MSUB-NEG+MADD=1 [90]", V_1, 90);
+    check("QACC NEG(0)=0                              [91]", V_0, 91);
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PROGRAM 6: Instruction BRAM saturation
+    // Fill all INSTR_DEPTH slots with MOVs, real op near end, HALT at last slot.
+    // ═══════════════════════════════════════════════════════════════════════════
+    $display("-- Instruction BRAM saturation --");
+
+    // Restore d[0]=1.0, d[1]=2.0
+    write_dbram(0, V_1[DATA_WIDTH-1:0]);
+    write_dbram(1, V_2[DATA_WIDTH-1:0]);
+
+    for (int i = 0; i < INSTR_DEPTH-2; i++)
+      write_ibram(i, make_instr(OP_MOV, 20'd0, 20'd0, 20'd0)); // NOP-like: MOV d[0]→d[0]
+    write_ibram(INSTR_DEPTH-2, make_instr(OP_ADD, 20'd0, 20'd1, 20'd95)); // 1+2=3
+    write_ibram(INSTR_DEPTH-1, make_instr(OP_HALT, 20'd0, 20'd0, 20'd0));
+
+    repeat(3) @(posedge clk);
+
+    $display("[%0t] Starting Program 6 (BRAM saturation, %0d instrs)...", $time, INSTR_DEPTH);
+    run_program();
+    $display("[%0t] Program 6 done.", $time);
+
+    check("ADD 1+2=3 at INSTR_DEPTH-2 [95]", V_3, 95);
+
     // ── Summary ───────────────────────────────────────────────────────────────
     $display("===================================================================");
-    $display("Results: %0d passed, %0d failed  (%s-%0d%s)",
+    $display("Results: %0d passed, %0d failed  (%s-%0d%s%s%s)",
              pass_count, fail_count,
-             ACCEL_TYPE, DATA_WIDTH, APPROX_MUL ? "-approx" : "");
+             ACCEL_TYPE, DATA_WIDTH,
+             APPROX_MUL ? "-amul" : "",
+             APPROX_DIV ? "-adiv" : "",
+             APPROX_SQRT ? "-asqrt" : "");
     if (fail_count > 0)
       $display("FAIL: %0d test(s) failed", fail_count);
     else
