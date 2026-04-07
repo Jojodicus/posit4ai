@@ -1,4 +1,4 @@
-// PERCIVAL Accelerator — AXI-Lite slave wrapping accel_core.
+// PERCIVAL Accelerator — AXI-Lite slave.
 //
 // AXI-Lite register map (base: 0x43C00000):
 //   0x00  CTRL       [0]=START, [1]=RESET  (write 1; self-clearing)
@@ -10,8 +10,18 @@
 //   0x18  DBRAM_DATA data BRAM low word (DATA_WIDTH bits, zero-padded to 32)
 //   0x1C  DBRAM_DATA_HI data BRAM high word (only meaningful for DATA_WIDTH=64)
 //
+// DBRAM address auto-increment: after every write to DBRAM_DATA (0x18, 32-bit) or
+// DBRAM_DATA_HI (0x1C, 64-bit) the DBRAM_ADDR register increments by one, allowing
+// the host to stream consecutive data words without re-writing DBRAM_ADDR between
+// each word.  Reads of 0x18 (32-bit) or 0x1C (64-bit) also auto-increment.
+// An explicit write to 0x14 always overrides.
+//
 // AXI safety: while RUNNING=1, AXI writes to BRAM registers are ACK'd but dropped.
 // AXI reads return the last values written to the shadow registers.
+//
+// accel_core is NOT instantiated here; it lives in the parent (zynq_accel_top or
+// tb_accel_axi).  This module exposes the IBRAM/DBRAM host ports and control
+// signals so an arbiter can sit between this slave and the core.
 
 module accel_axi
   import config_pkg::*;
@@ -40,7 +50,25 @@ module accel_axi
   (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI RDATA"   *) output logic [AXI_DATA_WIDTH-1:0]  s_axi_rdata,
   (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI RRESP"   *) output logic [1:0]                s_axi_rresp,
   (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI RVALID"  *) output logic                      s_axi_rvalid,
-  (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI RREADY"  *) input  logic                      s_axi_rready
+  (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI RREADY"  *) input  logic                      s_axi_rready,
+
+  // ── accel_core control interface ────────────────────────────────────────────
+  output logic start_o,    // one-cycle start pulse
+  output logic rst_no,     // combined reset (rst_ni gated with CTRL.RESET)
+  input  logic done_i,     // from accel_core.done_o
+  input  logic running_i,  // from accel_core.running_o
+
+  // ── Instruction BRAM host port ──────────────────────────────────────────────
+  output logic [$clog2(INSTR_DEPTH)-1:0] ibram_addr_o,
+  output logic [63:0]                    ibram_wdata_o,
+  output logic                           ibram_we_o,
+  input  logic [63:0]                    ibram_rdata_i,
+
+  // ── Data BRAM host port (routed via arbiter) ────────────────────────────────
+  output logic [$clog2(DATA_DEPTH)-1:0]  dbram_addr_o,
+  output logic [DATA_WIDTH-1:0]          dbram_wdata_o,
+  output logic                           dbram_we_o,
+  input  logic [DATA_WIDTH-1:0]          dbram_rdata_i
 );
 
   // ── Internal registers (AXI shadow) ──────────────────────────────────────────
@@ -52,78 +80,52 @@ module accel_axi
   logic [31:0]                     reg_dbram_data_hi;
 
   // Control / status
-  logic                            core_start;
   logic                            core_reset;      // combinatorial request
   logic                            core_reset_q;    // registered (1-cycle synchronous pulse)
-  logic                            core_done;
-  logic                            core_running;
 
-  // BRAM host interface
-  logic [$clog2(INSTR_DEPTH)-1:0]  ibram_addr;
-  logic [63:0]                     ibram_wdata;
-  logic                            ibram_we;
-  logic [63:0]                     ibram_rdata;
+  // Combined reset output
+  assign rst_no = rst_ni && !core_reset_q;
 
-  logic [$clog2(DATA_DEPTH)-1:0]   dbram_addr;
-  logic [DATA_WIDTH-1:0]           dbram_wdata;
-  logic                            dbram_we;
-  logic [DATA_WIDTH-1:0]           dbram_rdata;
-  logic [63:0]                     dbram_rdata_64;
-  assign dbram_rdata_64 = 64'(dbram_rdata);
+  // BRAM address and write-data assignments (combinatorial)
+  assign ibram_addr_o = reg_ibram_addr[$clog2(INSTR_DEPTH)-1:0];
+  assign dbram_addr_o = reg_dbram_addr[$clog2(DATA_DEPTH)-1:0];
 
   // AXI write channel state — declared here so wr_data_q is in scope for the
-  // ibram_wdata / dbram_wdata assigns below (forward-reference warning fix).
+  // ibram_wdata_o / dbram_wdata_o assigns below (forward-reference warning fix).
   typedef enum logic [1:0] { WR_IDLE, WR_ADDR, WR_DATA, WR_RESP } wr_state_t;
   wr_state_t wr_state_q, wr_state_d;
 
   logic [AXI_ADDR_WIDTH-1:0] wr_addr_q;
   logic [AXI_DATA_WIDTH-1:0] wr_data_q;
 
-  // ── accel_core instantiation ─────────────────────────────────────────────────
-  accel_core u_core (
-    .clk_i,
-    .rst_ni     ( rst_ni && !core_reset_q ),
-    .start_i    ( core_start   ),
-    .done_o     ( core_done    ),
-    .running_o  ( core_running ),
-    .ibram_addr_i  ( ibram_addr  ),
-    .ibram_wdata_i ( ibram_wdata ),
-    .ibram_we_i    ( ibram_we    ),
-    .ibram_rdata_o ( ibram_rdata ),
-    .dbram_addr_i  ( dbram_addr  ),
-    .dbram_wdata_i ( dbram_wdata ),
-    .dbram_we_i    ( dbram_we    ),
-    .dbram_rdata_o ( dbram_rdata )
-  );
-
-  // Wire host BRAM access (dropped when running)
-  assign ibram_addr  = reg_ibram_addr[$clog2(INSTR_DEPTH)-1:0];
-  assign dbram_addr  = reg_dbram_addr[$clog2(DATA_DEPTH)-1:0];
-
   // BRAM write data: bypass the shadow register for the triggering word,
   // since the shadow register update is sequential (same clock edge as WE)
   // and would otherwise supply the stale value.
   //   IBRAM trigger = write to 0x10 (DATA_HI) → high word from wr_data_q
   //   DBRAM trigger = write to 0x18 (32-bit) or 0x1C (64-bit) → from wr_data_q
-  assign ibram_wdata = ibram_we ? {wr_data_q[31:0], reg_ibram_data_lo}
-                                : {reg_ibram_data_hi, reg_ibram_data_lo};
-  assign dbram_wdata = dbram_we
+  assign ibram_wdata_o = ibram_we_o ? {wr_data_q[31:0], reg_ibram_data_lo}
+                                    : {reg_ibram_data_hi, reg_ibram_data_lo};
+  assign dbram_wdata_o = dbram_we_o
       ? ((DATA_WIDTH == 64) ? {wr_data_q[DATA_WIDTH-33:0], reg_dbram_data}
                             : wr_data_q[DATA_WIDTH-1:0])
       : ((DATA_WIDTH == 64) ? {reg_dbram_data_hi[DATA_WIDTH-33:0], reg_dbram_data}
                             : reg_dbram_data[DATA_WIDTH-1:0]);
 
+  // BRAM read data (64-bit zero-extended for read-path mux)
+  logic [63:0] dbram_rdata_64;
+  assign dbram_rdata_64 = 64'(dbram_rdata_i);
+
   // ── AXI write channel ─────────────────────────────────────────────────────────
   always_comb begin
-    wr_state_d  = wr_state_q;
+    wr_state_d    = wr_state_q;
     s_axi_awready = 1'b0;
     s_axi_wready  = 1'b0;
     s_axi_bvalid  = 1'b0;
     s_axi_bresp   = 2'b00;
-    core_start    = 1'b0;
+    start_o       = 1'b0;
     core_reset    = 1'b0;
-    ibram_we      = 1'b0;
-    dbram_we      = 1'b0;
+    ibram_we_o    = 1'b0;
+    dbram_we_o    = 1'b0;
 
     unique case (wr_state_q)
       WR_IDLE: begin
@@ -147,17 +149,17 @@ module accel_axi
           // Decode and dispatch the write
           case (wr_addr_q[4:0])
             5'h00: begin  // CTRL
-              if (wr_data_q[0]) core_start = !core_running;
+              if (wr_data_q[0]) start_o    = !running_i;
               if (wr_data_q[1]) core_reset = 1'b1;
             end
             5'h10: begin  // IBRAM_DATA_HI — triggers BRAM write
-              if (!core_running) ibram_we = 1'b1;
+              if (!running_i) ibram_we_o = 1'b1;
             end
             5'h18: begin  // DBRAM_DATA — triggers data BRAM write (32-bit wide)
-              if (!core_running && DATA_WIDTH <= 32) dbram_we = 1'b1;
+              if (!running_i && DATA_WIDTH <= 32) dbram_we_o = 1'b1;
             end
             5'h1C: begin  // DBRAM_DATA_HI — triggers data BRAM write (64-bit wide)
-              if (!core_running && DATA_WIDTH == 64) dbram_we = 1'b1;
+              if (!running_i && DATA_WIDTH == 64) dbram_we_o = 1'b1;
             end
             default: ;
           endcase
@@ -196,17 +198,32 @@ module accel_axi
       if (wr_state_q == WR_ADDR && s_axi_wvalid)
         wr_data_q <= s_axi_wdata;
 
-      // Write to shadow registers (always; BRAM write only when !running, handled above)
+      // Write to shadow registers (always; BRAM write only when !running, handled above).
+      // After each data-word write trigger (0x18 for 32-bit, 0x1C for 64-bit) the
+      // DBRAM_ADDR register auto-increments so that the host can stream consecutive
+      // words without re-writing the address register between beats.
+      // After reading the last beat of a data word the address likewise auto-increments
+      // to enable streaming reads.  An explicit write to 0x14 always overrides.
       if (wr_state_q == WR_RESP && s_axi_bready) begin
         case (wr_addr_q[4:0])
           5'h08: reg_ibram_addr    <= wr_data_q;
           5'h0C: reg_ibram_data_lo <= wr_data_q;
           5'h10: reg_ibram_data_hi <= wr_data_q;
           5'h14: reg_dbram_addr    <= wr_data_q;
-          5'h18: reg_dbram_data    <= wr_data_q;
-          5'h1C: reg_dbram_data_hi <= wr_data_q;
+          5'h18: begin
+            reg_dbram_data <= wr_data_q;
+            if (DATA_WIDTH <= 32) reg_dbram_addr <= reg_dbram_addr + 1;
+          end
+          5'h1C: begin
+            reg_dbram_data_hi <= wr_data_q;
+            if (DATA_WIDTH == 64) reg_dbram_addr <= reg_dbram_addr + 1;
+          end
           default: ;
         endcase
+      end else if (rd_state_q == RD_DATA && s_axi_rready) begin
+        if ((DATA_WIDTH <= 32 && rd_addr_q[4:0] == 5'h18) ||
+            (DATA_WIDTH == 64 && rd_addr_q[4:0] == 5'h1C))
+          reg_dbram_addr <= reg_dbram_addr + 1;
       end
     end
   end
@@ -231,7 +248,7 @@ module accel_axi
       RD_DATA: begin
         s_axi_rvalid = 1'b1;
         case (rd_addr_q[4:0])
-          5'h04: s_axi_rdata = {30'b0, core_running, core_done};  // STATUS [0]=DONE [1]=RUNNING
+          5'h04: s_axi_rdata = {30'b0, running_i, done_i};  // STATUS [0]=DONE [1]=RUNNING
           5'h08: s_axi_rdata = reg_ibram_addr;
           5'h0C: s_axi_rdata = reg_ibram_data_lo;
           5'h10: s_axi_rdata = reg_ibram_data_hi;

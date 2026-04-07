@@ -125,6 +125,8 @@ add_files -norecurse $root_dir/harness/flo_posit_top.sv
 add_files -norecurse $root_dir/harness/arith_unit.sv
 add_files -norecurse $root_dir/harness/accel_core.sv
 add_files -norecurse $root_dir/harness/accel_axi.sv
+add_files -norecurse $root_dir/harness/accel_dbram_arb.sv
+add_files -norecurse $root_dir/harness/accel_axi_burst.sv
 add_files -norecurse $root_dir/harness/accel_harness.sv
 add_files -norecurse $root_dir/harness/zynq_accel_top.sv
 

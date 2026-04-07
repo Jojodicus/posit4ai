@@ -151,3 +151,4 @@ Edit `scripts/project_setup.tcl`:
 - `harness/pau_top.sv` and `harness/fpu_wrap.sv` are local editable copies from PERCIVAL
 - Block design (`zynq_ps`) created by `scripts/create_bd.tcl`, sourced from `project_setup.tcl`
 - Comparison matrix: PAU-32 vs FPU-32, PAU-32(approx) vs PAU-32(exact), PAU-64 vs PAU-32
+- After running tests, the test logs can be viewed in `vivado_proj/posit_research.sim/*/behav/xsim/simulate.log`

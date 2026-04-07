@@ -123,10 +123,34 @@ make_bd_intf_pins_external [get_bd_intf_pins axi_pc/M_AXI]
 # Rename from auto-generated M_AXI_0 to M_AXI_LITE
 set_property name M_AXI_LITE [get_bd_intf_ports M_AXI_0]
 
+# --- Enable M_AXI_GP1 for burst DBRAM access (PS master → PL slave) ---
+# GP1 is the second PS7 AXI3 master port (PS CPU → PL fabric direction).
+# NOTE: S_AXI_HP0 is PL→PS direction (PL DMA → DDR), NOT suitable for PS→PL BRAM.
+# GP1 (32-bit AXI3) converted to AXI4 gives burst-capable PS→PL path for bulk DBRAM loads.
+set_property CONFIG.PCW_USE_M_AXI_GP1 {1} [get_bd_cells ps7]
+
+# AXI Protocol Converter: AXI3 (GP1) → AXI4 (burst-capable, 8-bit AWLEN)
+create_bd_cell -type ip -vlnv xilinx.com:ip:axi_protocol_converter:2.1 axi_pc_gp1
+set_property -dict [list \
+    CONFIG.SI_PROTOCOL {AXI3} \
+    CONFIG.MI_PROTOCOL {AXI4} \
+] [get_bd_cells axi_pc_gp1]
+
+# GP1 and its protocol converter share FCLK_CLK0
+connect_bd_net [get_bd_pins ps7/FCLK_CLK0] [get_bd_pins ps7/M_AXI_GP1_ACLK]
+connect_bd_net [get_bd_pins ps7/FCLK_CLK0] [get_bd_pins axi_pc_gp1/aclk]
+connect_bd_net [get_bd_pins rst_ps7/peripheral_aresetn] [get_bd_pins axi_pc_gp1/aresetn]
+
+# GP1 → axi_pc_gp1 → exported M_AXI_BURST (burst-capable AXI4, 32-bit data)
+connect_bd_intf_net [get_bd_intf_pins ps7/M_AXI_GP1] [get_bd_intf_pins axi_pc_gp1/S_AXI]
+make_bd_intf_pins_external [get_bd_intf_pins axi_pc_gp1/M_AXI]
+set_property name M_AXI_BURST [get_bd_intf_ports {M_AXI_0}]
+
 # --- Address Space ---
 # PS7 M_AXI_GP0 maps to 0x4000_0000 - 0x7FFF_FFFF by default.
 # With the AXI-Lite port exported externally, no in-BD address segment is needed.
-# The software driver accesses registers at base address 0x43C0_0000.
+# The software driver accesses registers at base address 0x43C0_0000 (GP0).
+# The burst slave is mapped at 0x4000_0000 (GP1) with 64 KiB window.
 
 # Exclude unconnected address segments to avoid validation warnings
 catch {
@@ -164,8 +188,9 @@ puts "=========================================="
 puts "Block Design Created Successfully"
 puts "=========================================="
 puts "  PS7 FCLK_CLK0:     100 MHz"
-puts "  AXI Slave base:    0x43C00000"
+puts "  GP0 slave base:    0x43C00000  (control + IBRAM, AXI4-Lite)"
+puts "  GP1 burst base:    0x40000000  (DBRAM bulk load, AXI4 burst)"
 puts "  BD Wrapper:        zynq_ps_wrapper"
-puts "  Exported ports:    FCLK_CLK0, peripheral_aresetn, M_AXI_LITE_*"
-puts "  Top-level wrapper: zynq_accel_top (connects BD + accel_axi)"
+puts "  Exported ports:    FCLK_CLK0, peripheral_aresetn, M_AXI_LITE_*, M_AXI_BURST_*"
+puts "  Top-level wrapper: zynq_accel_top (connects BD + accel_axi + accel_axi_burst)"
 puts "=========================================="
