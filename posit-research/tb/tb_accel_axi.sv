@@ -79,8 +79,13 @@ module tb_accel_axi
   );
 
   // ── Primitive AXI helpers ────────────────────────────────────────────────────
+  // #1 after every @(posedge clk) places signal changes in the next simulation
+  // time step (1 ps), safely after the DUT's always_ff has sampled at the clock
+  // edge.  Without this, the testbench's blocking assignments race with the
+  // DUT's flip-flop sampling in xsim's active region — a race that resolves
+  // differently for PAU vs FPU builds due to different elaboration/event order.
   task automatic axi_write(input logic [31:0] addr, input logic [31:0] data);
-    @(posedge clk);
+    @(posedge clk); #1;
     s_axi_awaddr  = addr;
     s_axi_awvalid = 1;
     s_axi_wdata   = data;
@@ -88,25 +93,25 @@ module tb_accel_axi
     s_axi_wvalid  = 1;
     s_axi_bready  = 1;
     fork
-      begin wait(s_axi_awready); @(posedge clk); s_axi_awvalid = 0; end
-      begin wait(s_axi_wready);  @(posedge clk); s_axi_wvalid  = 0; end
+      begin wait(s_axi_awready); @(posedge clk); #1; s_axi_awvalid = 0; end
+      begin wait(s_axi_wready);  @(posedge clk); #1; s_axi_wvalid  = 0; end
     join
     wait(s_axi_bvalid);
-    @(posedge clk);
+    @(posedge clk); #1;
     s_axi_bready = 0;
   endtask
 
   task automatic axi_read(input logic [31:0] addr, output logic [31:0] data);
-    @(posedge clk);
+    @(posedge clk); #1;
     s_axi_araddr  = addr;
     s_axi_arvalid = 1;
     s_axi_rready  = 1;
     wait(s_axi_arready);
-    @(posedge clk);
+    @(posedge clk); #1;
     s_axi_arvalid = 0;
     wait(s_axi_rvalid);
     data = s_axi_rdata;
-    @(posedge clk);
+    @(posedge clk); #1;
     s_axi_rready = 0;
   endtask
 

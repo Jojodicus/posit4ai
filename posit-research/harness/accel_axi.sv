@@ -71,6 +71,14 @@ module accel_axi
   logic [63:0]                     dbram_rdata_64;
   assign dbram_rdata_64 = 64'(dbram_rdata);
 
+  // AXI write channel state — declared here so wr_data_q is in scope for the
+  // ibram_wdata / dbram_wdata assigns below (forward-reference warning fix).
+  typedef enum logic [1:0] { WR_IDLE, WR_ADDR, WR_DATA, WR_RESP } wr_state_t;
+  wr_state_t wr_state_q, wr_state_d;
+
+  logic [AXI_ADDR_WIDTH-1:0] wr_addr_q;
+  logic [AXI_DATA_WIDTH-1:0] wr_data_q;
+
   // ── accel_core instantiation ─────────────────────────────────────────────────
   accel_core u_core (
     .clk_i,
@@ -106,12 +114,6 @@ module accel_axi
                             : reg_dbram_data[DATA_WIDTH-1:0]);
 
   // ── AXI write channel ─────────────────────────────────────────────────────────
-  typedef enum logic [1:0] { WR_IDLE, WR_ADDR, WR_DATA, WR_RESP } wr_state_t;
-  wr_state_t wr_state_q, wr_state_d;
-
-  logic [AXI_ADDR_WIDTH-1:0] wr_addr_q;
-  logic [AXI_DATA_WIDTH-1:0] wr_data_q;
-
   always_comb begin
     wr_state_d  = wr_state_q;
     s_axi_awready = 1'b0;

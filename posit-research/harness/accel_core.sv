@@ -40,6 +40,16 @@ module accel_core
   logic [63:0]         instr_mem [0:INSTR_DEPTH-1];
   logic [DATA_WIDTH-1:0] data_mem [0:DATA_DEPTH-1];
 
+  // Simulation: initialise BRAMs to zero so unwritten slots decode as OP_HALT
+  // rather than X, making "did the AXI write land?" failures obvious.
+  // Vivado ignores initial blocks for BRAM inference (they become INIT attributes).
+  // synthesis translate_off
+  initial begin
+    for (int i = 0; i < INSTR_DEPTH; i++) instr_mem[i] = '0;
+    for (int i = 0; i < DATA_DEPTH;  i++) data_mem[i]  = '0;
+  end
+  // synthesis translate_on
+
   // BRAM address and control signals
   logic [$clog2(INSTR_DEPTH)-1:0] ibram_portb_addr;   // sequencer fetch port
   logic [63:0]                    ibram_portb_rdata;   // registered output

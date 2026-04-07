@@ -164,7 +164,9 @@ module arith_unit
       endcase
     end else begin  // FPU
       case (opcode_i)
-        OP_NEG:        comb_result = {~operand_a_i[DATA_WIDTH-1], operand_a_i[DATA_WIDTH-2:0]};
+        OP_NEG:        comb_result = (operand_a_i == '0)
+                                   ? '0
+                                   : {~operand_a_i[DATA_WIDTH-1], operand_a_i[DATA_WIDTH-2:0]};
         OP_ABS:        comb_result = {1'b0, operand_a_i[DATA_WIDTH-2:0]};
         OP_MOV:        comb_result = operand_a_i;
         OP_RELU:       comb_result = operand_a_i[DATA_WIDTH-1] ? '0 : operand_a_i;
@@ -322,8 +324,10 @@ module arith_unit
             if (opcode_i == OP_QACC_CLEAR)
               acc_d = '0;
             if (opcode_i == OP_QACC_NEG)
-              acc_d = (ACCEL_TYPE == "PAU") ? (~acc_q + DATA_WIDTH'(1))
-                                            : {~acc_q[DATA_WIDTH-1], acc_q[DATA_WIDTH-2:0]};
+              acc_d = (ACCEL_TYPE == "PAU")
+                      ? (~acc_q + DATA_WIDTH'(1))
+                      : (acc_q == '0 ? '0
+                                     : {~acc_q[DATA_WIDTH-1], acc_q[DATA_WIDTH-2:0]});
             // state stays IDLE
           end else begin
             // Submit to arithmetic unit (1-cycle pulse)
