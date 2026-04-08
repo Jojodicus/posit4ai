@@ -28,6 +28,11 @@ module arith_unit
   // Used for QACC_ADD (PAU mode, QUIRE_ENABLE=1): QACC_ADD(a) = QMADD(a, 1.0)
   localparam logic [DATA_WIDTH-1:0] POSIT_ONE = DATA_WIDTH'(1) << (DATA_WIDTH-2);
 
+  // Compile-time flags as plain packed bits — avoids string comparisons inside
+  // always_comb/unique-case blocks where Vivado rejects non-packed expressions.
+  localparam bit IS_PAU       = (ACCEL_TYPE == "PAU");
+  localparam bit PAU_NO_QUIRE = IS_PAU & ~QUIRE_ENABLE;
+
   // ── State machine ────────────────────────────────────────────────────────────
   // MAC_STEP: issues the second PAU op (PADD/PSUB) for no-quire QACC_MADD/MSUB
   // WAIT2:    waits for the second PAU op result
@@ -123,8 +128,8 @@ module arith_unit
   logic             arith_valid_o;
   logic [DATA_WIDTH-1:0] arith_result;
 
-  assign arith_valid_o = (ACCEL_TYPE == "PAU") ? pau_valid_o_sig : fpu_valid_o_sig;
-  assign arith_result  = (ACCEL_TYPE == "PAU")
+  assign arith_valid_o = IS_PAU ? pau_valid_o_sig : fpu_valid_o_sig;
+  assign arith_result  = IS_PAU
                          ? pau_result_sig[DATA_WIDTH-1:0]
                          : fpu_result_sig[DATA_WIDTH-1:0];
 
@@ -140,7 +145,7 @@ module arith_unit
       //   PAU + QUIRE_ENABLE=0: handled here (posit neg = 2's complement, read acc directly)
       //   PAU + QUIRE_ENABLE=1: routed to quire in pau_top (QCLR/QNEG/QROUND), not here
       OP_QACC_CLEAR, OP_QACC_NEG, OP_QACC_READ:
-        if (ACCEL_TYPE == "FPU" || (ACCEL_TYPE == "PAU" && !QUIRE_ENABLE))
+        if (!IS_PAU || PAU_NO_QUIRE)
           is_comb_op = 1'b1;
       default: ;
     endcase
@@ -150,7 +155,7 @@ module arith_unit
   logic [DATA_WIDTH-1:0] comb_result;
   always_comb begin
     comb_result = '0;
-    if (ACCEL_TYPE == "PAU") begin
+    if (IS_PAU) begin
       case (opcode_i)
         OP_NEG:       comb_result = ~operand_a_i + DATA_WIDTH'(1);  // 2's complement
         OP_ABS:       comb_result = operand_a_i[DATA_WIDTH-1]
@@ -238,8 +243,15 @@ module arith_unit
     // This ensures operator_delay returns to a quire-neutral value between
     // operations, preventing stale PositMAC output from corrupting the quire.
     pau_fu_data.operator  = pau_valid_i_sig ? pau_fu_op : PADD;
-    pau_fu_data.operand_a = {{riscv::XLEN-DATA_WIDTH{1'b0}}, pau_op_a};
-    pau_fu_data.operand_b = {{riscv::XLEN-DATA_WIDTH{1'b0}}, pau_op_b};
+    // Zero-pad to XLEN width; when DATA_WIDTH==XLEN the replication count would be
+    // 0 (unsupported by Vivado), so assign directly in that case.
+    if (DATA_WIDTH == riscv::XLEN) begin
+      pau_fu_data.operand_a = pau_op_a;
+      pau_fu_data.operand_b = pau_op_b;
+    end else begin
+      pau_fu_data.operand_a = {{riscv::XLEN-DATA_WIDTH{1'b0}}, pau_op_a};
+      pau_fu_data.operand_b = {{riscv::XLEN-DATA_WIDTH{1'b0}}, pau_op_b};
+    end
   end
 
   // ── FPU fu_data_t construction ────────────────────────────────────────────────
@@ -324,14 +336,14 @@ module arith_unit
             if (opcode_i == OP_QACC_CLEAR)
               acc_d = '0;
             if (opcode_i == OP_QACC_NEG)
-              acc_d = (ACCEL_TYPE == "PAU")
+              acc_d = IS_PAU
                       ? (~acc_q + DATA_WIDTH'(1))
                       : (acc_q == '0 ? '0
                                      : {~acc_q[DATA_WIDTH-1], acc_q[DATA_WIDTH-2:0]});
             // state stays IDLE
           end else begin
             // Submit to arithmetic unit (1-cycle pulse)
-            if (ACCEL_TYPE == "PAU") pau_valid_i_sig = 1'b1;
+            if (IS_PAU) pau_valid_i_sig = 1'b1;
             else                     fpu_valid_i_sig = 1'b1;
             state_d = WAIT;
           end
@@ -342,7 +354,7 @@ module arith_unit
         if (arith_valid_o) begin
           result_d = arith_result;
           // No-quire PAU 2-pass MAC: first pass (PMUL) done → issue PADD/PSUB
-          if (ACCEL_TYPE == "PAU" && !QUIRE_ENABLE &&
+          if (PAU_NO_QUIRE &&
               opcode_q inside {OP_QACC_MADD, OP_QACC_MSUB}) begin
             mul_result_d = arith_result;
             state_d = MAC_STEP;
