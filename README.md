@@ -68,10 +68,12 @@ riscv64-unknown-elf-objdump -dCS --visualize-jumps=extended-color posit64_testsu
 notice the `.insn 4, ...` in the test subroutines, these are our posit instructions
 (we are using the stock RISC-V objdump, so it has no idea about the Xposit extension)
 
-### Simulating with a Software Emulator
+### Simulating with a Software Emulator (Spike)
 
-Using a forked version of the [Spike](https://github.com/riscv-software-src/riscv-isa-sim) ISA Simulator,
+Using a [forked version of the Spike ISA Simulator](https://github.com/jojodicus/spike-xposit),
 you can run simple statically linked ELFs with Xposit support.
+
+Don't forget to source `preparepath.sh` again (if not previously done in the shell session).
 
 1. Build the Proxy Kernel
 ```sh
@@ -80,20 +82,32 @@ cd riscv-pk/build
 ../configure --prefix=$RISCV --host=riscv64-unknown-elf
 make -j4
 cd ../..
+ln -s riscv-pk/build/pk pk
 ```
-2. Compile a minimal C program without Posits
+2. Build Spike
+```sh
+mkdir spike-xposit/build
+cd spike-xposit/build
+../configure --prefix=$XPOSIT_INSTALL_DIR
+make -j8 install
+cd ../..
+```
+3. Compile a minimal C program without Posits
 ```sh
 riscv64-unknown-elf-gcc csrc/hello-world.c -o hello-world.elf
 ```
-3. Test with Spike and the Proxy Kernel
+4. Test with Spike and the Proxy Kernel
 ```sh
-spike riscv-pk/build/pk hello-world.elf
+spike pk hello-world.elf
+```
+5. Test the PERCIVAL XPosit LLVM testsuite (compile steps shown in section above)
+```sh
+spike pk posit64_testsuite_llvm.elf
 ```
 
-For now, only tested with spike from the CachyOS repos.
+Division and square root might differ in their output from the PERCIVAL results.
+This is expected, PERCIVAL (optionally) does approximate computation for these to save hardware and clock cycles.
+The simulator on the other hand does exact arithmetic as emulated by [stillwater-sc/universal](https://github.com/stillwater-sc/universal).
 
 TODO:
-- [ ] Integrate Spike into repo
-- [ ] Give instructions on how to build and install spike + pk
-- [ ] Fork and patch Spike for Xposit support
 - [ ] Dockerize

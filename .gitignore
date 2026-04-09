@@ -4,6 +4,7 @@ xposit-tools/
 # binary outputs
 *.o
 *.elf
+pk
 
 # Research Project Artifacts
 posit-research/vivado_proj/

@@ -10,3 +10,6 @@
 [submodule "llvm-xposit"]
 	path = llvm-xposit
 	url = https://github.com/jojodicus/llvm-xposit
+[submodule "spike-xposit"]
+	path = spike-xposit
+	url = https://github.com/jojodicus/spike-xposit
