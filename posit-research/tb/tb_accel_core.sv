@@ -28,6 +28,7 @@
 //   - Quire accumulation stress (10-op sequence + NEG on zero)
 //   - Instruction BRAM saturation (all INSTR_DEPTH slots filled)
 //   - Approximate DIV/SQRT liveness (non-NaR output for APPROX_DIV/APPROX_SQRT)
+//   - QACC_NEG double-fire: single neg→-x, double neg→+x (regression for pau_top QNEG gate)
 //
 // ── Reference encodings ───────────────────────────────────────────────────────────
 //   Value │ posit<32,2>  │ posit<64,2>          │ fp32        │ fp64
@@ -586,6 +587,44 @@ module tb_accel_core
     $display("[%0t] Program 6 done.", $time);
 
     check("ADD 1+2=3 at INSTR_DEPTH-2 [95]", V_3, 95);
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PROGRAM 7: QACC_NEG double-fire regression
+    // Verifies that two back-to-back QACC_NEG calls negate twice (net = identity)
+    // rather than cancelling out (which would be the symptom of the double-fire
+    // bug where operator_delay holds QNEG for an extra cycle without gating).
+    //
+    // For PAU QUIRE_ENABLE=1 this exercises the pau_top QNEG gate added in §3.1.
+    // For no-quire PAU and FPU this exercises arith_unit's acc_q NEG path.
+    // ═══════════════════════════════════════════════════════════════════════════
+    $display("-- QACC_NEG double-fire regression --");
+
+    write_dbram(0, V_1[DATA_WIDTH-1:0]);
+    write_dbram(1, V_2[DATA_WIDTH-1:0]);
+
+    // Single NEG: acc starts 0, add 2.0, negate → expect -2.0
+    write_ibram(0, make_instr(OP_QACC_CLEAR, 20'd0, 20'd0, 20'd0));
+    write_ibram(1, make_instr(OP_QACC_ADD,   20'd1, 20'd0, 20'd0)); // acc = 2.0
+    write_ibram(2, make_instr(OP_QACC_NEG,   20'd0, 20'd0, 20'd0)); // acc = -2.0
+    write_ibram(3, make_instr(OP_QACC_READ,  20'd0, 20'd0, 20'd96)); // d[96] = -2.0
+
+    // Double NEG: accumulate 2.0, negate twice → expect +2.0
+    write_ibram(4, make_instr(OP_QACC_CLEAR, 20'd0, 20'd0, 20'd0));
+    write_ibram(5, make_instr(OP_QACC_ADD,   20'd1, 20'd0, 20'd0)); // acc = 2.0
+    write_ibram(6, make_instr(OP_QACC_NEG,   20'd0, 20'd0, 20'd0)); // acc = -2.0
+    write_ibram(7, make_instr(OP_QACC_NEG,   20'd0, 20'd0, 20'd0)); // acc = 2.0 (double-neg)
+    write_ibram(8, make_instr(OP_QACC_READ,  20'd0, 20'd0, 20'd97)); // d[97] = 2.0
+
+    write_ibram(9, make_instr(OP_HALT, 20'd0, 20'd0, 20'd0));
+
+    repeat(3) @(posedge clk);
+
+    $display("[%0t] Starting Program 7 (QACC_NEG regression)...", $time);
+    run_program();
+    $display("[%0t] Program 7 done.", $time);
+
+    check("QACC_NEG: acc=2,neg=-2          [96]", V_NEG2, 96);
+    check("QACC_NEG×2: acc=2,neg,neg=2     [97]", V_2,    97);
 
     // ── Summary ───────────────────────────────────────────────────────────────
     $display("===================================================================");

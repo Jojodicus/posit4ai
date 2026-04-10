@@ -69,10 +69,13 @@ module pau_top import ariane_pkg::*; (
 
                 unique case (operator_delay)
                     QCLR:      quire_d = '0;
-                    // QNEG has latency=0, so operator_delay=QNEG persists for
-                    // exactly 1 cycle (arith_unit drives PADD-neutral immediately
-                    // after).  No gating needed — unlike flo_posit_top where all
-                    // ops have latency=1 and the gate prevents double-firing.
+                    // No gate needed here (unlike flo_posit_top): QNEG has latency=0
+                    // so operator_delay=QNEG persists for exactly 1 cycle — arith_unit
+                    // drives PADD (neutral) immediately after, so operator_delay returns
+                    // to PADD one cycle later and cannot double-fire.
+                    // flo_posit_top needs the pau_valid_d gate because FloPoCo cores
+                    // have latency=1, causing operator_delay=QNEG to be held for 2 cycles
+                    // via the hold_inputs register.
                     QNEG:      quire_d = (~quire_q + {{QUIRELEN-1{1'b0}}, 1'b1});
                     QMADD,
                     QMSUB:     quire_d = pau_ready_o ? qmadd_o : quire_q;
