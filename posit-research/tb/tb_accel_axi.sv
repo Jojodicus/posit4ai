@@ -277,7 +277,7 @@ module tb_accel_axi
   task automatic read_data(input int idx, output logic [63:0] val);
     logic [31:0] lo, hi;
     axi_write(32'h14, idx);         // latch DBRAM_ADDR into shadow reg
-    repeat(4) @(posedge clk);       // wait for BRAM registered read to propagate
+    repeat(5) @(posedge clk);       // wait for BRAM registered read to propagate
     axi_read(32'h18, lo);           // DBRAM_DATA (low / full word for 32-bit)
     if (DATA_WIDTH == 64) begin
       axi_read(32'h1C, hi);         // DBRAM_DATA_HI (high word for 64-bit)

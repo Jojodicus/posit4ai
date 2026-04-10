@@ -119,9 +119,6 @@ module accel_core
     .ready_o     ( arith_ready_o )
   );
 
-  // Registered operands captured from data BRAM in EXEC state
-  logic [DATA_WIDTH-1:0] op_a_reg, op_b_reg;
-
   // ── Needs-writeback helper ────────────────────────────────────────────────────
   function automatic logic needs_wb(opcode_t op);
     case (op)
@@ -137,8 +134,8 @@ module accel_core
     pc_d           = pc_q;
     arith_valid_i  = 1'b0;
     arith_opcode   = exec_opcode_q;
-    arith_op_a     = op_a_reg;
-    arith_op_b     = op_b_reg;
+    arith_op_a     = '0;
+    arith_op_b     = '0;
 
     // BRAM port defaults (host access when not running)
     ibram_portb_addr = '0;
@@ -224,8 +221,6 @@ module accel_core
       exec_addr_a_q    <= '0;
       exec_addr_b_q    <= '0;
       exec_addr_result_q <= '0;
-      op_a_reg         <= '0;
-      op_b_reg         <= '0;
     end else begin
       seq_state_q <= seq_state_d;
       pc_q        <= pc_d;
@@ -238,11 +233,6 @@ module accel_core
         exec_addr_result_q <= ibram_portb_rdata[19:0];
       end
 
-      // Latch operands from data BRAM at end of EXEC
-      if (seq_state_q == EXEC) begin
-        op_a_reg <= dbram_porta_rdata;
-        op_b_reg <= dbram_portb_rdata;
-      end
     end
   end
 

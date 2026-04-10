@@ -23,11 +23,9 @@ module pau_top import ariane_pkg::*; (
     output logic                     pau_valid_o,
     output riscv::xlen_t             result_o
 );
-    // This is a workaround. See fpu_wrap.sv
-    // Otherwise compilation might issue an error if POSLEN=0
-    enum logic {READY, STALL} state_q, state_d;
-
     if (POS_PRESENT) begin : pau_gen
+        enum logic {READY, STALL} state_q, state_d;
+
         logic [POSLEN-1:0]   add_a_i;
         logic [POSLEN-1:0]   add_b_i;
         logic [POSLEN-1:0]   mul_a_i;
