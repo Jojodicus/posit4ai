@@ -55,4 +55,9 @@ module accel_dbram_arb
   assign a_rdata = dbram_rdata_i;
   assign b_rdata = dbram_rdata_i;
 
+  // Write exclusivity is structurally guaranteed: the mux selects exactly one
+  // master's we/wdata/addr per cycle.  A concurrent SVA would need a clock
+  // port; since the module is purely combinatorial the invariant is self-evident
+  // from the always_comb above and needs no separate assertion.
+
 endmodule

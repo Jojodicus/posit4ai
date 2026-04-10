@@ -12,6 +12,7 @@
 //   7. AXI writes while RUNNING are ACK'd but dropped (data preserved)
 //   8. Halt-then-restart: new program after DONE, verify it runs correctly
 //   9. DBRAM_ADDR auto-increment: stream 16 words in/out without re-writing addr
+//  10. Opcode coverage: SUB, MUL, SQRT, NEG, ABS, MOV, RELU, QACC_MSUB, QACC_NEG
 //
 // Simulation filesets:
 //   sim_axi       — PAU-32, exercises the 32-bit DBRAM data path
@@ -376,29 +377,34 @@ module tb_accel_axi
   endfunction
 
   // ── Config-derived reference values ──────────────────────────────────────────
-  logic [63:0] V_1, V_2, V_3, V_4;
+  logic [63:0] V_0, V_1, V_2, V_3, V_4, V_NEG2;
 
   initial begin
+    V_0 = '0;
     if (ACCEL_TYPE == "PAU" && DATA_WIDTH == 32) begin
-      V_1 = 64'h0000_0000_4000_0000;
-      V_2 = 64'h0000_0000_4800_0000;
-      V_3 = 64'h0000_0000_4C00_0000;
-      V_4 = 64'h0000_0000_5000_0000;
+      V_1    = 64'h0000_0000_4000_0000;
+      V_2    = 64'h0000_0000_4800_0000;
+      V_3    = 64'h0000_0000_4C00_0000;
+      V_4    = 64'h0000_0000_5000_0000;
+      V_NEG2 = 64'h0000_0000_B800_0000;
     end else if (ACCEL_TYPE == "PAU" && DATA_WIDTH == 64) begin
-      V_1 = 64'h4000_0000_0000_0000;
-      V_2 = 64'h4800_0000_0000_0000;
-      V_3 = 64'h4C00_0000_0000_0000;
-      V_4 = 64'h5000_0000_0000_0000;
+      V_1    = 64'h4000_0000_0000_0000;
+      V_2    = 64'h4800_0000_0000_0000;
+      V_3    = 64'h4C00_0000_0000_0000;
+      V_4    = 64'h5000_0000_0000_0000;
+      V_NEG2 = 64'hB800_0000_0000_0000;
     end else if (ACCEL_TYPE == "FPU" && DATA_WIDTH == 32) begin
-      V_1 = 64'h0000_0000_3F80_0000;
-      V_2 = 64'h0000_0000_4000_0000;
-      V_3 = 64'h0000_0000_4040_0000;
-      V_4 = 64'h0000_0000_4080_0000;
+      V_1    = 64'h0000_0000_3F80_0000;
+      V_2    = 64'h0000_0000_4000_0000;
+      V_3    = 64'h0000_0000_4040_0000;
+      V_4    = 64'h0000_0000_4080_0000;
+      V_NEG2 = 64'h0000_0000_C000_0000;
     end else begin  // FPU 64
-      V_1 = 64'h3FF0_0000_0000_0000;
-      V_2 = 64'h4000_0000_0000_0000;
-      V_3 = 64'h4008_0000_0000_0000;
-      V_4 = 64'h4010_0000_0000_0000;
+      V_1    = 64'h3FF0_0000_0000_0000;
+      V_2    = 64'h4000_0000_0000_0000;
+      V_3    = 64'h4008_0000_0000_0000;
+      V_4    = 64'h4010_0000_0000_0000;
+      V_NEG2 = 64'hC000_0000_0000_0000;
     end
   end
 
@@ -421,6 +427,91 @@ module tb_accel_axi
                label, got[DATA_WIDTH-1:0], expected[DATA_WIDTH-1:0]);
       fail_count++;
     end
+  endtask
+
+  // Write N words (cycling V_1..V_4) to DBRAM starting at bslot, then read
+  // them back, using burst or PIO for each direction independently.
+  // Results accumulated in pass_count / fail_count.
+  task automatic test_burst_pattern(
+    input string label,
+    input int    bslot,
+    input int    N,
+    input bit    wr_via_burst,
+    input bit    rd_via_burst
+  );
+    automatic int          baddr = bslot * (DATA_WIDTH / 8);
+    automatic logic [63:0] wdata [];
+    automatic logic [63:0] rd_val;
+    automatic int          ok    = 1;
+
+    wdata = new[N];
+    for (int i = 0; i < N; i++)
+      case (i % 4)
+        0: wdata[i] = V_1;
+        1: wdata[i] = V_2;
+        2: wdata[i] = V_3;
+        3: wdata[i] = V_4;
+      endcase
+
+    // Write phase
+    if (wr_via_burst) begin
+      axi4_write_burst(32'(baddr), N, wdata);
+    end else begin
+      axi_write(32'h14, bslot);
+      for (int i = 0; i < N; i++) begin
+        if (DATA_WIDTH == 64) begin
+          axi_write(32'h18, wdata[i][31:0]);
+          axi_write(32'h1C, wdata[i][63:32]);
+        end else
+          axi_write(32'h18, wdata[i][31:0]);
+      end
+    end
+
+    repeat(4) @(posedge clk);
+
+    // Read and verify phase
+    if (rd_via_burst) begin
+      axi4_read_burst(32'(baddr), N);
+      for (int i = 0; i < N; i++) begin
+        if (burst_rd_buf[i][DATA_WIDTH-1:0] !== wdata[i][DATA_WIDTH-1:0]) begin
+          $display("  FAIL  %s[%0d]  got 0x%0X  exp 0x%0X",
+                   label, i, burst_rd_buf[i][DATA_WIDTH-1:0], wdata[i][DATA_WIDTH-1:0]);
+          fail_count++; ok = 0;
+        end else pass_count++;
+      end
+    end else begin
+      for (int i = 0; i < N; i++) begin
+        read_data(bslot + i, rd_val);
+        if (rd_val[DATA_WIDTH-1:0] !== wdata[i][DATA_WIDTH-1:0]) begin
+          $display("  FAIL  %s[%0d]  got 0x%0X  exp 0x%0X",
+                   label, i, rd_val[DATA_WIDTH-1:0], wdata[i][DATA_WIDTH-1:0]);
+          fail_count++; ok = 0;
+        end else pass_count++;
+      end
+    end
+    if (ok) $display("  PASS  %s: %0d words OK", label, N);
+  endtask
+
+  // Poll STATUS until DONE. Use when START was already issued separately.
+  // Calls $finish if DONE is not seen within `timeout` poll iterations.
+  task automatic wait_done(input string label, input int timeout = 2000);
+    automatic int done = 0;
+    repeat(timeout) begin
+      if (!done) begin
+        axi_read(32'h04, status);
+        if (status[0]) done = 1;
+      end
+    end
+    if (!done) begin
+      $display("FAIL: %s did not assert DONE within %0d polls", label, timeout);
+      $finish;
+    end
+  endtask
+
+  // Issue START then poll until DONE.
+  task automatic run_and_wait(input string label, input int timeout = 2000);
+    axi_write(32'h00, 32'h1);  // CTRL[0] = START
+    wait_done(label, timeout);
   endtask
 
   // ── Test ─────────────────────────────────────────────────────────────────────
@@ -528,20 +619,7 @@ module tb_accel_axi
     repeat(3) @(posedge clk);
     write_data(8, V_4);  // try to write 4.0 → should be dropped
 
-    // Wait for done
-    begin
-      automatic int done2 = 0;
-      repeat(2000) begin
-        if (!done2) begin
-          axi_read(32'h04, status);
-          if (status[0]) done2 = 1;
-        end
-      end
-      if (!done2) begin
-        $display("FAIL: accelerator did not finish in write-while-running test");
-        $finish;
-      end
-    end
+    wait_done("write_while_running");
 
     repeat(3) @(posedge clk);
     check("d[8] sentinel preserved     [8]", V_1, 8);
@@ -554,21 +632,7 @@ module tb_accel_axi
     write_instr(1, make_instr(OP_HALT, 20'd0, 20'd0, 20'd0));
 
     repeat(2) @(posedge clk);
-    axi_write(32'h00, 32'h1);  // START
-
-    begin
-      automatic int done3 = 0;
-      repeat(2000) begin
-        if (!done3) begin
-          axi_read(32'h04, status);
-          if (status[0]) done3 = 1;
-        end
-      end
-      if (!done3) begin
-        $display("FAIL: restart test did not finish");
-        $finish;
-      end
-    end
+    run_and_wait("halt_then_restart");
 
     repeat(3) @(posedge clk);
     check("ADD  1+2=3 (restart) via AXI[10]", V_3, 10);
@@ -628,107 +692,16 @@ module tb_accel_axi
     end
 
     // ── Burst tests ───────────────────────────────────────────────────────────
-    // Use DBRAM slots 32..47 (clear of the earlier PIO tests).
+    // Use DBRAM slots 32..79 (clear of the earlier PIO tests).
     // Byte base address: slot * (DATA_WIDTH/8)
     $display("-- HP0 burst write then PIO read --");
-    begin : burst_write_pio_read
-      automatic int          N     = 16;
-      automatic int          BSLOT = 32;
-      automatic int          BADDR = BSLOT * (DATA_WIDTH / 8);
-      automatic logic [63:0] wr_data [] = new[16];
-      automatic logic [63:0] rd_val;
-      automatic int          ok = 1;
-
-      for (int i = 0; i < N; i++)
-        case (i % 4)
-          0: wr_data[i] = V_1;
-          1: wr_data[i] = V_2;
-          2: wr_data[i] = V_3;
-          3: wr_data[i] = V_4;
-        endcase
-
-      axi4_write_burst(32'(BADDR), N, wr_data);
-      repeat(4) @(posedge clk);
-
-      for (int i = 0; i < N; i++) begin
-        read_data(BSLOT + i, rd_val);
-        if (rd_val[DATA_WIDTH-1:0] !== wr_data[i][DATA_WIDTH-1:0]) begin
-          $display("  FAIL  burst_wr_pio_rd[%0d]  got 0x%0X  exp 0x%0X",
-                   i, rd_val[DATA_WIDTH-1:0], wr_data[i][DATA_WIDTH-1:0]);
-          fail_count++; ok = 0;
-        end else pass_count++;
-      end
-      if (ok) $display("  PASS  burst_write_pio_read: 16 words OK");
-    end
+    test_burst_pattern("burst_write_pio_read", 32, 16, 1'b1, 1'b0);
 
     $display("-- PIO write then HP0 burst read --");
-    begin : pio_write_burst_read
-      automatic int          N     = 16;
-      automatic int          BSLOT = 48;
-      automatic int          BADDR = BSLOT * (DATA_WIDTH / 8);
-      automatic logic [63:0] wr_data [] = new[16];
-      automatic int          ok = 1;
-
-      for (int i = 0; i < N; i++)
-        case (i % 4)
-          0: wr_data[i] = V_4;
-          1: wr_data[i] = V_3;
-          2: wr_data[i] = V_2;
-          3: wr_data[i] = V_1;
-        endcase
-
-      // PIO write via AXI-Lite (auto-increment)
-      axi_write(32'h14, BSLOT);
-      for (int i = 0; i < N; i++) begin
-        if (DATA_WIDTH == 64) begin
-          axi_write(32'h18, wr_data[i][31:0]);
-          axi_write(32'h1C, wr_data[i][63:32]);
-        end else
-          axi_write(32'h18, wr_data[i][31:0]);
-      end
-
-      repeat(4) @(posedge clk);
-      axi4_read_burst(32'(BADDR), N);  // results in burst_rd_buf[0..N-1]
-
-      for (int i = 0; i < N; i++) begin
-        if (burst_rd_buf[i][DATA_WIDTH-1:0] !== wr_data[i][DATA_WIDTH-1:0]) begin
-          $display("  FAIL  pio_wr_burst_rd[%0d]  got 0x%0X  exp 0x%0X",
-                   i, burst_rd_buf[i][DATA_WIDTH-1:0], wr_data[i][DATA_WIDTH-1:0]);
-          fail_count++; ok = 0;
-        end else pass_count++;
-      end
-      if (ok) $display("  PASS  pio_write_burst_read: 16 words OK");
-    end
+    test_burst_pattern("pio_write_burst_read", 48, 16, 1'b0, 1'b1);
 
     $display("-- HP0 burst loopback (write then read) --");
-    begin : burst_loopback
-      automatic int          N     = 16;
-      automatic int          BSLOT = 64;
-      automatic int          BADDR = BSLOT * (DATA_WIDTH / 8);
-      automatic logic [63:0] wr_data [] = new[16];
-      automatic int          ok = 1;
-
-      for (int i = 0; i < N; i++)
-        case (i % 4)
-          0: wr_data[i] = V_2;
-          1: wr_data[i] = V_4;
-          2: wr_data[i] = V_1;
-          3: wr_data[i] = V_3;
-        endcase
-
-      axi4_write_burst(32'(BADDR), N, wr_data);
-      repeat(4) @(posedge clk);
-      axi4_read_burst(32'(BADDR), N);  // results in burst_rd_buf[0..N-1]
-
-      for (int i = 0; i < N; i++) begin
-        if (burst_rd_buf[i][DATA_WIDTH-1:0] !== wr_data[i][DATA_WIDTH-1:0]) begin
-          $display("  FAIL  burst_loopback[%0d]  got 0x%0X  exp 0x%0X",
-                   i, burst_rd_buf[i][DATA_WIDTH-1:0], wr_data[i][DATA_WIDTH-1:0]);
-          fail_count++; ok = 0;
-        end else pass_count++;
-      end
-      if (ok) $display("  PASS  burst_loopback: 16 words OK");
-    end
+    test_burst_pattern("burst_loopback",       64, 16, 1'b1, 1'b1);
 
     $display("-- HP0 burst load then run kernel --");
     begin : burst_then_kernel
@@ -747,22 +720,7 @@ module tb_accel_axi
       write_instr(2, make_instr(OP_HALT, 20'd0,  20'd0,  20'd0));
 
       repeat(2) @(posedge clk);
-      axi_write(32'h00, 32'h1);  // START
-
-      begin
-        automatic int done4 = 0;
-        repeat(2000) begin
-          if (!done4) begin
-            axi_read(32'h04, status);
-            if (status[0]) done4 = 1;
-          end
-        end
-        if (!done4) begin
-          $display("FAIL: burst_then_kernel did not finish");
-          $finish;
-        end
-      end
-
+      run_and_wait("burst_then_kernel");
       repeat(3) @(posedge clk);
       axi4_read_burst(32'(BADDR), 5);  // burst_rd_buf[0..4] = d[80..84]
 
@@ -805,20 +763,7 @@ module tb_accel_axi
       repeat(3) @(posedge clk);
       axi4_write_burst(32'(BADDR), 1, poison);
 
-      // Wait for done
-      begin
-        automatic int done5 = 0;
-        repeat(2000) begin
-          if (!done5) begin
-            axi_read(32'h04, status);
-            if (status[0]) done5 = 1;
-          end
-        end
-        if (!done5) begin
-          $display("FAIL: burst_gated_by_running kernel did not finish");
-          $finish;
-        end
-      end
+      wait_done("burst_gated_by_running");
 
       repeat(3) @(posedge clk);
       axi4_read_burst(32'(BADDR), 1);  // burst_rd_buf[0] = d[96]
@@ -832,6 +777,38 @@ module tb_accel_axi
         pass_count++;
       end
     end
+
+    // ── Opcode coverage: missing opcodes via AXI path ────────────────────────
+    // Exercises SUB, MUL, SQRT, NEG, ABS, MOV, RELU, QACC_MSUB, QACC_NEG
+    // using d[0..2] already loaded above (1.0, 2.0, 4.0).
+    // Results land in d[100..107].
+    $display("-- Missing opcode coverage via AXI --");
+    write_instr( 0, make_instr(OP_SUB,        20'd1,   20'd0,   20'd100)); // 2-1=1
+    write_instr( 1, make_instr(OP_MUL,        20'd0,   20'd2,   20'd101)); // 1*4=4
+    write_instr( 2, make_instr(OP_SQRT,       20'd2,   20'd0,   20'd102)); // sqrt(4)=2
+    write_instr( 3, make_instr(OP_NEG,        20'd1,   20'd0,   20'd103)); // -2.0
+    write_instr( 4, make_instr(OP_ABS,        20'd103, 20'd0,   20'd104)); // |-2|=2
+    write_instr( 5, make_instr(OP_MOV,        20'd2,   20'd0,   20'd105)); // 4.0
+    write_instr( 6, make_instr(OP_RELU,       20'd103, 20'd0,   20'd106)); // max(0,-2)=0
+    write_instr( 7, make_instr(OP_QACC_CLEAR, 20'd0,   20'd0,   20'd0));
+    write_instr( 8, make_instr(OP_QACC_ADD,   20'd2,   20'd0,   20'd0));   // acc=4
+    write_instr( 9, make_instr(OP_QACC_MSUB,  20'd0,   20'd1,   20'd0));   // acc=4-(1*2)=2
+    write_instr(10, make_instr(OP_QACC_NEG,   20'd0,   20'd0,   20'd0));   // acc=-2
+    write_instr(11, make_instr(OP_QACC_READ,  20'd0,   20'd0,   20'd107)); // d[107]=-2
+    write_instr(12, make_instr(OP_HALT,       20'd0,   20'd0,   20'd0));
+
+    repeat(2) @(posedge clk);
+    run_and_wait("opcode_coverage");
+    repeat(3) @(posedge clk);
+
+    check("SUB  2-1=1          [100]", V_1,    100);
+    check("MUL  1*4=4          [101]", V_4,    101);
+    check("SQRT sqrt(4)=2      [102]", V_2,    102);
+    check("NEG  -2.0           [103]", V_NEG2, 103);
+    check("ABS  |-2|=2         [104]", V_2,    104);
+    check("MOV  4.0            [105]", V_4,    105);
+    check("RELU max(0,-2)=0    [106]", V_0,    106);
+    check("QACC_MSUB+NEG=-2.0 [107]", V_NEG2, 107);
 
     // ── Summary ───────────────────────────────────────────────────────────────
     $display("===================================================================");

@@ -27,6 +27,7 @@ if {[file exists ${proj_dir}/${proj_name}.xpr]} {
 set sim_filesets [list \
     sim_pau8             \
     sim_pau16            \
+    sim_pau16_approx     \
     sim_pau32            \
     sim_pau32_approx     \
     sim_pau32_approx_div \
@@ -83,7 +84,7 @@ foreach sim_set $sim_filesets {
             set fp [open $log_file r]
             set log_content [read $fp]
             close $fp
-            if {[regexp -nocase {FAIL:|TIMEOUT:} $log_content]} {
+            if {[regexp -nocase {FAIL:|TIMEOUT:|FATAL|Assertion failed|\$fatal|ASSERT } $log_content]} {
                 set has_fail 1
             }
         }

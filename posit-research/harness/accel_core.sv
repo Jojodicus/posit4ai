@@ -236,4 +236,32 @@ module accel_core
     end
   end
 
+  // ── Assertions ────────────────────────────────────────────────────────────
+  // synthesis translate_off
+
+  // 1. done_o and running_o are mutually exclusive by definition.
+  ap_done_not_running: assert property (
+    @(posedge clk_i) disable iff (!rst_ni)
+    done_o |-> !running_o
+  ) else $error("ASSERT ap_done_not_running: done_o high while running_o high");
+
+  // 2. arith_valid_o must only fire while the sequencer is actively computing.
+  //    Catches spurious result strobes from the arithmetic unit.
+  ap_arith_valid_gated: assert property (
+    @(posedge clk_i) disable iff (!rst_ni)
+    arith_valid_o |-> seq_state_q inside {EXEC, WAIT_ARITH}
+  ) else $error("ASSERT ap_arith_valid_gated: arith_valid_o fired outside EXEC/WAIT_ARITH");
+
+  // 3. RAW trip-wire: DBRAM port A must not be written during DECODE.
+  //    Currently vacuously true (WRITEBACK and DECODE never overlap in the
+  //    sequential FSM).  Becomes load-bearing after the pipeline restructure
+  //    in §2 — any edit that lets a write land in the read phase without going
+  //    through the forwarding mux will trip this assertion immediately.
+  ap_no_decode_write_conflict: assert property (
+    @(posedge clk_i) disable iff (!rst_ni)
+    (seq_state_q == DECODE) |-> !dbram_porta_we
+  ) else $error("ASSERT ap_no_decode_write_conflict: DBRAM port A written during DECODE (RAW hazard)");
+
+  // synthesis translate_on
+
 endmodule
