@@ -13,7 +13,8 @@ create_project -force $proj_name $proj_dir -part $target_part
 # sim_axi uses PAU-32 config and tests the AXI register interface only.
 set accel_core_simsets {sim_pau8 sim_pau16 sim_pau16_approx sim_pau32 sim_pau32_approx sim_pau32_approx_div sim_pau32_approx_sqrt sim_pau64 sim_fpu32 sim_fpu64
                         sim_pau8_noquire sim_pau16_noquire sim_pau32_noquire
-                        sim_flo_pau32 sim_flo_pau32_approx sim_flo_pau32_noquire}
+                        sim_flo_pau32 sim_flo_pau32_approx sim_flo_pau32_noquire
+                        sim_flo_pau32_nodiv sim_pau32_disabled}
 set axi_simsets        {sim_axi sim_axi_pau64 sim_axi_fpu32}
 set all_simsets        [concat $accel_core_simsets $axi_simsets]
 
@@ -170,9 +171,11 @@ foreach {simset cfg_file} {
     sim_pau8_noquire     tb/configs/config_pkg_pau8_noquire.sv
     sim_pau16_noquire    tb/configs/config_pkg_pau16_noquire.sv
     sim_pau32_noquire    tb/configs/config_pkg_pau32_noquire.sv
-    sim_flo_pau32        tb/configs/config_pkg_flo_pau32.sv
-    sim_flo_pau32_approx tb/configs/config_pkg_flo_pau32_approx.sv
+    sim_flo_pau32         tb/configs/config_pkg_flo_pau32.sv
+    sim_flo_pau32_approx  tb/configs/config_pkg_flo_pau32_approx.sv
     sim_flo_pau32_noquire tb/configs/config_pkg_flo_pau32_noquire.sv
+    sim_flo_pau32_nodiv   tb/configs/config_pkg_flo_pau32_nodiv.sv
+    sim_pau32_disabled    tb/configs/config_pkg_pau32_disabled.sv
 } {
     add_files -fileset $simset -norecurse [file normalize $root_dir/$cfg_file]
     add_files -fileset $simset -norecurse $root_dir/tb/tb_accel_core.sv

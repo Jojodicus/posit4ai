@@ -3,10 +3,10 @@
 package config_pkg;
   parameter string ACCEL_TYPE   = "PAU";
   parameter int    DATA_WIDTH   = 32;
-  parameter bit    QUIRE_ENABLE = 1;
-  parameter bit    APPROX_MUL  = 0;
-  parameter bit    APPROX_DIV  = 1;
-  parameter bit    APPROX_SQRT = 0;
+  parameter string QUIRE_MODE  = "QUIRE";
+  parameter string MUL_MODE    = "EXACT";
+  parameter string DIV_MODE    = "APPROX";
+  parameter string SQRT_MODE   = "EXACT";
   parameter int    INSTR_DEPTH = 256;
   parameter int    DATA_DEPTH  = 4096;
 endpackage

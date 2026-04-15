@@ -98,10 +98,10 @@ Edit **only** `harness/config_pkg.sv`:
 ```sv
 parameter string ACCEL_TYPE  = "PAU";   // "PAU" or "FPU"
 parameter int    DATA_WIDTH  = 32;      // 32 or 64
-parameter bit    QUIRE_ENABLE = 1;      // exact quire accumulator (PAU only)
-parameter bit    APPROX_MUL  = 0;      // log-domain approximate ops (PAU only)
-parameter bit    APPROX_DIV  = 0;
-parameter bit    APPROX_SQRT = 0;
+parameter string QUIRE_MODE = "QUIRE";       // "QUIRE" / "ACCUMULATOR" / "DISABLED"
+parameter string MUL_MODE   = "EXACT";       // "EXACT" / "APPROX" (log-domain; PAU+FLO_PAU)
+parameter string DIV_MODE   = "EXACT";       // "EXACT" / "APPROX" (PAU-32/64) / "DISABLE"
+parameter string SQRT_MODE  = "EXACT";       // "EXACT" / "APPROX" (PAU-32/64) / "DISABLE"
 ```
 
 Note: posit es=2 and quire width (16 x DATA_WIDTH) are fixed in the pre-generated VHDL. Changing these requires regenerating PAU cores via FloPoCo.

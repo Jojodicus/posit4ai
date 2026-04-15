@@ -1,22 +1,24 @@
 // Testbench for accel_core — configuration-aware, comprehensive.
 //
 // Compiled against different tb/configs/config_pkg_*.sv overrides by each sim fileset:
-//   sim_pau32             PAU  32-bit  exact
-//   sim_pau32_approx      PAU  32-bit  approx-mul  (APPROX_MUL=1, DIV/SQRT still exact)
-//   sim_pau32_approx_div  PAU  32-bit  approx-div  (APPROX_DIV=1)
-//   sim_pau32_approx_sqrt PAU  32-bit  approx-sqrt (APPROX_SQRT=1)
-//   sim_pau64             PAU  64-bit  exact
-//   sim_fpu32             FPU  32-bit
-//   sim_fpu64             FPU  64-bit
-//   sim_pau8              PAU   8-bit  exact quire
-//   sim_pau16             PAU  16-bit  exact quire
-//   sim_pau16_approx      PAU  16-bit  approx-mul, exact quire
-//   sim_pau8_noquire      PAU   8-bit  no quire (pseudo-accumulator in flo_posit_top)
-//   sim_pau16_noquire     PAU  16-bit  no quire (pseudo-accumulator in flo_posit_top)
-//   sim_pau32_noquire     PAU  32-bit  no quire (acc_q in arith_unit, 2-pass MAC)
-//   sim_flo_pau32         FLO_PAU 32-bit  exact quire  (FloPoCo cores; PSQRT→NaR)
-//   sim_flo_pau32_approx  FLO_PAU 32-bit  approx-mul   (PositLAM_32_2)
-//   sim_flo_pau32_noquire FLO_PAU 32-bit  no quire     (nacc_q in flo_posit_top)
+//   sim_pau32               PAU  32-bit  exact
+//   sim_pau32_approx        PAU  32-bit  MUL_MODE="APPROX"
+//   sim_pau32_approx_div    PAU  32-bit  DIV_MODE="APPROX"
+//   sim_pau32_approx_sqrt   PAU  32-bit  SQRT_MODE="APPROX"
+//   sim_pau32_disabled      PAU  32-bit  QUIRE_MODE="DISABLED" + DIV/SQRT disabled
+//   sim_pau64               PAU  64-bit  exact
+//   sim_fpu32               FPU  32-bit
+//   sim_fpu64               FPU  64-bit
+//   sim_pau8                PAU   8-bit  exact quire
+//   sim_pau16               PAU  16-bit  exact quire
+//   sim_pau16_approx        PAU  16-bit  MUL_MODE="APPROX", exact quire
+//   sim_pau8_noquire        PAU   8-bit  QUIRE_MODE="ACCUMULATOR" (nacc_q in flo_posit_top)
+//   sim_pau16_noquire       PAU  16-bit  QUIRE_MODE="ACCUMULATOR" (nacc_q in flo_posit_top)
+//   sim_pau32_noquire       PAU  32-bit  QUIRE_MODE="ACCUMULATOR" (acc_q in arith_unit, 2-pass MAC)
+//   sim_flo_pau32           FLO_PAU 32-bit  exact quire  (FloPoCo cores; PSQRT→NaR)
+//   sim_flo_pau32_approx    FLO_PAU 32-bit  MUL_MODE="APPROX" (PositLAM_32_2)
+//   sim_flo_pau32_noquire   FLO_PAU 32-bit  QUIRE_MODE="ACCUMULATOR" (nacc_q in flo_posit_top)
+//   sim_flo_pau32_nodiv     FLO_PAU 32-bit  DIV_MODE="DISABLE" (PositDiv32 not synthesized)
 //
 // ── Coverage ─────────────────────────────────────────────────────────────────────
 // All 16 opcodes exercised:
@@ -36,7 +38,7 @@
 //   - Back-to-back long-latency ops (consecutive DIV/SQRT pipeline stress)
 //   - Quire accumulation stress (10-op sequence + NEG on zero)
 //   - Instruction BRAM saturation (all INSTR_DEPTH slots filled)
-//   - Approximate DIV/SQRT liveness (non-NaR output for APPROX_DIV/APPROX_SQRT)
+//   - Approximate DIV/SQRT liveness (non-NaR output for DIV_MODE/SQRT_MODE="APPROX")
 //   - QACC_NEG double-fire: single neg→-x, double neg→+x (regression for pau_top QNEG gate)
 //
 // ── Reference encodings ───────────────────────────────────────────────────────────
@@ -320,10 +322,8 @@ module tb_accel_core
     repeat(3) @(posedge clk);
 
     $display("===================================================================");
-    $display("Config: %s-%0d%s%s%s", ACCEL_TYPE, DATA_WIDTH,
-             APPROX_MUL ? " approx-mul" : "",
-             APPROX_DIV ? " approx-div" : "",
-             APPROX_SQRT ? " approx-sqrt" : "");
+    $display("Config: %s-%0d quire=%s mul=%s div=%s sqrt=%s",
+             ACCEL_TYPE, DATA_WIDTH, QUIRE_MODE, MUL_MODE, DIV_MODE, SQRT_MODE);
     $display("===================================================================");
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -399,18 +399,24 @@ module tb_accel_core
     check("MUL  2*2=4 (fwd[13])  [14]",  V_4,    14);
 
     $display("-- Section 3: DIV + forwarding after long stall --");
-    if (APPROX_DIV) begin
+    if (DIV_MODE == "APPROX") begin
       check_not_nar("DIV  4/2~=2 (approx)    [15]", 15);
       check_not_nar("ADD  ~2+1 (fwd,approx) [16]",  16);
+    end else if (DIV_MODE == "DISABLE") begin
+      check("DIV  (disabled)=NaR    [15]",  V_NAR,      15);
+      check("ADD  NaR+1=NaR (fwd)   [16]",  V_NAR_PROP, 16);
     end else begin
       check("DIV  4/2=2             [15]",  V_2,    15);
       check("ADD  2+1=3 (fwd[15])  [16]",  V_3,    16);
     end
 
     $display("-- Section 4: SQRT + forwarding after long stall --");
-    if (APPROX_SQRT) begin
+    if (SQRT_MODE == "APPROX") begin
       check_not_nar("SQRT sqrt(4)~=2 (approx)[17]", 17);
       check_not_nar("ADD  ~2+2 (fwd,approx) [18]",  18);
+    end else if (SQRT_MODE == "DISABLE") begin
+      check("SQRT (disabled)=NaR    [17]",  V_NAR,      17);
+      check("ADD  NaR+2=NaR (fwd)   [18]",  V_NAR_PROP, 18);
     end else begin
       check("SQRT sqrt(4)=2         [17]",  V_SQRT_2,   17);
       check("ADD  2+2=4 (fwd[17])  [18]",  V_SQRT_FWD, 18);
@@ -424,7 +430,10 @@ module tb_accel_core
     check("RELU max(0,1)=1        [23]",  V_1,    23);
 
     $display("-- Section 6: Quire/accumulator --");
-    check("QACC 1+4-2->neg->+4=1 [24]",  V_1,    24);
+    if (QUIRE_MODE == "DISABLED")
+      check("QACC (disabled)=NaR   [24]",  V_NAR,  24);
+    else
+      check("QACC 1+4-2->neg->+4=1 [24]",  V_1,    24);
 
     $display("-- Section 7: Zero operand tests --");
     check("ADD  0+0=0             [30]",  V_0,    30);
@@ -518,35 +527,41 @@ module tb_accel_core
     run_program();
     $display("[%0t] Program 4 done.", $time);
 
-    if (APPROX_DIV) begin
+    if (DIV_MODE == "APPROX") begin
       check_not_nar("DIV  4/2~=2 (b2b,approx)[80]", 80);
       check_not_nar("DIV  4/4~=1 (b2b,approx)[81]", 81);
       check_not_nar("ADD  ~2+~1 (approx)     [82]",  82);
+    end else if (DIV_MODE == "DISABLE") begin
+      check("DIV  (disabled)=NaR    [80]",  V_NAR,      80);
+      check("DIV  (disabled)=NaR    [81]",  V_NAR,      81);
+      check("ADD  NaR+NaR=NaR       [82]",  V_NAR_PROP, 82);
     end else begin
       check("DIV  4/2=2 (b2b)       [80]", V_2, 80);
       check("DIV  4/4=1 (b2b)       [81]", V_1, 81);
       check("ADD  2+1=3 (b2b fwd)   [82]", V_3, 82);
     end
 
-    // SQRT check: PAU-8/16 and FLO_PAU-32 return NaR for SQRT (FloPoCo limitation)
+    // SQRT check [83]: PAU-8/16 and FLO_PAU always return NaR (no FloPoCo SQRT core)
     if ((ACCEL_TYPE == "PAU" && (DATA_WIDTH == 8 || DATA_WIDTH == 16)) ||
-        ACCEL_TYPE == "FLO_PAU") begin
+        ACCEL_TYPE == "FLO_PAU")
       check("SQRT sqrt(4)=NaR (FloCo)[83]", V_NAR, 83);
-      // DIV of NaR/1 = NaR
-      check("DIV  NaR/1=NaR          [84]", V_NAR, 84);
-    end else if (APPROX_SQRT) begin
+    else if (SQRT_MODE == "DISABLE")
+      check("SQRT (disabled)=NaR     [83]", V_NAR, 83);
+    else if (SQRT_MODE == "APPROX")
       check_not_nar("SQRT sqrt(4)~=2 (approx)[83]", 83);
-      if (APPROX_DIV)
-        check_not_nar("DIV  ~2/1 (approx)     [84]", 84);
-      else
-        check_not_nar("DIV  ~2/1 (sqrt approx)[84]", 84);
-    end else if (APPROX_DIV) begin
-      check("SQRT sqrt(4)=2         [83]", V_2, 83);
-      check_not_nar("DIV  2/1~=2 (approx)   [84]", 84);
-    end else begin
-      check("SQRT sqrt(4)=2         [83]", V_2, 83);
-      check("DIV  2/1=2 (SQRT fwd)  [84]", V_2, 84);
-    end
+    else
+      check("SQRT sqrt(4)=2          [83]", V_2,   83);
+
+    // DIV of SQRT result / 1 [84]
+    if (DIV_MODE == "DISABLE")
+      check("DIV  (disabled)=NaR     [84]", V_NAR, 84);
+    else if ((ACCEL_TYPE == "PAU" && (DATA_WIDTH == 8 || DATA_WIDTH == 16)) ||
+             ACCEL_TYPE == "FLO_PAU" || SQRT_MODE == "DISABLE")
+      check("DIV  NaR/1=NaR          [84]", V_NAR, 84);
+    else if (SQRT_MODE == "APPROX" || DIV_MODE == "APPROX")
+      check_not_nar("DIV  ~2/1 (~approx)    [84]", 84);
+    else
+      check("DIV  2/1=2 (SQRT fwd)   [84]", V_2,  84);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // PROGRAM 5: Quire accumulation stress test
@@ -583,8 +598,13 @@ module tb_accel_core
     run_program();
     $display("[%0t] Program 5 done.", $time);
 
-    check("QACC stress: 3×ADD+2×MADD-MSUB-NEG+MADD=1 [90]", V_1, 90);
-    check("QACC NEG(0)=0                              [91]", V_0, 91);
+    if (QUIRE_MODE == "DISABLED") begin
+      check("QACC stress (disabled)=NaR              [90]", V_NAR, 90);
+      check("QACC NEG(0) (disabled)=NaR              [91]", V_NAR, 91);
+    end else begin
+      check("QACC stress: 3×ADD+2×MADD-MSUB-NEG+MADD=1 [90]", V_1, 90);
+      check("QACC NEG(0)=0                              [91]", V_0, 91);
+    end
 
     // ═══════════════════════════════════════════════════════════════════════════
     // PROGRAM 6: Instruction BRAM saturation
@@ -615,7 +635,7 @@ module tb_accel_core
     // rather than cancelling out (which would be the symptom of the double-fire
     // bug where operator_delay holds QNEG for an extra cycle without gating).
     //
-    // For PAU QUIRE_ENABLE=1 this exercises the pau_top QNEG gate added in §3.1.
+    // For PAU QUIRE_MODE="QUIRE" this exercises the pau_top QNEG gate added in §3.1.
     // For no-quire PAU and FPU this exercises arith_unit's acc_q NEG path.
     // ═══════════════════════════════════════════════════════════════════════════
     $display("-- QACC_NEG double-fire regression --");
@@ -644,8 +664,13 @@ module tb_accel_core
     run_program();
     $display("[%0t] Program 7 done.", $time);
 
-    check("QACC_NEG: acc=2,neg=-2          [96]", V_NEG2, 96);
-    check("QACC_NEG×2: acc=2,neg,neg=2     [97]", V_2,    97);
+    if (QUIRE_MODE == "DISABLED") begin
+      check("QACC_NEG (disabled)=NaR             [96]", V_NAR, 96);
+      check("QACC_NEG×2 (disabled)=NaR           [97]", V_NAR, 97);
+    end else begin
+      check("QACC_NEG: acc=2,neg=-2          [96]", V_NEG2, 96);
+      check("QACC_NEG×2: acc=2,neg,neg=2     [97]", V_2,    97);
+    end
 
     // ═══════════════════════════════════════════════════════════════════════════
     // PROGRAM 8: QMADD/QMSUB single-cycle accumulator
@@ -677,17 +702,19 @@ module tb_accel_core
     run_program();
     $display("[%0t] Program 8 done.", $time);
 
-    check("QMADD×2: 2*1+0, 2*1+2 = 4  [100]", V_4, 100);
-    check("QMSUB:   4 - 2*1 = 2        [101]", V_2, 101);
+    if (QUIRE_MODE == "DISABLED") begin
+      check("QMADD×2 (disabled)=NaR            [100]", V_NAR, 100);
+      check("QMSUB   (disabled)=NaR            [101]", V_NAR, 101);
+    end else begin
+      check("QMADD×2: 2*1+0, 2*1+2 = 4  [100]", V_4, 100);
+      check("QMSUB:   4 - 2*1 = 2        [101]", V_2, 101);
+    end
 
     // ── Summary ───────────────────────────────────────────────────────────────
     $display("===================================================================");
-    $display("Results: %0d passed, %0d failed  (%s-%0d%s%s%s)",
+    $display("Results: %0d passed, %0d failed  (%s-%0d quire=%s mul=%s div=%s sqrt=%s)",
              pass_count, fail_count,
-             ACCEL_TYPE, DATA_WIDTH,
-             APPROX_MUL ? "-amul" : "",
-             APPROX_DIV ? "-adiv" : "",
-             APPROX_SQRT ? "-asqrt" : "");
+             ACCEL_TYPE, DATA_WIDTH, QUIRE_MODE, MUL_MODE, DIV_MODE, SQRT_MODE);
     if (fail_count > 0)
       $display("FAIL: %0d test(s) failed", fail_count);
     else

@@ -3,12 +3,15 @@
 // Presents a uniform (operand_a, operand_b, opcode, valid_i) → (result, valid_o, ready_o)
 // interface to accel_core. Translates accelerator opcodes to the native arithmetic unit ops.
 //
-// QACC state for FPU mode:                acc_q register here; uses FMA unit.
-// QACC state for PAU mode, QUIRE_ENABLE=1: inside pau_top / flo_posit_top (quire register).
-// QACC state for PAU/FLO_PAU mode, QUIRE_ENABLE=0:
+// QACC state for FPU mode (QUIRE_MODE="ACCUMULATOR"):  acc_q register here; uses FMA unit.
+// QACC state for PAU mode, QUIRE_MODE="QUIRE":         inside pau_top / flo_posit_top (quire).
+// QACC state for PAU/FLO_PAU mode, QUIRE_MODE="ACCUMULATOR":
 //   FloPoCo (8/16/32-bit): nacc_q inside flo_posit_top; QMADD/QMSUB/QCLR/QNEG/QROUND
 //                           are sent directly to flopau and complete in 1 PAU cycle.
 //   PAU-32/64 (PERCIVAL):  acc_q register here; PMUL + PADD/PSUB two-pass via MAC_STEP → WAIT2.
+// QUIRE_MODE="DISABLED": all QACC_* ops return NaR/NaN combinatorially; no accumulator hardware.
+// DIV_MODE="DISABLE": OP_DIV returns NaR/NaN combinatorially; no PositDiv hardware synthesized.
+// SQRT_MODE="DISABLE": OP_SQRT returns NaR/NaN combinatorially; no PositSqrt hardware synthesized.
 
 module arith_unit
   import config_pkg::*;
@@ -32,17 +35,28 @@ module arith_unit
 
   // Compile-time flags as plain packed bits — avoids string comparisons inside
   // always_comb/unique-case blocks where Vivado rejects non-packed expressions.
-  localparam bit IS_FLO_PAU   = (ACCEL_TYPE == "FLO_PAU");
-  localparam bit IS_PAU       = (ACCEL_TYPE == "PAU") || IS_FLO_PAU;
+  localparam bit IS_FLO_PAU     = (ACCEL_TYPE == "FLO_PAU");
+  localparam bit IS_PAU         = (ACCEL_TYPE == "PAU") || IS_FLO_PAU;
   // USE_FLOPOCO: routes to flo_posit_top (FloPoCo cores) rather than pau_top (PERCIVAL).
   // "PAU" uses FloPoCo for 8/16-bit (PERCIVAL doesn't support those widths).
   // "FLO_PAU" forces FloPoCo for all supported widths (8, 16, 32).
-  localparam bit USE_FLOPOCO      = IS_FLO_PAU || (IS_PAU && bit'(DATA_WIDTH < 32));
-  localparam bit PAU_NO_QUIRE     = IS_PAU & ~QUIRE_ENABLE;
-  // FLO_PAU_NO_QUIRE: FloPoCo cores with QUIRE_ENABLE=0.
-  // These have dedicated single-cycle QMADD/QMSUB hardware in flo_posit_top (nacc_q),
-  // so the 2-pass PMUL + PADD/PSUB path is bypassed — all QACC ops go to flopau directly.
-  localparam bit FLO_PAU_NO_QUIRE = USE_FLOPOCO & ~QUIRE_ENABLE;
+  localparam bit USE_FLOPOCO    = IS_FLO_PAU || (IS_PAU && bit'(DATA_WIDTH < 32));
+  localparam bit QUIRE_ENABLE   = (QUIRE_MODE == "QUIRE");
+  localparam bit QUIRE_DISABLED = (QUIRE_MODE == "DISABLED");
+  localparam bit DIV_DISABLED   = (DIV_MODE   == "DISABLE");
+  localparam bit SQRT_DISABLED  = (SQRT_MODE  == "DISABLE");
+  // PAU_NO_QUIRE / FLO_PAU_NO_QUIRE: only "ACCUMULATOR" mode activates the register paths.
+  localparam bit PAU_NO_QUIRE     = IS_PAU      & (QUIRE_MODE == "ACCUMULATOR");
+  // FLO_PAU_NO_QUIRE: FloPoCo cores with QUIRE_MODE="ACCUMULATOR".
+  // Dedicated single-cycle QMADD/QMSUB hardware in flo_posit_top (nacc_q).
+  localparam bit FLO_PAU_NO_QUIRE = USE_FLOPOCO & (QUIRE_MODE == "ACCUMULATOR");
+
+  // NaR (posit) or quiet NaN (FPU) returned for disabled operations.
+  localparam logic [DATA_WIDTH-1:0] POSIT_NAR      = DATA_WIDTH'(1) << (DATA_WIDTH-1);
+  localparam logic [DATA_WIDTH-1:0] DISABLED_RESULT =
+    IS_PAU      ? POSIT_NAR :
+    DATA_WIDTH == 32 ? DATA_WIDTH'(32'h7FC0_0000) :
+                       DATA_WIDTH'(64'h7FF8_0000_0000_0000);
 
   // ── State machine ────────────────────────────────────────────────────────────
   // MAC_STEP: issues the second PAU op (PADD/PSUB) for no-quire QACC_MADD/MSUB
@@ -153,14 +167,20 @@ module arith_unit
     is_comb_op = 1'b0;
     case (opcode_i)
       OP_NEG, OP_ABS, OP_MOV, OP_RELU: is_comb_op = 1'b1;
+      // Disabled ops: return NaR/NaN immediately, no arithmetic unit call.
+      OP_DIV:  if (DIV_DISABLED)  is_comb_op = 1'b1;
+      OP_SQRT: if (SQRT_DISABLED) is_comb_op = 1'b1;
       // QACC state updates without arithmetic:
-      //   FPU: always handled here (no hw needed for clear/negate/read)
-      //   PAU + QUIRE_ENABLE=0: handled here (posit neg = 2's complement, read acc directly)
-      //   PAU + QUIRE_ENABLE=1: routed to quire in pau_top (QCLR/QNEG/QROUND), not here
-      // FLO_PAU_NO_QUIRE routes these to flopau (QCLR/QNEG/QROUND on nacc_q), not comb_op.
+      //   QUIRE_DISABLED: all QACC_* return NaR/NaN immediately.
+      //   FPU: CLEAR/NEG/READ handled here (no hw needed).
+      //   PAU + QUIRE_MODE="ACCUMULATOR": CLEAR/NEG/READ handled here (2's complement / read acc).
+      //   PAU + QUIRE_MODE="QUIRE": routed to quire in pau_top, not here.
+      // FLO_PAU_NO_QUIRE routes CLEAR/NEG/READ to flopau (nacc_q), not comb_op.
       OP_QACC_CLEAR, OP_QACC_NEG, OP_QACC_READ:
-        if (!IS_PAU || (PAU_NO_QUIRE && !FLO_PAU_NO_QUIRE))
+        if (QUIRE_DISABLED || !IS_PAU || (PAU_NO_QUIRE && !FLO_PAU_NO_QUIRE))
           is_comb_op = 1'b1;
+      OP_QACC_ADD, OP_QACC_MADD, OP_QACC_MSUB:
+        if (QUIRE_DISABLED) is_comb_op = 1'b1;
       default: ;
     endcase
   end
@@ -177,8 +197,14 @@ module arith_unit
                                     : operand_a_i;
         OP_MOV:       comb_result = operand_a_i;
         OP_RELU:      comb_result = operand_a_i[DATA_WIDTH-1] ? '0 : operand_a_i;
-        // No-quire accumulator read (QUIRE_ENABLE=0; is_comb_op guard prevents reaching here otherwise)
-        OP_QACC_READ: if (!QUIRE_ENABLE) comb_result = acc_q;
+        OP_DIV:       if (DIV_DISABLED)  comb_result = DISABLED_RESULT;
+        OP_SQRT:      if (SQRT_DISABLED) comb_result = DISABLED_RESULT;
+        // Accumulator read: disabled → NaR; accumulator mode → read acc_q.
+        OP_QACC_READ: if (!QUIRE_ENABLE)
+                        comb_result = QUIRE_DISABLED ? DISABLED_RESULT : acc_q;
+        OP_QACC_CLEAR, OP_QACC_NEG,
+        OP_QACC_ADD, OP_QACC_MADD, OP_QACC_MSUB:
+          if (QUIRE_DISABLED) comb_result = DISABLED_RESULT;
         default: ;
       endcase
     end else begin  // FPU
@@ -189,9 +215,13 @@ module arith_unit
         OP_ABS:        comb_result = {1'b0, operand_a_i[DATA_WIDTH-2:0]};
         OP_MOV:        comb_result = operand_a_i;
         OP_RELU:       comb_result = operand_a_i[DATA_WIDTH-1] ? '0 : operand_a_i;
-        OP_QACC_CLEAR: comb_result = '0;    // not written back
-        OP_QACC_NEG:   comb_result = '0;    // not written back
-        OP_QACC_READ:  comb_result = acc_q;
+        OP_DIV:        if (DIV_DISABLED)  comb_result = DISABLED_RESULT;
+        OP_SQRT:       if (SQRT_DISABLED) comb_result = DISABLED_RESULT;
+        OP_QACC_CLEAR: comb_result = QUIRE_DISABLED ? DISABLED_RESULT : '0;    // not written back
+        OP_QACC_NEG:   comb_result = QUIRE_DISABLED ? DISABLED_RESULT : '0;    // not written back
+        OP_QACC_READ:  comb_result = QUIRE_DISABLED ? DISABLED_RESULT : acc_q;
+        OP_QACC_ADD, OP_QACC_MADD, OP_QACC_MSUB:
+          if (QUIRE_DISABLED) comb_result = DISABLED_RESULT;
         default: ;
       endcase
     end
@@ -348,9 +378,9 @@ module arith_unit
             // Stay in IDLE (no DONE detour). Accumulator updated at clock edge.
             result_d = comb_result;
             valid_o  = 1'b1;
-            if (opcode_i == OP_QACC_CLEAR)
+            if (opcode_i == OP_QACC_CLEAR && !QUIRE_DISABLED)
               acc_d = '0;
-            if (opcode_i == OP_QACC_NEG)
+            if (opcode_i == OP_QACC_NEG && !QUIRE_DISABLED)
               acc_d = IS_PAU
                       ? (~acc_q + DATA_WIDTH'(1))
                       : (acc_q == '0 ? '0

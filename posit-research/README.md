@@ -21,16 +21,16 @@ vim harness/config_pkg.sv   # select PAU or FPU, 32 or 64 bit
 
 Edit **`harness/config_pkg.sv`** — the only file you need to touch:
 
-| Parameter      | Values            | Description                                   |
-|----------------|-------------------|-----------------------------------------------|
-| `ACCEL_TYPE`   | `"PAU"` / `"FPU"` | Posit or IEEE 754 arithmetic unit             |
-| `DATA_WIDTH`   | `32` / `64`       | Operand width                                 |
-| `QUIRE_ENABLE` | `1` / `0`         | PAU exact quire accumulator (PAU only)        |
-| `APPROX_MUL`   | `0` / `1`         | Log-domain approximate multiply (PAU only)    |
-| `APPROX_DIV`   | `0` / `1`         | Log-domain approximate divide (PAU only)      |
-| `APPROX_SQRT`  | `0` / `1`         | Log-domain approximate sqrt (PAU only)        |
-| `INSTR_DEPTH`  | integer           | Instruction BRAM depth (default: 256)         |
-| `DATA_DEPTH`   | integer           | Data BRAM depth (default: 4096)               |
+| Parameter      | Values                              | Description                                            |
+|----------------|-------------------------------------|--------------------------------------------------------|
+| `ACCEL_TYPE`   | `"PAU"` / `"FLO_PAU"` / `"FPU"`   | Posit (PERCIVAL), Posit (FloPoCo), or IEEE 754         |
+| `DATA_WIDTH`   | `8` / `16` / `32` / `64`           | Operand width (FLO_PAU: 8/16/32 only; FPU: 32/64)     |
+| `QUIRE_MODE`   | `"QUIRE"` / `"ACCUMULATOR"` / `"DISABLED"` | Quire / accumulator / all QACC_* → NaR/NaN   |
+| `MUL_MODE`     | `"EXACT"` / `"APPROX"`             | Exact or log-domain approx multiply (PAU, FLO_PAU)     |
+| `DIV_MODE`     | `"EXACT"` / `"APPROX"` / `"DISABLE"` | Exact, approx (PAU-32/64), or disabled → NaR/NaN    |
+| `SQRT_MODE`    | `"EXACT"` / `"APPROX"` / `"DISABLE"` | Exact, approx (PAU-32/64), or disabled → NaR/NaN    |
+| `INSTR_DEPTH`  | integer                             | Instruction BRAM depth (default: 2^15)                 |
+| `DATA_DEPTH`   | integer                             | Data BRAM depth (default: 2^15)                        |
 
 Posit exponent bits (es=2) and quire width (16 x DATA_WIDTH) are fixed by the pre-generated VHDL cores. Changing these requires regenerating the PAU VHDL via FloPoCo.
 

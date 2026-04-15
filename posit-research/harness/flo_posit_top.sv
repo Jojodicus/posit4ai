@@ -11,8 +11,10 @@
 //   QROUND                    — quire → posit readout (via quire2posit_sm)
 //   PSQRT                     — returns NaR (unsupported in FloPoCo)
 //
-// APPROX_MUL (POS_LOG_MULT=1): uses PositLAM (log-domain approximate multiplier)
-// APPROX_DIV / APPROX_SQRT:    no effect — PositDiv is always used; SQRT → NaR
+// MUL_MODE="APPROX" (POS_LOG_MULT=1): uses PositLAM (log-domain approximate multiplier)
+// DIV_MODE="DISABLE" (DIV_DISABLE=1): PositDiv not instantiated; PDIV → NaR
+// DIV_MODE="APPROX", SQRT_MODE="APPROX/DISABLE": no effect — no approx cores available;
+//   PositDiv is always exact when instantiated; SQRT always → NaR (no FloPoCo SQRT core)
 
 module flo_posit_top import ariane_pkg::*; (
     input  logic                     clk_i,
@@ -159,11 +161,15 @@ module flo_posit_top import ariane_pkg::*; (
       );
     end
 
-    PositDiv8 pau8_div_i (
-      .X ( div_a ),
-      .Y ( div_b ),
-      .R ( div_o )
-    );
+    if (DIV_DISABLE) begin : g_div_disabled
+      assign div_o = NAR;
+    end else begin : g_div
+      PositDiv8 pau8_div_i (
+        .X ( div_a ),
+        .Y ( div_b ),
+        .R ( div_o )
+      );
+    end
 
     if (QUIRE_PRESENT) begin : g_mac8
       PositMAC8 pau8_mac_i (
@@ -220,11 +226,15 @@ module flo_posit_top import ariane_pkg::*; (
       );
     end
 
-    PositDiv16 pau16_div_i (
-      .X ( div_a ),
-      .Y ( div_b ),
-      .R ( div_o )
-    );
+    if (DIV_DISABLE) begin : g_div_disabled
+      assign div_o = NAR;
+    end else begin : g_div
+      PositDiv16 pau16_div_i (
+        .X ( div_a ),
+        .Y ( div_b ),
+        .R ( div_o )
+      );
+    end
 
     if (QUIRE_PRESENT) begin : g_mac16
       PositMAC16 pau16_mac_i (
@@ -280,11 +290,15 @@ module flo_posit_top import ariane_pkg::*; (
       );
     end
 
-    PositDiv32 pau32_div_i (
-      .X ( div_a ),
-      .Y ( div_b ),
-      .R ( div_o )
-    );
+    if (DIV_DISABLE) begin : g_div_disabled
+      assign div_o = NAR;
+    end else begin : g_div
+      PositDiv32 pau32_div_i (
+        .X ( div_a ),
+        .Y ( div_b ),
+        .R ( div_o )
+      );
+    end
 
     if (QUIRE_PRESENT) begin : g_mac32
       PositMAC32 pau32_mac_i (

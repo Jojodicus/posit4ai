@@ -20,29 +20,65 @@ package config_pkg;
   //                   32, 64 (PERCIVAL cores, es=2)
   // FLO_PAU supports: 8, 16, 32 (FloPoCo Flo-Posit cores, es=2)
   // FPU supports:     32 (single), 64 (double)
-  //
-  // Notes for DATA_WIDTH 8, 16, or 32 with FLO_PAU (also 8/16 with PAU):
-  //   PSQRT returns NaR (not supported by FloPoCo cores).
-  //   APPROX_DIV / APPROX_SQRT have no effect.
-  //   APPROX_MUL = 1 uses PositLAM (log-domain, ~11% bounded relative error).
   // ============================================================
   parameter int DATA_WIDTH = 32;
 
   // ============================================================
-  // PAU: Quire Accumulator Enable
-  // 1 = enable exact accumulation (quire) for QACC_* ops
-  // 0 = disable quire (QACC_* ops unsupported)
-  // Only used when ACCEL_TYPE == "PAU"
+  // Quire / Accumulator Mode
+  // "QUIRE"       – full hardware quire; QACC_* use exact posit accumulation.
+  //                 FPU ignores "QUIRE" and behaves as "ACCUMULATOR".
+  // "ACCUMULATOR" – register accumulator, no quire hardware.
+  //                 FLO_PAU 8/16/32: nacc_q in flo_posit_top (1-cycle MAC).
+  //                 PAU-32/64: acc_q in arith_unit (2-pass PMUL+PADD/PSUB).
+  //                 FPU: acc_q in arith_unit (FMA unit).
+  // "DISABLED"    – all QACC_* ops return NaR/NaN; no accumulator hardware.
   // ============================================================
-  parameter bit QUIRE_ENABLE = 1;
+  parameter string QUIRE_MODE = "QUIRE";
 
   // ============================================================
-  // PAU: Approximate Operations (log-domain, faster, less accurate)
-  // Only used when ACCEL_TYPE == "PAU"
+  // Multiply Mode
+  // "EXACT"  – exact posit multiplication (all ACCEL_TYPEs).
+  // "APPROX" – log-domain approximate multiply (PositLAM / ApproxPositMult).
+  //            Supported: PAU-32/64 and FLO_PAU 8/16/32.  FPU: ignored.
   // ============================================================
-  parameter bit APPROX_MUL  = 0;
-  parameter bit APPROX_DIV  = 0;
-  parameter bit APPROX_SQRT = 0;
+  parameter string MUL_MODE = "EXACT";
+
+  // ============================================================
+  // Divide Mode
+  // "EXACT"   – exact division (all ACCEL_TYPEs).
+  // "APPROX"  – log-domain approximate divide (PAU-32/64 only).
+  //             FLO_PAU and FPU: not available; treated as "EXACT".
+  // "DISABLE" – OP_DIV returns NaR/NaN immediately; no PositDiv hardware
+  //             synthesized.  Use when division is absent from the workload
+  //             to remove the critical-path combinatorial divide block.
+  // ============================================================
+  parameter string DIV_MODE = "EXACT";
+
+  // ============================================================
+  // Square-Root Mode
+  // "EXACT"   – exact SQRT (PAU-32/64 and FPU).
+  //             FLO_PAU always returns NaR (no FloPoCo SQRT core available).
+  // "APPROX"  – log-domain approximate sqrt (PAU-32/64 only).
+  //             FLO_PAU and FPU: not available; treated as "EXACT".
+  // "DISABLE" – OP_SQRT returns NaR/NaN immediately; no PositSqrt hardware
+  //             synthesized.  FLO_PAU: already has no SQRT hardware; no-op.
+  // ============================================================
+  parameter string SQRT_MODE = "EXACT";
+
+  // ============================================================
+  // Feature support matrix
+  //
+  //  Feature               │ PAU-8/16 │ PAU-32/64 │ FLO_PAU 8/16/32 │ FPU-32/64
+  //  ──────────────────────┼──────────┼───────────┼─────────────────┼──────────
+  //  QUIRE_MODE="QUIRE"    │    ✓     │     ✓     │        ✓        │ ✗(=ACCUM)
+  //  QUIRE_MODE="ACCUMULATOR"    ✓     │     ✓     │        ✓        │    ✓
+  //  QUIRE_MODE="DISABLED" │    ✓     │     ✓     │        ✓        │    ✓
+  //  MUL_MODE="APPROX"     │    ✓     │     ✓     │        ✓        │    ✗
+  //  DIV_MODE="APPROX"     │    ✗     │     ✓     │        ✗        │    ✗
+  //  DIV_MODE="DISABLE"    │    ✓     │     ✓     │        ✓        │  ✓(bypass)
+  //  SQRT_MODE="APPROX"    │    ✗     │     ✓     │        ✗        │    ✗
+  //  SQRT_MODE="DISABLE"   │    ✓     │     ✓     │   ✓(already NaR)│  ✓(bypass)
+  // ============================================================
 
   // ============================================================
   // Memory Sizes

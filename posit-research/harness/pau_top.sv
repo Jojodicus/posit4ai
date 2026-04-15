@@ -164,14 +164,16 @@ module pau_top import ariane_pkg::*; (
                 );
             end
 
-            if (!POS_LOG_DIV) begin
+            if (DIV_DISABLE) begin : g_div_disabled
+                assign div_o = {1'b1, {(POSLEN-1){1'b0}}};  // NaR
+            end else if (!POS_LOG_DIV) begin : g_div_exact
                 PositDiv pau_div_i (
                     .clk ( clk_i   ),
                     .X   ( div_a_i ),
                     .Y   ( div_b_i ),
                     .R   ( div_o   )
                 );
-            end else begin
+            end else begin : g_div_approx
                 ApproxPositDiv pau_div_approx_i (
                     .clk ( clk_i   ),
                     .X   ( div_a_i ),
@@ -180,13 +182,15 @@ module pau_top import ariane_pkg::*; (
                 );
             end
 
-            if (!POS_LOG_SQRT) begin
+            if (SQRT_DISABLE) begin : g_sqrt_disabled
+                assign sqrt_o = {1'b1, {(POSLEN-1){1'b0}}};  // NaR
+            end else if (!POS_LOG_SQRT) begin : g_sqrt_exact
                 PositSqrt pau_sqrt_i (
                     .clk ( clk_i  ),
                     .X   ( sqrt_i ),
                     .R   ( sqrt_o )
                 );
-            end else begin
+            end else begin : g_sqrt_approx
                 ApproxPositSqrt pau_sqrt_approx_i (
                     .clk ( clk_i  ),
                     .X   ( sqrt_i ),
@@ -229,14 +233,16 @@ module pau_top import ariane_pkg::*; (
                 );
             end
 
-            if (!POS_LOG_DIV) begin
+            if (DIV_DISABLE) begin : g_div_disabled
+                assign div_o = {1'b1, {(POSLEN-1){1'b0}}};  // NaR
+            end else if (!POS_LOG_DIV) begin : g_div_exact
                 PositDiv64 pau64_div_i (
                     .clk ( clk_i   ),
                     .X   ( div_a_i ),
                     .Y   ( div_b_i ),
                     .R   ( div_o   )
                 );
-            end else begin
+            end else begin : g_div_approx
                 ApproxPositDiv64 pau64_div_approx_i (
                     .clk ( clk_i   ),
                     .X   ( div_a_i ),
@@ -245,13 +251,15 @@ module pau_top import ariane_pkg::*; (
                 );
             end
 
-            if (!POS_LOG_SQRT) begin
+            if (SQRT_DISABLE) begin : g_sqrt_disabled
+                assign sqrt_o = {1'b1, {(POSLEN-1){1'b0}}};  // NaR
+            end else if (!POS_LOG_SQRT) begin : g_sqrt_exact
                 PositSqrt64 pau64_sqrt_i (
                     .clk ( clk_i  ),
                     .X   ( sqrt_i ),
                     .R   ( sqrt_o )
                 );
-            end else begin
+            end else begin : g_sqrt_approx
                 ApproxPositSqrt64 pau64_sqrt_approx_i (
                     .clk ( clk_i  ),
                     .X   ( sqrt_i ),

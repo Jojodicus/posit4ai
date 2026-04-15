@@ -61,12 +61,14 @@ package ariane_pkg;
     localparam int unsigned LAT_CONV        = 2;
 
     // Posit configuration — derived from config_pkg (user edits config_pkg.sv)
-    localparam int unsigned POSLEN       = config_pkg::DATA_WIDTH;
-    localparam int unsigned QUIRELEN     = 16 * config_pkg::DATA_WIDTH;
-    localparam bit          QUIRE_PRESENT = config_pkg::QUIRE_ENABLE;
-    localparam bit          POS_LOG_MULT  = config_pkg::APPROX_MUL;
-    localparam bit          POS_LOG_DIV   = config_pkg::APPROX_DIV;
-    localparam bit          POS_LOG_SQRT  = config_pkg::APPROX_SQRT;
+    localparam int unsigned POSLEN        = config_pkg::DATA_WIDTH;
+    localparam int unsigned QUIRELEN      = 16 * config_pkg::DATA_WIDTH;
+    localparam bit          QUIRE_PRESENT = (config_pkg::QUIRE_MODE == "QUIRE");
+    localparam bit          POS_LOG_MULT  = (config_pkg::MUL_MODE   == "APPROX");
+    localparam bit          POS_LOG_DIV   = (config_pkg::DIV_MODE   == "APPROX");
+    localparam bit          POS_LOG_SQRT  = (config_pkg::SQRT_MODE  == "APPROX");
+    localparam bit          DIV_DISABLE   = (config_pkg::DIV_MODE   == "DISABLE");
+    localparam bit          SQRT_DISABLE  = (config_pkg::SQRT_MODE  == "DISABLE");
     localparam bit          POS_PRESENT   = (config_pkg::ACCEL_TYPE == "PAU");
     localparam bit          FP_PRESENT    = (config_pkg::ACCEL_TYPE == "FPU");
     localparam int unsigned FLEN          = 64;  // FPU always uses 64-bit containers
