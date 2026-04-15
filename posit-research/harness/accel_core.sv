@@ -111,30 +111,37 @@ module accel_core
   // ── DBRAM port A — clocked at clk_bram ────────────────────────────────────────
   // phase 0: latch data at dbram_porta_addr into dbram_porta_rdata
   // phase 1: capture dbram_porta_rdata into op_a_q (gated); write if dbram_porta_we
-  always_ff @(posedge clk_bram_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      dbram_porta_rdata <= '0;
-      op_a_q            <= '0;
-    end else if (!phase_q) begin
+  // Memory array: sync only (no async reset) so Vivado infers BRAM
+  always_ff @(posedge clk_bram_i) begin
+    if (!phase_q) begin
       dbram_porta_rdata <= data_mem[dbram_porta_addr];
     end else begin
-      if (capture_ops)
-        op_a_q <= dbram_porta_rdata;
       if (dbram_porta_we)
         data_mem[dbram_porta_addr] <= dbram_porta_wdata;
     end
   end
-
-  // ── DBRAM port B — clocked at clk_bram ────────────────────────────────────────
+  // Output registers: async reset allowed
   always_ff @(posedge clk_bram_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      dbram_portb_rdata <= '0;
-      op_b_q            <= '0;
-    end else if (!phase_q) begin
+      op_a_q <= '0;
+    end else if (phase_q && capture_ops) begin
+      op_a_q <= dbram_porta_rdata;
+    end
+  end
+
+  // ── DBRAM port B — clocked at clk_bram ────────────────────────────────────────
+  // Memory array: sync only (no async reset) so Vivado infers BRAM
+  always_ff @(posedge clk_bram_i) begin
+    if (!phase_q) begin
       dbram_portb_rdata <= data_mem[dbram_portb_addr];
-    end else begin
-      if (capture_ops)
-        op_b_q <= dbram_portb_rdata;
+    end
+  end
+  // Output registers: async reset allowed
+  always_ff @(posedge clk_bram_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      op_b_q <= '0;
+    end else if (phase_q && capture_ops) begin
+      op_b_q <= dbram_portb_rdata;
     end
   end
 
