@@ -26,8 +26,8 @@ module flo_posit_top import ariane_pkg::*; (
 );
 
   // ── Sanity check ─────────────────────────────────────────────────────────────
-  if (POSLEN != 8 && POSLEN != 16)
-    $fatal("flo_posit_top: only POSLEN=8 or POSLEN=16 is supported");
+  if (POSLEN != 8 && POSLEN != 16 && POSLEN != 32)
+    $fatal("flo_posit_top: only POSLEN=8, 16, or 32 is supported (64-bit FloPoCo cores unavailable)");
 
   // ── Local constants ───────────────────────────────────────────────────────────
   localparam logic [POSLEN-1:0] NAR = {1'b1, {(POSLEN-1){1'b0}}};
@@ -198,7 +198,7 @@ module flo_posit_top import ariane_pkg::*; (
       assign mac_r = '0;
     end
 
-  end else begin : g_fp16  // POSLEN == 16
+  end else if (POSLEN == 16) begin : g_fp16
 
     PositAdd2_16_2_F0_uid2 pau16_add_i (
       .X ( add_a ),
@@ -251,6 +251,66 @@ module flo_posit_top import ariane_pkg::*; (
         );
       end
       PositAdd2_16_2_F0_uid2 pau16_mac_add_i (
+        .X ( mac_mul_o   ),
+        .Y ( nacc_q      ),
+        .R ( mac_posit_o )
+      );
+      assign mac_r = '0;
+    end
+
+  end else begin : g_fp32  // POSLEN == 32
+
+    PositAdd2_32_2_F0_uid2 pau32_add_i (
+      .X ( add_a ),
+      .Y ( add_b ),
+      .R ( add_o )
+    );
+
+    if (!POS_LOG_MULT) begin : g_mul_exact
+      PositMult_32_2_F0_uid2 pau32_mul_i (
+        .X ( mul_a ),
+        .Y ( mul_b ),
+        .R ( mul_o )
+      );
+    end else begin : g_mul_approx
+      PositLAM_32_2_F0_uid2 pau32_lam_i (
+        .X ( mul_a ),
+        .Y ( mul_b ),
+        .R ( mul_o )
+      );
+    end
+
+    PositDiv32 pau32_div_i (
+      .X ( div_a ),
+      .Y ( div_b ),
+      .R ( div_o )
+    );
+
+    if (QUIRE_PRESENT) begin : g_mac32
+      PositMAC32 pau32_mac_i (
+        .A ( mac_a ),
+        .B ( mac_b ),
+        .C ( mac_c ),
+        .R ( mac_r )
+      );
+      assign mac_mul_o   = '0;
+      assign mac_posit_o = '0;
+    end else begin : g_nomac32
+      // Dedicated single-cycle MAC path: PositMult → PositAdd2(nacc_q).
+      if (!POS_LOG_MULT) begin : g_mac_mul_exact
+        PositMult_32_2_F0_uid2 pau32_mac_mul_i (
+          .X ( mac_a     ),
+          .Y ( mac_b     ),
+          .R ( mac_mul_o )
+        );
+      end else begin : g_mac_mul_approx
+        PositLAM_32_2_F0_uid2 pau32_mac_lam_i (
+          .X ( mac_a     ),
+          .Y ( mac_b     ),
+          .R ( mac_mul_o )
+        );
+      end
+      PositAdd2_32_2_F0_uid2 pau32_mac_add_i (
         .X ( mac_mul_o   ),
         .Y ( nacc_q      ),
         .R ( mac_posit_o )

@@ -12,7 +12,8 @@ create_project -force $proj_name $proj_dir -part $target_part
 # Each accel_core fileset compiles tb_accel_core.sv against its own config_pkg override.
 # sim_axi uses PAU-32 config and tests the AXI register interface only.
 set accel_core_simsets {sim_pau8 sim_pau16 sim_pau16_approx sim_pau32 sim_pau32_approx sim_pau32_approx_div sim_pau32_approx_sqrt sim_pau64 sim_fpu32 sim_fpu64
-                        sim_pau8_noquire sim_pau16_noquire sim_pau32_noquire}
+                        sim_pau8_noquire sim_pau16_noquire sim_pau32_noquire
+                        sim_flo_pau32 sim_flo_pau32_approx sim_flo_pau32_noquire}
 set axi_simsets        {sim_axi sim_axi_pau64 sim_axi_fpu32}
 set all_simsets        [concat $accel_core_simsets $axi_simsets]
 
@@ -89,28 +90,37 @@ add_files -norecurse [glob $root_dir/rtl/fpu/src/fpu_div_sqrt_mvp/hdl/*.sv]
 add_files -norecurse [glob $root_dir/rtl/pau/*.vhd]
 
 # ── Flo-Posit FloPoCo Files (VHDL) ────────────────────────────────────────────
-# brent_kung adder primitive (shared by PositMAC8 and PositMAC16; only one copy needed)
+# brent_kung adder primitive (shared by all PositMAC wrappers; only one copy needed)
 add_files -norecurse $root_dir/rtl/Flo-Posit/PositMAC/brent_kung/no_pipe/brent_kung_PositMAC_8_2_30/brent_kung.vhd
 # PositMAC wrappers — entities renamed to avoid collision with PERCIVAL's PositMAC
 add_files -norecurse $root_dir/harness/positmac8.vhd
 add_files -norecurse $root_dir/harness/positmac16.vhd
+add_files -norecurse $root_dir/harness/positmac32.vhd
 # Compile each MAC wrapper into its own library to avoid internal FloPoCo entity
 # name collisions (PositDecoder_*_uid4/8, IntMultiplier_F0_uid12, etc. are reused
-# across 8-bit and 16-bit with different port widths).  In VHDL, "library work;"
+# across 8-bit, 16-bit and 32-bit with different port widths).  In VHDL, "library work;"
 # resolves to the file's own compile library, so each MAC file finds its own
 # correctly-ported sub-entities.  brent_kung.vhd stays in 'work'; Vivado's global
-# entity binding finds it from both flo_mac8 and flo_mac16 at elaboration time.
+# entity binding finds it from flo_mac8, flo_mac16, and flo_mac32 at elaboration time.
 set_property library flo_mac8  [get_files positmac8.vhd]
 set_property library flo_mac16 [get_files positmac16.vhd]
+set_property library flo_mac32 [get_files positmac32.vhd]
 # Remaining Flo-Posit cores (unique entity names, direct submodule references)
+# 8/16/32-bit Add and Mult share some sub-entity names within each pair — same pattern
+# as 8 vs 16 bit; Vivado accepts identical duplicate declarations in 'work'.
+# PERCIVAL uses _F50_ frequency suffix; FloPoCo uses _F0_ — no cross-library conflict.
 add_files -norecurse $root_dir/rtl/Flo-Posit/PositAdd/sign_magnitude/PositAdd_8_2/flopoco.vhdl
 add_files -norecurse $root_dir/rtl/Flo-Posit/PositAdd/sign_magnitude/PositAdd_16_2/flopoco.vhdl
+add_files -norecurse $root_dir/rtl/Flo-Posit/PositAdd/sign_magnitude/PositAdd_32_2/flopoco.vhdl
 add_files -norecurse $root_dir/rtl/Flo-Posit/PositMult/sign_magnitude/PositMult_8_2/flopoco.vhdl
 add_files -norecurse $root_dir/rtl/Flo-Posit/PositMult/sign_magnitude/PositMult_16_2/flopoco.vhdl
+add_files -norecurse $root_dir/rtl/Flo-Posit/PositMult/sign_magnitude/PositMult_32_2/flopoco.vhdl
 add_files -norecurse $root_dir/rtl/Flo-Posit/PositDiv/8_bit/flopoco.vhdl
 add_files -norecurse $root_dir/rtl/Flo-Posit/PositDiv/16_bit/flopoco.vhdl
+add_files -norecurse $root_dir/rtl/Flo-Posit/PositDiv/32_bit/flopoco.vhdl
 add_files -norecurse $root_dir/rtl/Flo-Posit/PositLAM/PositLAM_8_2/flopoco.vhdl
 add_files -norecurse $root_dir/rtl/Flo-Posit/PositLAM/PositLAM_16_2/flopoco.vhdl
+add_files -norecurse $root_dir/rtl/Flo-Posit/PositLAM/PositLAM_32_2/flopoco.vhdl
 
 # ── Accelerator RTL ────────────────────────────────────────────────────────────
 # Local copies of PERCIVAL cores (editable)
@@ -160,6 +170,9 @@ foreach {simset cfg_file} {
     sim_pau8_noquire     tb/configs/config_pkg_pau8_noquire.sv
     sim_pau16_noquire    tb/configs/config_pkg_pau16_noquire.sv
     sim_pau32_noquire    tb/configs/config_pkg_pau32_noquire.sv
+    sim_flo_pau32        tb/configs/config_pkg_flo_pau32.sv
+    sim_flo_pau32_approx tb/configs/config_pkg_flo_pau32_approx.sv
+    sim_flo_pau32_noquire tb/configs/config_pkg_flo_pau32_noquire.sv
 } {
     add_files -fileset $simset -norecurse [file normalize $root_dir/$cfg_file]
     add_files -fileset $simset -norecurse $root_dir/tb/tb_accel_core.sv

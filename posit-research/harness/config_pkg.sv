@@ -6,18 +6,22 @@ package config_pkg;
 
   // ============================================================
   // Arithmetic Unit Selection
-  // "PAU" = Posit Arithmetic Unit (PERCIVAL)
-  // "FPU" = IEEE 754 Floating Point Unit (fpnew)
+  // "PAU"     = Posit Arithmetic Unit (PERCIVAL cores, 32/64-bit)
+  //             8/16-bit automatically uses FloPoCo (PERCIVAL unsupported there)
+  // "FLO_PAU" = Posit Arithmetic Unit (FloPoCo cores, 8/16/32-bit only)
+  //             Forces FloPoCo for all widths; 64-bit not available.
+  // "FPU"     = IEEE 754 Floating Point Unit (fpnew, 32/64-bit)
   // ============================================================
   parameter string ACCEL_TYPE = "PAU";
 
   // ============================================================
   // Data Width (bits per arithmetic value)
-  // PAU supports: 8, 16 (FloPoCo Flo-Posit cores, es=2)
-  //               32, 64 (PERCIVAL cores, es=2)
-  // FPU supports: 32 (single), 64 (double)
+  // PAU supports:     8, 16 (FloPoCo Flo-Posit cores, es=2)
+  //                   32, 64 (PERCIVAL cores, es=2)
+  // FLO_PAU supports: 8, 16, 32 (FloPoCo Flo-Posit cores, es=2)
+  // FPU supports:     32 (single), 64 (double)
   //
-  // Notes for DATA_WIDTH 8 or 16 with PAU:
+  // Notes for DATA_WIDTH 8, 16, or 32 with FLO_PAU (also 8/16 with PAU):
   //   PSQRT returns NaR (not supported by FloPoCo cores).
   //   APPROX_DIV / APPROX_SQRT have no effect.
   //   APPROX_MUL = 1 uses PositLAM (log-domain, ~11% bounded relative error).

@@ -38,6 +38,9 @@ set sim_filesets [list \
     sim_pau8_noquire     \
     sim_pau16_noquire    \
     sim_pau32_noquire    \
+    sim_flo_pau32        \
+    sim_flo_pau32_approx \
+    sim_flo_pau32_noquire \
     sim_axi              \
     sim_axi_pau64        \
     sim_axi_fpu32        \

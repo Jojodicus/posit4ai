@@ -5,10 +5,10 @@
 //
 // QACC state for FPU mode:                acc_q register here; uses FMA unit.
 // QACC state for PAU mode, QUIRE_ENABLE=1: inside pau_top / flo_posit_top (quire register).
-// QACC state for PAU mode, QUIRE_ENABLE=0:
-//   PAU-8/16 (FloPoCo): nacc_q inside flo_posit_top; QMADD/QMSUB/QCLR/QNEG/QROUND
-//                        are sent directly to flopau and complete in 1 PAU cycle.
-//   PAU-32/64:           acc_q register here; PMUL + PADD/PSUB two-pass via MAC_STEP → WAIT2.
+// QACC state for PAU/FLO_PAU mode, QUIRE_ENABLE=0:
+//   FloPoCo (8/16/32-bit): nacc_q inside flo_posit_top; QMADD/QMSUB/QCLR/QNEG/QROUND
+//                           are sent directly to flopau and complete in 1 PAU cycle.
+//   PAU-32/64 (PERCIVAL):  acc_q register here; PMUL + PADD/PSUB two-pass via MAC_STEP → WAIT2.
 
 module arith_unit
   import config_pkg::*;
@@ -32,12 +32,17 @@ module arith_unit
 
   // Compile-time flags as plain packed bits — avoids string comparisons inside
   // always_comb/unique-case blocks where Vivado rejects non-packed expressions.
-  localparam bit IS_PAU       = (ACCEL_TYPE == "PAU");
+  localparam bit IS_FLO_PAU   = (ACCEL_TYPE == "FLO_PAU");
+  localparam bit IS_PAU       = (ACCEL_TYPE == "PAU") || IS_FLO_PAU;
+  // USE_FLOPOCO: routes to flo_posit_top (FloPoCo cores) rather than pau_top (PERCIVAL).
+  // "PAU" uses FloPoCo for 8/16-bit (PERCIVAL doesn't support those widths).
+  // "FLO_PAU" forces FloPoCo for all supported widths (8, 16, 32).
+  localparam bit USE_FLOPOCO      = IS_FLO_PAU || (IS_PAU && bit'(DATA_WIDTH < 32));
   localparam bit PAU_NO_QUIRE     = IS_PAU & ~QUIRE_ENABLE;
-  // FLO_PAU_NO_QUIRE: PAU-8 or PAU-16 (FloPoCo cores) with QUIRE_ENABLE=0.
+  // FLO_PAU_NO_QUIRE: FloPoCo cores with QUIRE_ENABLE=0.
   // These have dedicated single-cycle QMADD/QMSUB hardware in flo_posit_top (nacc_q),
   // so the 2-pass PMUL + PADD/PSUB path is bypassed — all QACC ops go to flopau directly.
-  localparam bit FLO_PAU_NO_QUIRE = IS_PAU & ~QUIRE_ENABLE & bit'(DATA_WIDTH < 32);
+  localparam bit FLO_PAU_NO_QUIRE = USE_FLOPOCO & ~QUIRE_ENABLE;
 
   // ── State machine ────────────────────────────────────────────────────────────
   // MAC_STEP: issues the second PAU op (PADD/PSUB) for no-quire QACC_MADD/MSUB
@@ -69,9 +74,11 @@ module arith_unit
   logic [FLEN-1:0]  fpu_result_sig;
 
   // ── Arithmetic unit instantiation (only one branch synthesised) ──────────────
-  // posit(8,2) and posit(16,2) use FloPoCo Flo-Posit cores (flo_posit_top).
-  // posit(32,2) and posit(64,2) use PERCIVAL cores (pau_top).
-  if (ACCEL_TYPE == "PAU" && (DATA_WIDTH == 8 || DATA_WIDTH == 16)) begin : g_flopau
+  // USE_FLOPOCO: FloPoCo Flo-Posit cores (flo_posit_top): supports 8/16/32-bit.
+  //   "PAU"     + 8/16  → flo_posit_top (PERCIVAL does not support <32-bit).
+  //   "FLO_PAU" + 8/16/32 → flo_posit_top.
+  // Otherwise PERCIVAL cores (pau_top): 32/64-bit only.
+  if (USE_FLOPOCO) begin : g_flopau
 
     flo_posit_top flopau_inst (
       .clk_i,

@@ -14,6 +14,9 @@
 //   sim_pau8_noquire      PAU   8-bit  no quire (pseudo-accumulator in flo_posit_top)
 //   sim_pau16_noquire     PAU  16-bit  no quire (pseudo-accumulator in flo_posit_top)
 //   sim_pau32_noquire     PAU  32-bit  no quire (acc_q in arith_unit, 2-pass MAC)
+//   sim_flo_pau32         FLO_PAU 32-bit  exact quire  (FloPoCo cores; PSQRT→NaR)
+//   sim_flo_pau32_approx  FLO_PAU 32-bit  approx-mul   (PositLAM_32_2)
+//   sim_flo_pau32_noquire FLO_PAU 32-bit  no quire     (nacc_q in flo_posit_top)
 //
 // ── Coverage ─────────────────────────────────────────────────────────────────────
 // All 16 opcodes exercised:
@@ -179,7 +182,7 @@ module tb_accel_core
       V_NAR    = 64'h0000_0000_0000_8000;
       V_NAR_PROP = V_NAR;
       V_SQRT_2 = V_NAR; V_SQRT_FWD = V_NAR;
-    end else if (ACCEL_TYPE == "PAU" && DATA_WIDTH == 32) begin
+    end else if ((ACCEL_TYPE == "PAU" || ACCEL_TYPE == "FLO_PAU") && DATA_WIDTH == 32) begin
       V_0      = 64'h0000_0000_0000_0000;
       V_1      = 64'h0000_0000_4000_0000;
       V_2      = 64'h0000_0000_4800_0000;
@@ -190,7 +193,13 @@ module tb_accel_core
       V_NEG3   = 64'h0000_0000_B400_0000;
       V_NAR    = 64'h0000_0000_8000_0000;
       V_NAR_PROP = V_NAR;
-      V_SQRT_2 = V_2; V_SQRT_FWD = V_4;
+      // FLO_PAU uses FloPoCo cores: PSQRT returns NaR (unsupported), same as PAU-8/16.
+      // PERCIVAL PAU-32 supports SQRT correctly.
+      if (ACCEL_TYPE == "FLO_PAU") begin
+        V_SQRT_2 = V_NAR; V_SQRT_FWD = V_NAR;
+      end else begin
+        V_SQRT_2 = V_2; V_SQRT_FWD = V_4;
+      end
     end else if (ACCEL_TYPE == "PAU" && DATA_WIDTH == 64) begin
       V_0      = 64'h0000_0000_0000_0000;
       V_1      = 64'h4000_0000_0000_0000;
@@ -284,7 +293,7 @@ module tb_accel_core
     logic [DATA_WIDTH-1:0] got;
     logic is_special;
     read_dbram(dbram_slot, got);
-    if (ACCEL_TYPE == "PAU")
+    if (ACCEL_TYPE == "PAU" || ACCEL_TYPE == "FLO_PAU")
       is_special = (got == '0) || (got == {1'b1, {(DATA_WIDTH-1){1'b0}}});  // 0 or NaR
     else if (DATA_WIDTH == 32)
       is_special = (got[30:23] == 8'hFF);  // Inf or NaN
@@ -423,7 +432,7 @@ module tb_accel_core
     check("MUL  1*0=0             [32]",  V_0,    32);
 
     $display("-- Section 8: NaR/NaN propagation --");
-    if (ACCEL_TYPE == "PAU") begin
+    if (ACCEL_TYPE == "PAU" || ACCEL_TYPE == "FLO_PAU") begin
       check("ADD  NaR+1=NaR        [40]",  V_NAR_PROP, 40);
       check("MUL  NaR*2=NaR        [41]",  V_NAR_PROP, 41);
       check("NEG  -NaR=NaR         [42]",  V_NAR,      42);
@@ -519,11 +528,12 @@ module tb_accel_core
       check("ADD  2+1=3 (b2b fwd)   [82]", V_3, 82);
     end
 
-    // SQRT check: PAU-8/16 returns NaR for SQRT (FloPoCo limitation)
-    if (ACCEL_TYPE == "PAU" && (DATA_WIDTH == 8 || DATA_WIDTH == 16)) begin
-      check("SQRT sqrt(4)=NaR (8/16)[83]", V_NAR, 83);
+    // SQRT check: PAU-8/16 and FLO_PAU-32 return NaR for SQRT (FloPoCo limitation)
+    if ((ACCEL_TYPE == "PAU" && (DATA_WIDTH == 8 || DATA_WIDTH == 16)) ||
+        ACCEL_TYPE == "FLO_PAU") begin
+      check("SQRT sqrt(4)=NaR (FloCo)[83]", V_NAR, 83);
       // DIV of NaR/1 = NaR
-      check("DIV  NaR/1=NaR         [84]", V_NAR, 84);
+      check("DIV  NaR/1=NaR          [84]", V_NAR, 84);
     end else if (APPROX_SQRT) begin
       check_not_nar("SQRT sqrt(4)~=2 (approx)[83]", 83);
       if (APPROX_DIV)
