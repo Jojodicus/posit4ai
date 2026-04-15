@@ -55,19 +55,37 @@ module quire2posit_sm #(
   logic [LZOC_W-1:0]     intExp;
   logic [POSRANGE_W-1:0] tmpFrac;
 
-  always_comb begin : lzoc_shift
-    intExp  = '0;
-    tmpFrac = '0;
-    // Count leading bits equal to sgn (MSB-first)
-    for (int i = POSRANGE_W - 1; i >= 0; i--) begin
-      if (positRange[i] == sgn)
-        intExp = intExp + 1;
-      else
-        break;
+  // ── LZOC: generate-based priority encoder ────────────────────────────────────
+  // lzoc_in[i] = 1 when positRange bit (POSRANGE_W-1-i) differs from sgn; i=0 = MSB
+  logic [POSRANGE_W-1:0] lzoc_in;
+  generate
+    for (genvar gi = 0; gi < POSRANGE_W; gi++) begin : g_lzoc_in
+      assign lzoc_in[gi] = positRange[POSRANGE_W-1-gi] ^ sgn;
     end
-    // Left-align: shift positRange so the first non-sgn bit reaches the MSB
-    tmpFrac = positRange << intExp;
+  endgenerate
+
+  // Priority encode: intExp = index of first '1' in lzoc_in, or POSRANGE_W if all '0'.
+  // No break → unrolled to a parallel priority mux tree by synthesis.
+  always_comb begin : lzoc_enc
+    intExp = LZOC_W'(POSRANGE_W);
+    for (int i = POSRANGE_W-1; i >= 0; i--)
+      if (lzoc_in[i]) intExp = LZOC_W'(i);
   end
+
+  // Left barrel shifter: tmpFrac = positRange << intExp  (LZOC_W log2-stages)
+  logic [POSRANGE_W-1:0] lbs [LZOC_W+1];
+  assign lbs[0] = positRange;
+  generate
+    for (genvar s = 0; s < LZOC_W; s++) begin : g_lbs
+      localparam int LDIST = 1 << s;
+      if (LDIST < POSRANGE_W) begin : g_lbs_narrow
+        assign lbs[s+1] = intExp[s] ? {lbs[s][POSRANGE_W-1-LDIST:0], {LDIST{1'b0}}} : lbs[s];
+      end else begin : g_lbs_wide
+        assign lbs[s+1] = intExp[s] ? {POSRANGE_W{1'b0}} : lbs[s];
+      end
+    end
+  endgenerate
+  assign tmpFrac = lbs[LZOC_W];
 
   // ── Zero / NaR detection ─────────────────────────────────────────────────────
   logic intExpZero, intExpMax, positZero, nzn;
@@ -124,17 +142,26 @@ module quire2posit_sm #(
 
   assign inputShifter = {regNeg, exp_field, frac, grd};
 
-  always_comb begin : rshift_sticky
-    shiftedPosit = inputShifter;
-    stkBit2 = 1'b0;
-    // Shift right by regValue positions, filling left with padBit
-    for (int i = 0; i < POSLEN - 1; i++) begin
-      if (REGV_W'(i) < regValue) begin
-        stkBit2 = stkBit2 | shiftedPosit[0];            // accumulate sticky
-        shiftedPosit = {padBit, shiftedPosit[POSLEN-2:1]};  // shift right 1
+  // ── Right barrel shifter with sticky (regime generator) ───────────────────────
+  // Shifts inputShifter right by regValue, fills from left with padBit,
+  // and OR-reduces all shifted-out bits into stkBit2.  REGV_W log2-stages.
+  logic [POSLEN-2:0]    rbs     [REGV_W+1];
+  logic [REGV_W-1:0]    rbs_stk;
+  assign rbs[0] = inputShifter;
+  generate
+    for (genvar s = 0; s < REGV_W; s++) begin : g_rbs
+      localparam int RDIST = 1 << s;
+      if (RDIST < POSLEN-1) begin : g_rbs_narrow
+        assign rbs_stk[s] = regValue[s] ? |rbs[s][RDIST-1:0] : 1'b0;
+        assign rbs[s+1]   = regValue[s] ? {{RDIST{padBit}}, rbs[s][POSLEN-2:RDIST]} : rbs[s];
+      end else begin : g_rbs_wide
+        assign rbs_stk[s] = regValue[s] ? |rbs[s] : 1'b0;
+        assign rbs[s+1]   = regValue[s] ? {(POSLEN-1){padBit}} : rbs[s];
       end
     end
-  end
+  endgenerate
+  assign shiftedPosit = rbs[REGV_W];
+  assign stkBit2      = |rbs_stk;
 
   // ── Round to nearest even ─────────────────────────────────────────────────────
   logic [POSLEN-2:0] unroundedPosit, roundedPosit;
