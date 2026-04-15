@@ -310,6 +310,110 @@ module tb_accel_core
     end
   endtask
 
+  // ── Mode-aware check helpers ──────────────────────────────────────────────────
+  // These tasks encode the DIV/SQRT/QUIRE mode branching once, so call-sites can
+  // describe the *intended* operation (e.g. "DIV 4/2=2") and the task appends a
+  // short suffix explaining how the check was actually performed.
+
+  // DIV result: disabled → NaR, approx → liveness, else exact.
+  task automatic check_div(
+    input string       label,
+    input logic [63:0] v_exact,
+    input int          slot
+  );
+    if (DIV_MODE == "DISABLE")
+      check({label, " [disabled→NaR]"}, V_NAR, slot);
+    else if (DIV_MODE == "APPROX")
+      check_not_nar({label, " [approx]"}, slot);
+    else
+      check(label, v_exact, slot);
+  endtask
+
+  // Result of an instruction that consumed a DIV output as operand.
+  task automatic check_after_div(
+    input string       label,
+    input logic [63:0] v_exact,
+    input int          slot
+  );
+    if (DIV_MODE == "DISABLE")
+      check({label, " [div NaR→NaR prop]"}, V_NAR_PROP, slot);
+    else if (DIV_MODE == "APPROX")
+      check_not_nar({label, " [div approx fwd]"}, slot);
+    else
+      check(label, v_exact, slot);
+  endtask
+
+  // SQRT result: no-hw configs (PAU-8/16, FLO_PAU) always NaR; then mode checks.
+  task automatic check_sqrt(
+    input string       label,
+    input logic [63:0] v_exact,
+    input int          slot
+  );
+    bit no_sqrt_hw;
+    no_sqrt_hw = ((ACCEL_TYPE == "PAU" && (DATA_WIDTH == 8 || DATA_WIDTH == 16)) ||
+                  ACCEL_TYPE == "FLO_PAU");
+    if (no_sqrt_hw)
+      check({label, " [no hw→NaR]"}, V_NAR, slot);
+    else if (SQRT_MODE == "DISABLE")
+      check({label, " [disabled→NaR]"}, V_NAR, slot);
+    else if (SQRT_MODE == "APPROX")
+      check_not_nar({label, " [approx]"}, slot);
+    else
+      check(label, v_exact, slot);
+  endtask
+
+  // Result of an instruction that consumed a SQRT output as operand.
+  task automatic check_after_sqrt(
+    input string       label,
+    input logic [63:0] v_exact,
+    input int          slot
+  );
+    bit no_sqrt_hw;
+    no_sqrt_hw = ((ACCEL_TYPE == "PAU" && (DATA_WIDTH == 8 || DATA_WIDTH == 16)) ||
+                  ACCEL_TYPE == "FLO_PAU");
+    if (no_sqrt_hw)
+      check({label, " [no hw→NaR prop]"}, V_NAR_PROP, slot);
+    else if (SQRT_MODE == "DISABLE")
+      check({label, " [disabled→NaR prop]"}, V_NAR_PROP, slot);
+    else if (SQRT_MODE == "APPROX")
+      check_not_nar({label, " [sqrt approx fwd]"}, slot);
+    else
+      check(label, v_exact, slot);
+  endtask
+
+  // DIV where the dividend came from a SQRT: compound check.
+  // DIV-disabled beats SQRT-disabled; if SQRT was NaR, DIV propagates NaR.
+  task automatic check_div_of_sqrt(
+    input string       label,
+    input logic [63:0] v_exact,
+    input int          slot
+  );
+    bit no_sqrt_hw, sqrt_was_nar;
+    no_sqrt_hw   = ((ACCEL_TYPE == "PAU" && (DATA_WIDTH == 8 || DATA_WIDTH == 16)) ||
+                    ACCEL_TYPE == "FLO_PAU");
+    sqrt_was_nar = no_sqrt_hw || (SQRT_MODE == "DISABLE");
+    if (DIV_MODE == "DISABLE")
+      check({label, " [div disabled→NaR]"}, V_NAR, slot);
+    else if (sqrt_was_nar)
+      check({label, " [sqrt NaR→NaR prop]"}, V_NAR, slot);
+    else if (SQRT_MODE == "APPROX" || DIV_MODE == "APPROX")
+      check_not_nar({label, " [approx]"}, slot);
+    else
+      check(label, v_exact, slot);
+  endtask
+
+  // QACC result: QUIRE_MODE="DISABLED" makes all QACC ops return NaR.
+  task automatic check_qacc(
+    input string       label,
+    input logic [63:0] v_exact,
+    input int          slot
+  );
+    if (QUIRE_MODE == "DISABLED")
+      check({label, " [disabled→NaR]"}, V_NAR, slot);
+    else
+      check(label, v_exact, slot);
+  endtask
+
   // ── Test ─────────────────────────────────────────────────────────────────────
   initial begin
     pass_count = 0;
@@ -399,28 +503,12 @@ module tb_accel_core
     check("MUL  2*2=4 (fwd[13])  [14]",  V_4,    14);
 
     $display("-- Section 3: DIV + forwarding after long stall --");
-    if (DIV_MODE == "APPROX") begin
-      check_not_nar("DIV  4/2~=2 (approx)    [15]", 15);
-      check_not_nar("ADD  ~2+1 (fwd,approx) [16]",  16);
-    end else if (DIV_MODE == "DISABLE") begin
-      check("DIV  (disabled)=NaR    [15]",  V_NAR,      15);
-      check("ADD  NaR+1=NaR (fwd)   [16]",  V_NAR_PROP, 16);
-    end else begin
-      check("DIV  4/2=2             [15]",  V_2,    15);
-      check("ADD  2+1=3 (fwd[15])  [16]",  V_3,    16);
-    end
+    check_div      ("DIV  4/2=2            [15]", V_2, 15);
+    check_after_div("ADD  (DIV result)+1=3 [16]", V_3, 16);
 
     $display("-- Section 4: SQRT + forwarding after long stall --");
-    if (SQRT_MODE == "APPROX") begin
-      check_not_nar("SQRT sqrt(4)~=2 (approx)[17]", 17);
-      check_not_nar("ADD  ~2+2 (fwd,approx) [18]",  18);
-    end else if (SQRT_MODE == "DISABLE") begin
-      check("SQRT (disabled)=NaR    [17]",  V_NAR,      17);
-      check("ADD  NaR+2=NaR (fwd)   [18]",  V_NAR_PROP, 18);
-    end else begin
-      check("SQRT sqrt(4)=2         [17]",  V_SQRT_2,   17);
-      check("ADD  2+2=4 (fwd[17])  [18]",  V_SQRT_FWD, 18);
-    end
+    check_sqrt      ("SQRT sqrt(4)=2         [17]", V_SQRT_2,   17);
+    check_after_sqrt("ADD  (SQRT result)+2=4 [18]", V_SQRT_FWD, 18);
 
     $display("-- Section 5: Unary ops with forwarding --");
     check("NEG  -2.0              [19]",  V_NEG2, 19);
@@ -430,10 +518,7 @@ module tb_accel_core
     check("RELU max(0,1)=1        [23]",  V_1,    23);
 
     $display("-- Section 6: Quire/accumulator --");
-    if (QUIRE_MODE == "DISABLED")
-      check("QACC (disabled)=NaR   [24]",  V_NAR,  24);
-    else
-      check("QACC 1+4-2->neg->+4=1 [24]",  V_1,    24);
+    check_qacc("QACC 1+4-2->neg->+4=1 [24]", V_1, 24);
 
     $display("-- Section 7: Zero operand tests --");
     check("ADD  0+0=0             [30]",  V_0,    30);
@@ -527,41 +612,11 @@ module tb_accel_core
     run_program();
     $display("[%0t] Program 4 done.", $time);
 
-    if (DIV_MODE == "APPROX") begin
-      check_not_nar("DIV  4/2~=2 (b2b,approx)[80]", 80);
-      check_not_nar("DIV  4/4~=1 (b2b,approx)[81]", 81);
-      check_not_nar("ADD  ~2+~1 (approx)     [82]",  82);
-    end else if (DIV_MODE == "DISABLE") begin
-      check("DIV  (disabled)=NaR    [80]",  V_NAR,      80);
-      check("DIV  (disabled)=NaR    [81]",  V_NAR,      81);
-      check("ADD  NaR+NaR=NaR       [82]",  V_NAR_PROP, 82);
-    end else begin
-      check("DIV  4/2=2 (b2b)       [80]", V_2, 80);
-      check("DIV  4/4=1 (b2b)       [81]", V_1, 81);
-      check("ADD  2+1=3 (b2b fwd)   [82]", V_3, 82);
-    end
-
-    // SQRT check [83]: PAU-8/16 and FLO_PAU always return NaR (no FloPoCo SQRT core)
-    if ((ACCEL_TYPE == "PAU" && (DATA_WIDTH == 8 || DATA_WIDTH == 16)) ||
-        ACCEL_TYPE == "FLO_PAU")
-      check("SQRT sqrt(4)=NaR (FloCo)[83]", V_NAR, 83);
-    else if (SQRT_MODE == "DISABLE")
-      check("SQRT (disabled)=NaR     [83]", V_NAR, 83);
-    else if (SQRT_MODE == "APPROX")
-      check_not_nar("SQRT sqrt(4)~=2 (approx)[83]", 83);
-    else
-      check("SQRT sqrt(4)=2          [83]", V_2,   83);
-
-    // DIV of SQRT result / 1 [84]
-    if (DIV_MODE == "DISABLE")
-      check("DIV  (disabled)=NaR     [84]", V_NAR, 84);
-    else if ((ACCEL_TYPE == "PAU" && (DATA_WIDTH == 8 || DATA_WIDTH == 16)) ||
-             ACCEL_TYPE == "FLO_PAU" || SQRT_MODE == "DISABLE")
-      check("DIV  NaR/1=NaR          [84]", V_NAR, 84);
-    else if (SQRT_MODE == "APPROX" || DIV_MODE == "APPROX")
-      check_not_nar("DIV  ~2/1 (~approx)    [84]", 84);
-    else
-      check("DIV  2/1=2 (SQRT fwd)   [84]", V_2,  84);
+    check_div      ("DIV  4/2=2 (b2b)              [80]", V_2, 80);
+    check_div      ("DIV  4/4=1 (b2b)              [81]", V_1, 81);
+    check_after_div("ADD  (DIV b2b)+( DIV b2b)=3   [82]", V_3, 82);
+    check_sqrt     ("SQRT sqrt(4)=2                [83]", V_2, 83);
+    check_div_of_sqrt("DIV  (SQRT result)/1=2      [84]", V_2, 84);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // PROGRAM 5: Quire accumulation stress test
@@ -598,13 +653,8 @@ module tb_accel_core
     run_program();
     $display("[%0t] Program 5 done.", $time);
 
-    if (QUIRE_MODE == "DISABLED") begin
-      check("QACC stress (disabled)=NaR              [90]", V_NAR, 90);
-      check("QACC NEG(0) (disabled)=NaR              [91]", V_NAR, 91);
-    end else begin
-      check("QACC stress: 3×ADD+2×MADD-MSUB-NEG+MADD=1 [90]", V_1, 90);
-      check("QACC NEG(0)=0                              [91]", V_0, 91);
-    end
+    check_qacc("QACC 3×ADD+2×MADD-MSUB-NEG+MADD=1 [90]", V_1, 90);
+    check_qacc("QACC NEG(0)=0                      [91]", V_0, 91);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // PROGRAM 6: Instruction BRAM saturation
@@ -664,13 +714,8 @@ module tb_accel_core
     run_program();
     $display("[%0t] Program 7 done.", $time);
 
-    if (QUIRE_MODE == "DISABLED") begin
-      check("QACC_NEG (disabled)=NaR             [96]", V_NAR, 96);
-      check("QACC_NEG×2 (disabled)=NaR           [97]", V_NAR, 97);
-    end else begin
-      check("QACC_NEG: acc=2,neg=-2          [96]", V_NEG2, 96);
-      check("QACC_NEG×2: acc=2,neg,neg=2     [97]", V_2,    97);
-    end
+    check_qacc("QACC_NEG:   acc=2, neg→-2      [96]", V_NEG2, 96);
+    check_qacc("QACC_NEG×2: acc=2, neg,neg→+2  [97]", V_2,    97);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // PROGRAM 8: QMADD/QMSUB single-cycle accumulator
@@ -702,13 +747,8 @@ module tb_accel_core
     run_program();
     $display("[%0t] Program 8 done.", $time);
 
-    if (QUIRE_MODE == "DISABLED") begin
-      check("QMADD×2 (disabled)=NaR            [100]", V_NAR, 100);
-      check("QMSUB   (disabled)=NaR            [101]", V_NAR, 101);
-    end else begin
-      check("QMADD×2: 2*1+0, 2*1+2 = 4  [100]", V_4, 100);
-      check("QMSUB:   4 - 2*1 = 2        [101]", V_2, 101);
-    end
+    check_qacc("QMADD×2: 2*1+0, 2*1+2=4 [100]", V_4, 100);
+    check_qacc("QMSUB:   4-2*1=2         [101]", V_2, 101);
 
     // ── Summary ───────────────────────────────────────────────────────────────
     $display("===================================================================");
