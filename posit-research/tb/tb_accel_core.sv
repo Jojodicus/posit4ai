@@ -8,6 +8,12 @@
 //   sim_pau64             PAU  64-bit  exact
 //   sim_fpu32             FPU  32-bit
 //   sim_fpu64             FPU  64-bit
+//   sim_pau8              PAU   8-bit  exact quire
+//   sim_pau16             PAU  16-bit  exact quire
+//   sim_pau16_approx      PAU  16-bit  approx-mul, exact quire
+//   sim_pau8_noquire      PAU   8-bit  no quire (pseudo-accumulator in flo_posit_top)
+//   sim_pau16_noquire     PAU  16-bit  no quire (pseudo-accumulator in flo_posit_top)
+//   sim_pau32_noquire     PAU  32-bit  no quire (acc_q in arith_unit, 2-pass MAC)
 //
 // ── Coverage ─────────────────────────────────────────────────────────────────────
 // All 16 opcodes exercised:
@@ -630,6 +636,39 @@ module tb_accel_core
 
     check("QACC_NEG: acc=2,neg=-2          [96]", V_NEG2, 96);
     check("QACC_NEG×2: acc=2,neg,neg=2     [97]", V_2,    97);
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PROGRAM 8: QMADD/QMSUB single-cycle accumulator
+    // Specifically validates the flo_posit_top nacc_q path for PAU-8/16 no-quire.
+    // Correct for all configs (quire-present PAU and FPU also produce exact results).
+    //
+    // Sequence:
+    //   QCLR: acc = 0
+    //   QMADD(d[1]=2, d[0]=1): acc = 2*1 + 0 = 2
+    //   QMADD(d[1]=2, d[0]=1): acc = 2*1 + 2 = 4   → QROUND → d[100] = V_4
+    //   QMSUB(d[1]=2, d[0]=1): acc = 4 - 2*1 = 2   → QROUND → d[101] = V_2
+    // ═══════════════════════════════════════════════════════════════════════════
+    $display("-- QMADD/QMSUB accumulator (PAU-8/16 no-quire focus) --");
+
+    write_dbram(0, V_1[DATA_WIDTH-1:0]);
+    write_dbram(1, V_2[DATA_WIDTH-1:0]);
+
+    write_ibram(0, make_instr(OP_QACC_CLEAR, 20'd0, 20'd0, 20'd0));
+    write_ibram(1, make_instr(OP_QACC_MADD,  20'd1, 20'd0, 20'd0)); // acc = 2*1+0 = 2
+    write_ibram(2, make_instr(OP_QACC_MADD,  20'd1, 20'd0, 20'd0)); // acc = 2*1+2 = 4
+    write_ibram(3, make_instr(OP_QACC_READ,  20'd0, 20'd0, 20'd100)); // d[100] = 4
+    write_ibram(4, make_instr(OP_QACC_MSUB,  20'd1, 20'd0, 20'd0)); // acc = 4-2*1 = 2
+    write_ibram(5, make_instr(OP_QACC_READ,  20'd0, 20'd0, 20'd101)); // d[101] = 2
+    write_ibram(6, make_instr(OP_HALT,        20'd0, 20'd0, 20'd0));
+
+    repeat(3) @(posedge clk);
+
+    $display("[%0t] Starting Program 8 (QMADD/QMSUB accumulator)...", $time);
+    run_program();
+    $display("[%0t] Program 8 done.", $time);
+
+    check("QMADD×2: 2*1+0, 2*1+2 = 4  [100]", V_4, 100);
+    check("QMSUB:   4 - 2*1 = 2        [101]", V_2, 101);
 
     // ── Summary ───────────────────────────────────────────────────────────────
     $display("===================================================================");

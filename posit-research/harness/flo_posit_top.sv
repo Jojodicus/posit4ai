@@ -130,6 +130,13 @@ module flo_posit_top import ariane_pkg::*; (
   // ── FloPoCo arithmetic unit instantiation ─────────────────────────────────────
   logic [POSLEN-1:0] add_o, mul_o, div_o;
 
+  // No-quire pseudo-accumulator (QUIRE_PRESENT=0 only).
+  // mac_mul_o / mac_posit_o: dedicated combinatorial MAC path separate from the
+  // shared pau*_mul_i / pau*_add_i instances (which are already occupied by PMUL/PADD).
+  // nacc_q: POSLEN-wide posit accumulator; updated when pau_valid_d fires.
+  logic [POSLEN-1:0] mac_mul_o, mac_posit_o;
+  logic [POSLEN-1:0] nacc_q, nacc_d;
+
   if (POSLEN == 8) begin : g_fp8
 
     PositAdd2_8_2_F0_uid2 pau8_add_i (
@@ -165,7 +172,29 @@ module flo_posit_top import ariane_pkg::*; (
         .C ( mac_c ),
         .R ( mac_r )
       );
+      assign mac_mul_o   = '0;
+      assign mac_posit_o = '0;
     end else begin : g_nomac8
+      // Dedicated single-cycle MAC path: PositMult → PositAdd2(nacc_q).
+      // Separate from pau8_mul_i / pau8_add_i to avoid operand routing contention.
+      if (!POS_LOG_MULT) begin : g_mac_mul_exact
+        PositMult_8_2_F0_uid2 pau8_mac_mul_i (
+          .X ( mac_a     ),
+          .Y ( mac_b     ),
+          .R ( mac_mul_o )
+        );
+      end else begin : g_mac_mul_approx
+        PositLAM_8_2_F0_uid2 pau8_mac_lam_i (
+          .X ( mac_a     ),
+          .Y ( mac_b     ),
+          .R ( mac_mul_o )
+        );
+      end
+      PositAdd2_8_2_F0_uid2 pau8_mac_add_i (
+        .X ( mac_mul_o   ),
+        .Y ( nacc_q      ),
+        .R ( mac_posit_o )
+      );
       assign mac_r = '0;
     end
 
@@ -204,7 +233,28 @@ module flo_posit_top import ariane_pkg::*; (
         .C ( mac_c ),
         .R ( mac_r )
       );
+      assign mac_mul_o   = '0;
+      assign mac_posit_o = '0;
     end else begin : g_nomac16
+      // Dedicated single-cycle MAC path: PositMult → PositAdd2(nacc_q).
+      if (!POS_LOG_MULT) begin : g_mac_mul_exact
+        PositMult_16_2_F0_uid2 pau16_mac_mul_i (
+          .X ( mac_a     ),
+          .Y ( mac_b     ),
+          .R ( mac_mul_o )
+        );
+      end else begin : g_mac_mul_approx
+        PositLAM_16_2_F0_uid2 pau16_mac_lam_i (
+          .X ( mac_a     ),
+          .Y ( mac_b     ),
+          .R ( mac_mul_o )
+        );
+      end
+      PositAdd2_16_2_F0_uid2 pau16_mac_add_i (
+        .X ( mac_mul_o   ),
+        .Y ( nacc_q      ),
+        .R ( mac_posit_o )
+      );
       assign mac_r = '0;
     end
 
@@ -234,6 +284,28 @@ module flo_posit_top import ariane_pkg::*; (
     assign q2p_in_posit = NAR;
   end
 
+  // ── No-quire pseudo-accumulator state machine ────────────────────────────────
+  // nacc_q mirrors the quire for QUIRE_PRESENT=0: a POSLEN-wide posit accumulator.
+  // Updated when operator_delay reflects the completed op (same cycle pau_valid_d fires
+  // or pau_ready_o gates the MAC update — mirrors the quire_d pattern exactly).
+  always_comb begin
+    nacc_d = nacc_q;
+    if (!QUIRE_PRESENT) begin
+      unique case (operator_delay)
+        QCLR:         nacc_d = '0;
+        // Gate on pau_valid_d to prevent double-fire: operator_delay holds QNEG for
+        // one extra READY cycle after the STALL completes, same as the quire QNEG gate.
+        QNEG:         nacc_d = pau_valid_d
+                                 ? (~nacc_q + {{(POSLEN-1){1'b0}}, 1'b1})
+                                 : nacc_q;
+        // pau_ready_o=1 in the final STALL cycle; idle READY cycle is harmless because
+        // mac_a/mac_b=0 when no op is active → mac_posit_o = PositAdd(0, nacc_q) = nacc_q.
+        QMADD, QMSUB: nacc_d = pau_ready_o ? mac_posit_o : nacc_q;
+        default: ;
+      endcase
+    end
+  end
+
   // ── Result mux ───────────────────────────────────────────────────────────────
   // Combinatorial result, valid only while the held operands still drive add_o/mul_o/div_o
   // (i.e. in the STALL cycle when pau_valid_d is asserted).
@@ -249,8 +321,14 @@ module flo_posit_top import ariane_pkg::*; (
       PMUL:       result_comb = {{(riscv::XLEN-POSLEN){1'b0}}, mul_o};
       PDIV:       result_comb = {{(riscv::XLEN-POSLEN){1'b0}}, div_o};
       PSQRT:      result_comb = {{(riscv::XLEN-POSLEN){1'b0}}, NAR};
-      QROUND:     result_comb = {{(riscv::XLEN-POSLEN){1'b0}}, q2p_in_posit};
-      // QMADD/QMSUB/QCLR/QNEG: quire-only, no scalar result
+      // QROUND: quire path converts via quire2posit_sm; no-quire path reads nacc_q directly.
+      QROUND:     result_comb = QUIRE_PRESENT
+                    ? {{(riscv::XLEN-POSLEN){1'b0}}, q2p_in_posit}
+                    : {{(riscv::XLEN-POSLEN){1'b0}}, nacc_q};
+      // QMADD/QMSUB: no scalar result in quire mode; return mac_posit_o in no-quire mode.
+      QMADD, QMSUB: if (!QUIRE_PRESENT)
+                      result_comb = {{(riscv::XLEN-POSLEN){1'b0}}, mac_posit_o};
+      // QCLR/QNEG: no scalar result in either mode
       default: ;
     endcase
   end
@@ -311,6 +389,7 @@ module flo_posit_top import ariane_pkg::*; (
       pau_valid_o    <= '0;
       operator_delay <= PADD;
       result_o       <= '0;
+      nacc_q         <= '0;
       if (QUIRE_PRESENT)
         quire_q      <= '0;
     end else begin
@@ -325,6 +404,8 @@ module flo_posit_top import ariane_pkg::*; (
         result_o     <= result_comb;
       if (QUIRE_PRESENT)
         quire_q      <= quire_d;
+      if (!QUIRE_PRESENT)
+        nacc_q       <= nacc_d;
       if (hold_inputs) begin
         operand_a_q  <= operand_a_d;
         operand_b_q  <= operand_b_d;

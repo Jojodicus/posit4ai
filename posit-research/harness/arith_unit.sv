@@ -4,9 +4,11 @@
 // interface to accel_core. Translates accelerator opcodes to the native arithmetic unit ops.
 //
 // QACC state for FPU mode:                acc_q register here; uses FMA unit.
-// QACC state for PAU mode, QUIRE_ENABLE=1: inside pau_top (internal quire register).
-// QACC state for PAU mode, QUIRE_ENABLE=0: acc_q register here; uses PMUL + PADD/PSUB.
-//   QACC_MADD / QACC_MSUB are two-pass: first PMUL, then PADD/PSUB via MAC_STEP → WAIT2.
+// QACC state for PAU mode, QUIRE_ENABLE=1: inside pau_top / flo_posit_top (quire register).
+// QACC state for PAU mode, QUIRE_ENABLE=0:
+//   PAU-8/16 (FloPoCo): nacc_q inside flo_posit_top; QMADD/QMSUB/QCLR/QNEG/QROUND
+//                        are sent directly to flopau and complete in 1 PAU cycle.
+//   PAU-32/64:           acc_q register here; PMUL + PADD/PSUB two-pass via MAC_STEP → WAIT2.
 
 module arith_unit
   import config_pkg::*;
@@ -25,13 +27,17 @@ module arith_unit
 );
 
   // Posit 1.0 encoding: 0_1_00...0 = 1 << (DATA_WIDTH-2)
-  // Used for QACC_ADD (PAU mode, QUIRE_ENABLE=1): QACC_ADD(a) = QMADD(a, 1.0)
+  // Used for QACC_ADD (PAU quire or FLO_PAU_NO_QUIRE): QACC_ADD(a) = QMADD(a, 1.0)
   localparam logic [DATA_WIDTH-1:0] POSIT_ONE = DATA_WIDTH'(1) << (DATA_WIDTH-2);
 
   // Compile-time flags as plain packed bits — avoids string comparisons inside
   // always_comb/unique-case blocks where Vivado rejects non-packed expressions.
   localparam bit IS_PAU       = (ACCEL_TYPE == "PAU");
-  localparam bit PAU_NO_QUIRE = IS_PAU & ~QUIRE_ENABLE;
+  localparam bit PAU_NO_QUIRE     = IS_PAU & ~QUIRE_ENABLE;
+  // FLO_PAU_NO_QUIRE: PAU-8 or PAU-16 (FloPoCo cores) with QUIRE_ENABLE=0.
+  // These have dedicated single-cycle QMADD/QMSUB hardware in flo_posit_top (nacc_q),
+  // so the 2-pass PMUL + PADD/PSUB path is bypassed — all QACC ops go to flopau directly.
+  localparam bit FLO_PAU_NO_QUIRE = IS_PAU & ~QUIRE_ENABLE & bit'(DATA_WIDTH < 32);
 
   // ── State machine ────────────────────────────────────────────────────────────
   // MAC_STEP: issues the second PAU op (PADD/PSUB) for no-quire QACC_MADD/MSUB
@@ -144,8 +150,9 @@ module arith_unit
       //   FPU: always handled here (no hw needed for clear/negate/read)
       //   PAU + QUIRE_ENABLE=0: handled here (posit neg = 2's complement, read acc directly)
       //   PAU + QUIRE_ENABLE=1: routed to quire in pau_top (QCLR/QNEG/QROUND), not here
+      // FLO_PAU_NO_QUIRE routes these to flopau (QCLR/QNEG/QROUND on nacc_q), not comb_op.
       OP_QACC_CLEAR, OP_QACC_NEG, OP_QACC_READ:
-        if (!IS_PAU || PAU_NO_QUIRE)
+        if (!IS_PAU || (PAU_NO_QUIRE && !FLO_PAU_NO_QUIRE))
           is_comb_op = 1'b1;
       default: ;
     endcase
@@ -215,22 +222,23 @@ module arith_unit
         OP_DIV:        pau_fu_op = PDIV;
         OP_SQRT:       pau_fu_op = PSQRT;
         OP_QACC_ADD: begin
-          if (!QUIRE_ENABLE) begin
-            // No-quire: PADD(a, acc) → result = a + acc
+          if (PAU_NO_QUIRE && !FLO_PAU_NO_QUIRE) begin
+            // No-quire PAU-32/64: PADD(a, acc_q) → result = a + acc_q
             pau_fu_op = PADD;
             pau_op_a  = operand_a_i;
             pau_op_b  = acc_q;
           end else begin
-            // Exact quire: QMADD(a, 1.0) → quire += a × 1.0 = a
+            // Exact quire or flopau no-quire: QMADD(a, 1.0) → acc += a × 1.0 = a
             pau_fu_op = QMADD;
             pau_op_b  = POSIT_ONE;
           end
         end
-        OP_QACC_MADD:  pau_fu_op = QUIRE_ENABLE ? QMADD  : PMUL;  // no-quire: 1st pass = multiply
-        OP_QACC_MSUB:  pau_fu_op = QUIRE_ENABLE ? QMSUB  : PMUL;  // no-quire: 1st pass = multiply
-        OP_QACC_CLEAR: pau_fu_op = QCLR;    // only reached when QUIRE_ENABLE=1
-        OP_QACC_NEG:   pau_fu_op = QNEG;    // only reached when QUIRE_ENABLE=1
-        OP_QACC_READ:  pau_fu_op = QROUND;  // only reached when QUIRE_ENABLE=1
+        // No-quire PAU-32/64: 2-pass (PMUL first); flopau no-quire: single-cycle QMADD/QMSUB
+        OP_QACC_MADD:  pau_fu_op = (QUIRE_ENABLE | FLO_PAU_NO_QUIRE) ? QMADD : PMUL;
+        OP_QACC_MSUB:  pau_fu_op = (QUIRE_ENABLE | FLO_PAU_NO_QUIRE) ? QMSUB : PMUL;
+        OP_QACC_CLEAR: pau_fu_op = QCLR;    // reached when QUIRE_ENABLE=1 or FLO_PAU_NO_QUIRE
+        OP_QACC_NEG:   pau_fu_op = QNEG;    // reached when QUIRE_ENABLE=1 or FLO_PAU_NO_QUIRE
+        OP_QACC_READ:  pau_fu_op = QROUND;  // reached when QUIRE_ENABLE=1 or FLO_PAU_NO_QUIRE
         default: ;
       endcase
     end
@@ -353,14 +361,16 @@ module arith_unit
       WAIT: begin
         if (arith_valid_o) begin
           result_d = arith_result;
-          // No-quire PAU 2-pass MAC: first pass (PMUL) done → issue PADD/PSUB
-          if (PAU_NO_QUIRE &&
+          // No-quire PAU-32/64 2-pass MAC: first pass (PMUL) done → issue PADD/PSUB.
+          // FLO_PAU_NO_QUIRE skips this: flopau completes QMADD/QMSUB in one PAU cycle.
+          if (PAU_NO_QUIRE && !FLO_PAU_NO_QUIRE &&
               opcode_q inside {OP_QACC_MADD, OP_QACC_MSUB}) begin
             mul_result_d = arith_result;
             state_d = MAC_STEP;
           end else begin
-            // Update accumulator for QACC arithmetic ops (FPU or PAU no-quire)
-            if (opcode_q inside {OP_QACC_ADD, OP_QACC_MADD, OP_QACC_MSUB})
+            // Update accumulator (FPU or PAU-32/64 no-quire).
+            // FLO_PAU_NO_QUIRE uses flopau's nacc_q; no acc_d update needed here.
+            if (!FLO_PAU_NO_QUIRE && opcode_q inside {OP_QACC_ADD, OP_QACC_MADD, OP_QACC_MSUB})
               acc_d = arith_result;
             state_d = DONE;
           end
