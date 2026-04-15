@@ -36,12 +36,14 @@ module tb_accel_axi
   import opcodes_pkg::*;
 ();
 
-  localparam CLK_PERIOD = 10;  // 10 ns = 100 MHz
+  localparam real CLK_PERIOD = 10.0;  // 10 ns = 100 MHz
 
   // ── Clock and reset ──────────────────────────────────────────────────────────
-  logic clk, rst_n;
+  logic clk, clk_bram, rst_n;
   initial clk = 0;
   always #(CLK_PERIOD/2) clk = ~clk;
+  initial clk_bram = 0;
+  always #(CLK_PERIOD/4) clk_bram = ~clk_bram;
 
   initial begin
     rst_n = 0;
@@ -202,6 +204,7 @@ module tb_accel_axi
   // ── Accelerator core ──────────────────────────────────────────────────────────
   accel_core u_core (
     .clk_i         ( clk              ),
+    .clk_bram_i    ( clk_bram         ),
     .rst_ni        ( accel_rst_n      ),
     .start_i       ( accel_start      ),
     .done_o        ( accel_done       ),

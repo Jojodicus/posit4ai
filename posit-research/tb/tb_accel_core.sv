@@ -50,12 +50,16 @@ module tb_accel_core
   import opcodes_pkg::*;
 ();
 
-  localparam CLK_PERIOD = 10;   // 10 ns = 100 MHz
+  localparam real CLK_PERIOD = 10.0;   // 10 ns = 100 MHz
 
   // ── Clock and reset ──────────────────────────────────────────────────────────
-  logic clk, rst_n;
+  logic clk, clk_bram, rst_n;
   initial clk = 0;
   always #(CLK_PERIOD/2) clk = ~clk;
+  // clk_bram = 2× clk; same initial phase so clk_bram posedge coincides with
+  // clk posedge — that edge is phase_q=0 (read sub-cycle) inside accel_core.
+  initial clk_bram = 0;
+  always #(CLK_PERIOD/4) clk_bram = ~clk_bram;
 
   initial begin
     rst_n = 0;
@@ -78,6 +82,7 @@ module tb_accel_core
 
   accel_core dut (
     .clk_i         ( clk         ),
+    .clk_bram_i    ( clk_bram    ),
     .rst_ni        ( rst_n       ),
     .start_i       ( start       ),
     .done_o        ( done        ),

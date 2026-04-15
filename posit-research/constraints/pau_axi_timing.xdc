@@ -16,4 +16,13 @@
 ## frequency; its constraints are handled in run_build.tcl.
 
 ## Additional Timing Exceptions
-## Add project-specific false paths or multicycle paths below as needed
+
+## Step B: DBRAM → arith_unit multicycle path constraint
+## data_mem_reg* is clocked at clk_bram (2× clk_i). The path from the BRAM
+## output registers (op_a_q / op_b_q, captured at clk_bram phase 1) to arith_unit
+## inputs has a full clk_i period to settle (7.5 ns at 100 MHz arith / 200 MHz BRAM).
+## Without this constraint Vivado applies a 5 ns (clk_bram) setup budget.
+set_multicycle_path -setup 2 -from [get_cells {u_core/data_mem_reg*}] \
+    -to [get_cells {u_core/u_arith/*}]
+set_multicycle_path -hold 1 -from [get_cells {u_core/data_mem_reg*}] \
+    -to [get_cells {u_core/u_arith/*}]

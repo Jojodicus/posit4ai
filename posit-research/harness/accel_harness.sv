@@ -23,12 +23,15 @@ module accel_harness
 );
 
   // ── Clocking wizard: board clock → synthesis target frequency ────────────────
-  logic clk_core, clk_locked;
+  // CLKOUT1: arith clock (target frequency, set by build.sh)
+  // CLKOUT2: BRAM clock = 2× CLKOUT1 (Step B DDR technique)
+  logic clk_core, clk_bram, clk_locked;
 
   clk_wiz_0 u_clk_wiz (
     .clk_in1  ( clk_in     ),
     .reset    ( 1'b0       ),   // reset unused — tied deasserted
     .clk_out1 ( clk_core   ),
+    .clk_out2 ( clk_bram   ),
     .locked   ( clk_locked )
   );
 
@@ -64,6 +67,7 @@ module accel_harness
 
   accel_core u_core (
     .clk_i         ( clk_core      ),
+    .clk_bram_i    ( clk_bram      ),
     .rst_ni        ( rst_n         ),
     .start_i       ( start_r       ),
     .done_o        ( done_sig      ),

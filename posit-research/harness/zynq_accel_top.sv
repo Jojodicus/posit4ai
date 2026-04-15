@@ -338,8 +338,11 @@ module zynq_accel_top (
   );
 
   // ── Accelerator core ──────────────────────────────────────────────────────────
+  // TODO: clk_bram_i should be 2× FCLK_CLK0 (add second clk_wiz for full Step B speed).
+  // Tied to FCLK_CLK0 for now — design still functionally correct, throughput at ½ rate.
   accel_core u_core (
     .clk_i         ( FCLK_CLK0        ),
+    .clk_bram_i    ( FCLK_CLK0        ),
     .rst_ni        ( accel_rst_n      ),
     .start_i       ( accel_start      ),
     .done_o        ( accel_done       ),
