@@ -1,27 +1,27 @@
-// PERCIVAL Accelerator — 64-bit AXI4 burst slave for data BRAM (HP0 path).
+// PERCIVAL Accelerator -- 64-bit AXI4 burst slave for data BRAM (HP0 path).
 //
 // Maps the entire data BRAM as a flat, word-addressable memory window.
 // The host (PS7 CPU via S_AXI_HP0) performs AXI4 INCR burst memcpy to load
 // or read back data, replacing the slow AXI-Lite single-word register pokes.
 //
-// Beat ↔ BRAM word mapping:
-//   DATA_WIDTH=32: AWADDR[BAW+1:2] → base index; low 32 bits of WDATA used
-//   DATA_WIDTH=64: AWADDR[BAW+2:3] → base index; all 64 bits of WDATA used
+// Beat <-> BRAM word mapping:
+//   DATA_WIDTH=32: AWADDR[BAW+1:2] -> base index; low 32 bits of WDATA used
+//   DATA_WIDTH=64: AWADDR[BAW+2:3] -> base index; all 64 bits of WDATA used
 //   One AXI4 beat = one BRAM word (simple, avoids sub-beat packing complexity).
 //   For DATA_WIDTH=32 reads: RDATA[63:32] = 0 (host uses only RDATA[31:0]).
 //
 // Protocol:
-//   - AXI4, 64-bit data bus (native HP0 width — no Vivado width converter)
-//   - INCR bursts only; WRAP/FIXED → SLVERR response
-//   - AWLEN/ARLEN[7:0] = beats − 1  (AXI4 encoding)
+//   - AXI4, 64-bit data bus (native HP0 width -- no Vivado width converter)
+//   - INCR bursts only; WRAP/FIXED -> SLVERR response
+//   - AWLEN/ARLEN[7:0] = beats - 1  (AXI4 encoding)
 //   - WSTRB: low DATA_WIDTH/8 bytes must be all-1 or all-0; upper bytes ignored
 //   - Burst writes gated by running_i; burst reads always allowed
 //   - b_req to arbiter held HIGH from first address cycle through final handshake
 //
 // Read pipeline (1-cycle registered BRAM latency):
-//   R_IDLE  →  R_ADDR (assert b_req, issue addr[beat=0])
-//          →  R_DATA  (RVALID, pre-fetch addr[beat+1] each cycle)
-//          →  R_IDLE  on RLAST+RREADY
+//   R_IDLE  ->  R_ADDR (assert b_req, issue addr[beat=0])
+//          ->  R_DATA  (RVALID, pre-fetch addr[beat+1] each cycle)
+//          ->  R_IDLE  on RLAST+RREADY
 
 module accel_axi_burst
   import config_pkg::*;
@@ -35,7 +35,7 @@ module accel_axi_burst
 
   input  logic running_i,
 
-  // ── AXI4 slave (64-bit data) ─────────────────────────────────────────────────
+  // -- AXI4 slave (64-bit data) ------------------------------------
   input  logic [AXI_ID_WIDTH-1:0]   s_axi_awid,
   input  logic [AXI_ADDR_WIDTH-1:0] s_axi_awaddr,
   input  logic [7:0]                s_axi_awlen,
@@ -70,7 +70,7 @@ module accel_axi_burst
   output logic                      s_axi_rvalid,
   input  logic                      s_axi_rready,
 
-  // ── Arbiter port B ────────────────────────────────────────────────────────────
+  // -- Arbiter port B -------------------------------------------
   output logic                           b_req,
   output logic [$clog2(DATA_DEPTH)-1:0]  b_addr,
   output logic [DATA_WIDTH-1:0]          b_wdata,
@@ -80,7 +80,7 @@ module accel_axi_burst
 
   localparam int BAW = $clog2(DATA_DEPTH);
 
-  // ── Address → BRAM index ─────────────────────────────────────────────────────
+  // -- Address -> BRAM index ------------------------------------
   // Inline function: extract BRAM base index from an AXI byte address.
   function automatic logic [BAW-1:0] bram_index(logic [AXI_ADDR_WIDTH-1:0] a);
     if (DATA_WIDTH == 64)
@@ -89,7 +89,7 @@ module accel_axi_burst
       return a[BAW+1:2];   // 4-byte words
   endfunction
 
-  // ── Write FSM (W_IDLE → W_BURST → W_RESP) ───────────────────────────────────
+  // -- Write FSM (W_IDLE -> W_BURST -> W_RESP) --------------------
   typedef enum logic [1:0] { W_IDLE, W_BURST, W_RESP } wr_state_t;
   wr_state_t wr_state_q, wr_state_d;
 
@@ -170,7 +170,7 @@ module accel_axi_burst
     end
   end
 
-  // ── Read FSM (R_IDLE → R_ADDR → R_DATA → R_IDLE) ────────────────────────────
+  // -- Read FSM (R_IDLE -> R_ADDR -> R_DATA -> R_IDLE) ------------
   // R_ADDR: assert b_req, issue addr[beat=0], wait 1 cycle for BRAM output.
   // R_DATA: RVALID=1; pre-fetch addr[beat+1] each cycle to fill the pipeline.
 
@@ -241,7 +241,7 @@ module accel_axi_burst
     end
   end
 
-  // ── Arbiter port B output ─────────────────────────────────────────────────────
+  // -- Arbiter port B output ------------------------------------
   // b_req held during write burst (W_BURST + W_RESP) and read burst (R_ADDR + R_DATA).
   // Write has priority over read when both happen simultaneously (shouldn't in practice).
   assign b_req = (wr_state_q == W_BURST) || (wr_state_q == W_RESP) ||

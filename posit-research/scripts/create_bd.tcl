@@ -123,13 +123,13 @@ make_bd_intf_pins_external [get_bd_intf_pins axi_pc/M_AXI]
 # Rename from auto-generated M_AXI_0 to M_AXI_LITE
 set_property name M_AXI_LITE [get_bd_intf_ports M_AXI_0]
 
-# --- Enable M_AXI_GP1 for burst DBRAM access (PS master → PL slave) ---
-# GP1 is the second PS7 AXI3 master port (PS CPU → PL fabric direction).
-# NOTE: S_AXI_HP0 is PL→PS direction (PL DMA → DDR), NOT suitable for PS→PL BRAM.
-# GP1 (32-bit AXI3) converted to AXI4 gives burst-capable PS→PL path for bulk DBRAM loads.
+# --- Enable M_AXI_GP1 for burst DBRAM access (PS master -> PL slave) ---
+# GP1 is the second PS7 AXI3 master port (PS CPU -> PL fabric direction).
+# NOTE: S_AXI_HP0 is PL->PS direction (PL DMA -> DDR), NOT suitable for PS->PL BRAM.
+# GP1 (32-bit AXI3) converted to AXI4 gives burst-capable PS->PL path for bulk DBRAM loads.
 set_property CONFIG.PCW_USE_M_AXI_GP1 {1} [get_bd_cells ps7]
 
-# AXI Protocol Converter: AXI3 (GP1) → AXI4 (burst-capable, 8-bit AWLEN)
+# AXI Protocol Converter: AXI3 (GP1) -> AXI4 (burst-capable, 8-bit AWLEN)
 create_bd_cell -type ip -vlnv xilinx.com:ip:axi_protocol_converter:2.1 axi_pc_gp1
 set_property -dict [list \
     CONFIG.SI_PROTOCOL {AXI3} \
@@ -141,7 +141,7 @@ connect_bd_net [get_bd_pins ps7/FCLK_CLK0] [get_bd_pins ps7/M_AXI_GP1_ACLK]
 connect_bd_net [get_bd_pins ps7/FCLK_CLK0] [get_bd_pins axi_pc_gp1/aclk]
 connect_bd_net [get_bd_pins rst_ps7/peripheral_aresetn] [get_bd_pins axi_pc_gp1/aresetn]
 
-# GP1 → axi_pc_gp1 → exported M_AXI_BURST (burst-capable AXI4, 32-bit data, base 0x8000_0000)
+# GP1 -> axi_pc_gp1 -> exported M_AXI_BURST (burst-capable AXI4, 32-bit data, base 0x8000_0000)
 connect_bd_intf_net [get_bd_intf_pins ps7/M_AXI_GP1] [get_bd_intf_pins axi_pc_gp1/S_AXI]
 make_bd_intf_pins_external [get_bd_intf_pins axi_pc_gp1/M_AXI]
 set_property name M_AXI_BURST [get_bd_intf_ports {M_AXI_0}]
@@ -150,10 +150,10 @@ set_property name M_AXI_BURST [get_bd_intf_ports {M_AXI_0}]
 # Assign the two exported AXI slave segments to their hardware addresses so
 # BD validation does not error out.  These must match the software driver base
 # addresses used by the PS7 masters.
-#   GP0 → M_AXI_LITE  at 0x43C0_0000 (control + IBRAM, 64 KiB)
-#     GP0 aperture: 0x4000_0000 – 0x7FFF_FFFF
-#   GP1 → M_AXI_BURST at 0x8000_0000 (DBRAM bulk load, 64 KiB)
-#     GP1 aperture: 0x8000_0000 – 0xBFFF_FFFF
+#   GP0 -> M_AXI_LITE  at 0x43C0_0000 (control + IBRAM, 64 KiB)
+#     GP0 aperture: 0x4000_0000 - 0x7FFF_FFFF
+#   GP1 -> M_AXI_BURST at 0x8000_0000 (DBRAM bulk load, 64 KiB)
+#     GP1 aperture: 0x8000_0000 - 0xBFFF_FFFF
 assign_bd_address \
     -target_address_space /ps7/Data \
     [get_bd_addr_segs {M_AXI_LITE/Reg}] \

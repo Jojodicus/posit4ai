@@ -3,18 +3,18 @@
 // only a minimal routing change.
 //
 // All FloPoCo arithmetic blocks are combinatorial; outputs are registered by
-// a single flip-flop stage inside this module → 1-cycle latency for all ops.
+// a single flip-flop stage inside this module -> 1-cycle latency for all ops.
 //
 // Supported operations (via ariane_pkg fu_op):
-//   PADD, PSUB, PMUL, PDIV   — arithmetic
-//   QMADD, QMSUB, QCLR, QNEG — quire accumulation
-//   QROUND                    — quire → posit readout (via quire2posit_sm)
-//   PSQRT                     — returns NaR (unsupported in FloPoCo)
+//   PADD, PSUB, PMUL, PDIV   -- arithmetic
+//   QMADD, QMSUB, QCLR, QNEG -- quire accumulation
+//   QROUND                    -- quire -> posit readout (via quire2posit_sm)
+//   PSQRT                     -- returns NaR (unsupported in FloPoCo)
 //
 // MUL_MODE="APPROX" (POS_LOG_MULT=1): uses PositLAM (log-domain approximate multiplier)
-// DIV_MODE="DISABLE" (DIV_DISABLE=1): PositDiv not instantiated; PDIV → NaR
-// DIV_MODE="APPROX", SQRT_MODE="APPROX/DISABLE": no effect — no approx cores available;
-//   PositDiv is always exact when instantiated; SQRT always → NaR (no FloPoCo SQRT core)
+// DIV_MODE="DISABLE" (DIV_DISABLE=1): PositDiv not instantiated; PDIV -> NaR
+// DIV_MODE="APPROX", SQRT_MODE="APPROX/DISABLE": no effect -- no approx cores available;
+//   PositDiv is always exact when instantiated; SQRT always -> NaR (no FloPoCo SQRT core)
 
 module flo_posit_top import ariane_pkg::*; (
     input  logic                     clk_i,
@@ -27,14 +27,14 @@ module flo_posit_top import ariane_pkg::*; (
     output riscv::xlen_t             result_o
 );
 
-  // ── Sanity check ─────────────────────────────────────────────────────────────
+  // -- Sanity check -----------------------------------------------
   if (POSLEN != 8 && POSLEN != 16 && POSLEN != 32)
     $fatal("flo_posit_top: only POSLEN=8, 16, or 32 is supported (64-bit FloPoCo cores unavailable)");
 
-  // ── Local constants ───────────────────────────────────────────────────────────
+  // -- Local constants ------------------------------------------
   localparam logic [POSLEN-1:0] NAR = {1'b1, {(POSLEN-1){1'b0}}};
 
-  // ── Input decoding ────────────────────────────────────────────────────────────
+  // -- Input decoding -------------------------------------------
   enum logic {READY, STALL} state_q, state_d;
 
   logic [TRANS_ID_BITS-1:0] trans_id_d, trans_id_q;
@@ -56,7 +56,7 @@ module flo_posit_top import ariane_pkg::*; (
   assign operand_b = use_hold ? operand_b_q : operand_b_d;
   assign operator  = use_hold ? operator_q  : operator_d;
 
-  // ── Arithmetic input routing ──────────────────────────────────────────────────
+  // ---- Arithmetic input routing ----------------------------------------------------------------------------------------------------
   logic [POSLEN-1:0] add_a, add_b, mul_a, mul_b, div_a, div_b;
   logic [POSLEN-1:0] mac_a, mac_b;
 
@@ -96,13 +96,13 @@ module flo_posit_top import ariane_pkg::*; (
     endcase
   end
 
-  // ── Quire register ────────────────────────────────────────────────────────────
+  // ---- Quire register ------------------------------------------------------------------------------------------------------------------------
   logic [QUIRELEN-1:0] quire_q, quire_d, curr_quire;
   logic [QUIRELEN-1:0] mac_c, mac_r;
 
   if (QUIRE_PRESENT) begin : g_quire
     // quire_q is registered each cycle from quire_d, so it already holds the
-    // result of the previous operation — no combinatorial forwarding needed.
+    // result of the previous operation -- no combinatorial forwarding needed.
     // (Forwarding quire_d into mac_c would create a combinatorial loop through
     // the purely-combinatorial PositMAC block.)
     assign curr_quire = quire_q;
@@ -129,7 +129,7 @@ module flo_posit_top import ariane_pkg::*; (
     assign quire_d    = '0;
   end
 
-  // ── FloPoCo arithmetic unit instantiation ─────────────────────────────────────
+  // ---- FloPoCo arithmetic unit instantiation --------------------------------------------------------------------------
   logic [POSLEN-1:0] add_o, mul_o, div_o;
 
   // No-quire pseudo-accumulator (QUIRE_PRESENT=0 only).
@@ -181,7 +181,7 @@ module flo_posit_top import ariane_pkg::*; (
       assign mac_mul_o   = '0;
       assign mac_posit_o = '0;
     end else begin : g_nomac8
-      // Dedicated single-cycle MAC path: PositMult → PositAdd2(nacc_q).
+      // Dedicated single-cycle MAC path: PositMult -> PositAdd2(nacc_q).
       // Separate from pau8_mul_i / pau8_add_i to avoid operand routing contention.
       if (!POS_LOG_MULT) begin : g_mac_mul_exact
         PositMult_8_2_F0_uid2 pau8_mac_mul_i (
@@ -246,7 +246,7 @@ module flo_posit_top import ariane_pkg::*; (
       assign mac_mul_o   = '0;
       assign mac_posit_o = '0;
     end else begin : g_nomac16
-      // Dedicated single-cycle MAC path: PositMult → PositAdd2(nacc_q).
+      // Dedicated single-cycle MAC path: PositMult -> PositAdd2(nacc_q).
       if (!POS_LOG_MULT) begin : g_mac_mul_exact
         PositMult_16_2_F0_uid2 pau16_mac_mul_i (
           .X ( mac_a     ),
@@ -310,7 +310,7 @@ module flo_posit_top import ariane_pkg::*; (
       assign mac_mul_o   = '0;
       assign mac_posit_o = '0;
     end else begin : g_nomac32
-      // Dedicated single-cycle MAC path: PositMult → PositAdd2(nacc_q).
+      // Dedicated single-cycle MAC path: PositMult -> PositAdd2(nacc_q).
       if (!POS_LOG_MULT) begin : g_mac_mul_exact
         PositMult_32_2_F0_uid2 pau32_mac_mul_i (
           .X ( mac_a     ),
@@ -334,7 +334,7 @@ module flo_posit_top import ariane_pkg::*; (
 
   end
 
-  // ── Quire-to-Posit readout ────────────────────────────────────────────────────
+  // ---- Quire-to-Posit readout --------------------------------------------------------------------------------------------------------
   // Declared at module scope so result_mux can reference it regardless of QUIRE_PRESENT.
   logic [POSLEN-1:0]  q2p_in_posit;
   logic [QUIRELEN-1:0] q2p_quire;
@@ -358,10 +358,10 @@ module flo_posit_top import ariane_pkg::*; (
     assign q2p_in_posit = NAR;
   end
 
-  // ── No-quire pseudo-accumulator state machine ────────────────────────────────
+  // ---- No-quire pseudo-accumulator state machine ----------------------------------------------------------------
   // nacc_q mirrors the quire for QUIRE_PRESENT=0: a POSLEN-wide posit accumulator.
   // Updated when operator_delay reflects the completed op (same cycle pau_valid_d fires
-  // or pau_ready_o gates the MAC update — mirrors the quire_d pattern exactly).
+  // or pau_ready_o gates the MAC update -- mirrors the quire_d pattern exactly).
   always_comb begin
     nacc_d = nacc_q;
     if (!QUIRE_PRESENT) begin
@@ -373,14 +373,14 @@ module flo_posit_top import ariane_pkg::*; (
                                  ? (~nacc_q + {{(POSLEN-1){1'b0}}, 1'b1})
                                  : nacc_q;
         // pau_ready_o=1 in the final STALL cycle; idle READY cycle is harmless because
-        // mac_a/mac_b=0 when no op is active → mac_posit_o = PositAdd(0, nacc_q) = nacc_q.
+        // mac_a/mac_b=0 when no op is active -> mac_posit_o = PositAdd(0, nacc_q) = nacc_q.
         QMADD, QMSUB: nacc_d = pau_ready_o ? mac_posit_o : nacc_q;
         default: ;
       endcase
     end
   end
 
-  // ── Result mux ───────────────────────────────────────────────────────────────
+  // ---- Result mux ------------------------------------------------------------------------------------------------------------------------------
   // Combinatorial result, valid only while the held operands still drive add_o/mul_o/div_o
   // (i.e. in the STALL cycle when pau_valid_d is asserted).
   // result_o is REGISTERED: latched in the same cycle pau_valid_d fires so that arith_unit
@@ -407,7 +407,7 @@ module flo_posit_top import ariane_pkg::*; (
     endcase
   end
 
-  // ── Latency FSM (all ops = 1 cycle, same structure as pau_top.sv) ─────────────
+  // ---- Latency FSM (all ops = 1 cycle, same structure as pau_top.sv) --------------------------
   always_comb begin
     pau_ready_o  = 1'b0;
     hold_inputs  = 1'b0;
@@ -452,7 +452,7 @@ module flo_posit_top import ariane_pkg::*; (
     endcase
   end
 
-  // ── Registers ─────────────────────────────────────────────────────────────────
+  // ---- Registers ----------------------------------------------------------------------------------------------------------------------------------
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       state_q        <= READY;

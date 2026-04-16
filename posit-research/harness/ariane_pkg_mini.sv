@@ -60,7 +60,7 @@ package ariane_pkg;
     localparam int unsigned LAT_NONCOMP     = 1;
     localparam int unsigned LAT_CONV        = 2;
 
-    // Posit configuration — derived from config_pkg (user edits config_pkg.sv)
+    // Posit configuration -- derived from config_pkg (user edits config_pkg.sv)
     localparam int unsigned POSLEN        = config_pkg::DATA_WIDTH;
     localparam int unsigned QUIRELEN      = 16 * config_pkg::DATA_WIDTH;
     localparam bit          QUIRE_PRESENT = (config_pkg::QUIRE_MODE == "QUIRE");

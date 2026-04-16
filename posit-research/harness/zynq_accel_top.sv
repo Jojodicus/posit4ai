@@ -1,4 +1,4 @@
-// PERCIVAL Accelerator — full implementation top (PS7 + accel_axi + accel_core).
+// PERCIVAL Accelerator -- full implementation top (PS7 + accel_axi + accel_core).
 // Used by ./impl.sh for full synthesis, place-and-route, and bitstream generation.
 // Connects the Zynq PS7 block design wrapper to the AXI-Lite accelerator slave.
 
@@ -30,7 +30,7 @@ module zynq_accel_top (
 
   import config_pkg::*;
 
-  // ── Block design: PS7 + proc_sys_reset + axi_protocol_converter ──────────────
+  // -- Block design: PS7 + proc_sys_reset + axi_protocol_converter ---
   logic        FCLK_CLK0;           // 100 MHz from PS7
   logic        peripheral_aresetn;  // synchronised active-low reset from proc_sys_reset
 
@@ -57,8 +57,8 @@ module zynq_accel_top (
   logic [2:0] M_AXI_LITE_arprot_unused;
   logic [2:0] M_AXI_LITE_awprot_unused;
 
-  // ── AXI4 burst master (GP1 → axi_pc_gp1, 32-bit data, 12-bit IDs) ────────────
-  // GP1 is the second PS7 AXI3 master (PS CPU → PL fabric); converted to AXI4 in BD.
+  // -- AXI4 burst master (GP1 -> axi_pc_gp1, 32-bit data, 12-bit IDs) ------
+  // GP1 is the second PS7 AXI3 master (PS CPU -> PL fabric); converted to AXI4 in BD.
   // Data width: 32-bit from GP1; accel_axi_burst's 64-bit bus carries it in [31:0].
   // ID width: GP1 uses 12-bit IDs; accel_axi_burst AXI_ID_WIDTH=4, so [3:0] suffix used.
   logic [11:0] M_AXI_BURST_awid;
@@ -103,7 +103,7 @@ module zynq_accel_top (
   logic [3:0]  M_AXI_BURST_arregion_unused;
 
   zynq_ps_wrapper u_zynq_ps (
-    // DDR — wrapper uses _0_ suffix (created via make_bd_intf_pins_external)
+    // DDR -- wrapper uses _0_ suffix (created via make_bd_intf_pins_external)
     .DDR_0_addr           ( DDR_addr             ),
     .DDR_0_ba             ( DDR_ba               ),
     .DDR_0_cas_n          ( DDR_cas_n            ),
@@ -119,7 +119,7 @@ module zynq_accel_top (
     .DDR_0_ras_n          ( DDR_ras_n            ),
     .DDR_0_reset_n        ( DDR_reset_n          ),
     .DDR_0_we_n           ( DDR_we_n             ),
-    // FIXED_IO — wrapper uses _0_ suffix
+    // FIXED_IO -- wrapper uses _0_ suffix
     .FIXED_IO_0_mio       ( FIXED_IO_mio         ),
     .FIXED_IO_0_ddr_vrn   ( FIXED_IO_ddr_vrn     ),
     .FIXED_IO_0_ddr_vrp   ( FIXED_IO_ddr_vrp     ),
@@ -128,7 +128,7 @@ module zynq_accel_top (
     .FIXED_IO_0_ps_srstb  ( FIXED_IO_ps_srstb    ),
     .FCLK_CLK0            ( FCLK_CLK0            ),
     .peripheral_aresetn   ( peripheral_aresetn   ),
-    // AXI-Lite master — prot signals unused by accel_axi
+    // AXI-Lite master -- prot signals unused by accel_axi
     .M_AXI_LITE_awaddr    ( M_AXI_LITE_awaddr    ),
     .M_AXI_LITE_awprot    ( M_AXI_LITE_awprot_unused ),
     .M_AXI_LITE_awvalid   ( M_AXI_LITE_awvalid   ),
@@ -188,46 +188,46 @@ module zynq_accel_top (
     .M_AXI_BURST_rready   ( M_AXI_BURST_rready   )
   );
 
-  // ── Internal wires ────────────────────────────────────────────────────────────
-  // accel_axi → accel_core control
+  // -- Internal wires -----------------------------------------------
+  // accel_axi -> accel_core control
   logic                             accel_start;
   logic                             accel_rst_n;
   logic                             accel_done;
   logic                             accel_running;
 
-  // accel_axi → arbiter (AXI-Lite DBRAM host, port A)
+  // accel_axi -> arbiter (AXI-Lite DBRAM host, port A)
   logic [$clog2(DATA_DEPTH)-1:0]    axi_dbram_addr;
   logic [DATA_WIDTH-1:0]            axi_dbram_wdata;
   logic                             axi_dbram_we;
   logic [DATA_WIDTH-1:0]            axi_dbram_rdata;
 
-  // accel_axi → accel_core IBRAM host
+  // accel_axi -> accel_core IBRAM host
   logic [$clog2(INSTR_DEPTH)-1:0]   ibram_addr;
   logic [63:0]                      ibram_wdata;
   logic                             ibram_we;
   logic [63:0]                      ibram_rdata;
 
-  // arbiter → accel_core DBRAM host
+  // arbiter -> accel_core DBRAM host
   logic [$clog2(DATA_DEPTH)-1:0]    core_dbram_addr;
   logic [DATA_WIDTH-1:0]            core_dbram_wdata;
   logic                             core_dbram_we;
   logic [DATA_WIDTH-1:0]            core_dbram_rdata;
 
-  // burst slave → arbiter (port B)
+  // burst slave -> arbiter (port B)
   logic                             burst_b_req;
   logic [$clog2(DATA_DEPTH)-1:0]    burst_b_addr;
   logic [DATA_WIDTH-1:0]            burst_b_wdata;
   logic                             burst_b_we;
   logic [DATA_WIDTH-1:0]            burst_b_rdata;
 
-  // Width-adapter wires: accel_axi_burst (4-bit IDs, 64-bit rdata) → M_AXI_BURST (12-bit IDs, 32-bit rdata)
+  // Width-adapter wires: accel_axi_burst (4-bit IDs, 64-bit rdata) -> M_AXI_BURST (12-bit IDs, 32-bit rdata)
   logic [3:0]  burst_bid_4,  burst_rid_4;
   logic [63:0] burst_rdata_64;
-  assign M_AXI_BURST_bid  = {8'b0, burst_bid_4};   // zero-extend 4→12 bit
-  assign M_AXI_BURST_rid  = {8'b0, burst_rid_4};   // zero-extend 4→12 bit
+  assign M_AXI_BURST_bid  = {8'b0, burst_bid_4};   // zero-extend 4->12 bit
+  assign M_AXI_BURST_rid  = {8'b0, burst_rid_4};   // zero-extend 4->12 bit
   assign M_AXI_BURST_rdata = burst_rdata_64[31:0];  // lower 32 bits of 64-bit read data
 
-  // ── AXI-Lite accelerator slave ────────────────────────────────────────────────
+  // -- AXI-Lite accelerator slave ---------------------------------------
   accel_axi u_accel_axi (
     .clk_i             ( FCLK_CLK0            ),
     .rst_ni            ( peripheral_aresetn   ),
@@ -258,19 +258,19 @@ module zynq_accel_top (
     .ibram_wdata_o     ( ibram_wdata          ),
     .ibram_we_o        ( ibram_we             ),
     .ibram_rdata_i     ( ibram_rdata          ),
-    // DBRAM host → arbiter port A
+    // DBRAM host -> arbiter port A
     .dbram_addr_o      ( axi_dbram_addr       ),
     .dbram_wdata_o     ( axi_dbram_wdata      ),
     .dbram_we_o        ( axi_dbram_we         ),
     .dbram_rdata_i     ( axi_dbram_rdata      )
   );
 
-  // ── GP1 burst slave (AXI4, 32-bit data bus from PS7 M_AXI_GP1 via axi_pc_gp1) ──
+  // -- GP1 burst slave (AXI4, 32-bit data bus from PS7 M_AXI_GP1 via axi_pc_gp1) -
   // GP1 is a 32-bit AXI bus; accel_axi_burst has a 64-bit data port.
   // For DATA_WIDTH=32 builds: wdata[31:0] carries the BRAM word; wstrb[7:4]=0 masks upper half.
   // For DATA_WIDTH=64 builds: only lower 32 bits of each BRAM word are filled per AXI beat;
   //   a SmartConnect width-upsizer would be needed for full 64-bit throughput (future work).
-  // IDs: GP1 uses 12-bit IDs; accel_axi_burst AXI_ID_WIDTH=4 → lower 4 bits used.
+  // IDs: GP1 uses 12-bit IDs; accel_axi_burst AXI_ID_WIDTH=4 -> lower 4 bits used.
   accel_axi_burst u_burst (
     .clk_i             ( FCLK_CLK0                    ),
     .rst_ni            ( peripheral_aresetn            ),
@@ -283,14 +283,14 @@ module zynq_accel_top (
     .s_axi_awburst     ( M_AXI_BURST_awburst           ),
     .s_axi_awvalid     ( M_AXI_BURST_awvalid           ),
     .s_axi_awready     ( M_AXI_BURST_awready           ),
-    // W channel — 32-bit GP1 data zero-extended to 64-bit burst port
+    // W channel -- 32-bit GP1 data zero-extended to 64-bit burst port
     .s_axi_wdata       ( {32'b0, M_AXI_BURST_wdata}   ),
     .s_axi_wstrb       ( {4'b0,  M_AXI_BURST_wstrb}   ),
     .s_axi_wlast       ( M_AXI_BURST_wlast             ),
     .s_axi_wvalid      ( M_AXI_BURST_wvalid            ),
     .s_axi_wready      ( M_AXI_BURST_wready            ),
     // B channel
-    .s_axi_bid         ( burst_bid_4                   ),  // 4-bit → assigned to M_AXI_BURST_bid
+    .s_axi_bid         ( burst_bid_4                   ),  // 4-bit -> assigned to M_AXI_BURST_bid
     .s_axi_bresp       ( M_AXI_BURST_bresp             ),
     .s_axi_bvalid      ( M_AXI_BURST_bvalid            ),
     .s_axi_bready      ( M_AXI_BURST_bready            ),
@@ -302,14 +302,14 @@ module zynq_accel_top (
     .s_axi_arburst     ( M_AXI_BURST_arburst           ),
     .s_axi_arvalid     ( M_AXI_BURST_arvalid           ),
     .s_axi_arready     ( M_AXI_BURST_arready           ),
-    // R channel — 64-bit burst data; lower 32 bits assigned to M_AXI_BURST_rdata
-    .s_axi_rid         ( burst_rid_4                   ),  // 4-bit → assigned to M_AXI_BURST_rid
-    .s_axi_rdata       ( burst_rdata_64                ),  // 64-bit; [31:0] → M_AXI_BURST_rdata
+    // R channel -- 64-bit burst data; lower 32 bits assigned to M_AXI_BURST_rdata
+    .s_axi_rid         ( burst_rid_4                   ),  // 4-bit -> assigned to M_AXI_BURST_rid
+    .s_axi_rdata       ( burst_rdata_64                ),  // 64-bit; [31:0] -> M_AXI_BURST_rdata
     .s_axi_rresp       ( M_AXI_BURST_rresp             ),
     .s_axi_rlast       ( M_AXI_BURST_rlast             ),
     .s_axi_rvalid      ( M_AXI_BURST_rvalid            ),
     .s_axi_rready      ( M_AXI_BURST_rready            ),
-    // Port B → arbiter
+    // Port B -> arbiter
     .b_req             ( burst_b_req                   ),
     .b_addr            ( burst_b_addr                  ),
     .b_wdata           ( burst_b_wdata                 ),
@@ -317,7 +317,7 @@ module zynq_accel_top (
     .b_rdata           ( burst_b_rdata                 )
   );
 
-  // ── DBRAM host-port arbiter ───────────────────────────────────────────────────
+  // -- DBRAM host-port arbiter --------------------------------------
   accel_dbram_arb u_arb (
     // Port A: AXI-Lite host
     .a_addr            ( axi_dbram_addr       ),
@@ -337,9 +337,9 @@ module zynq_accel_top (
     .dbram_rdata_i     ( core_dbram_rdata     )
   );
 
-  // ── Accelerator core ──────────────────────────────────────────────────────────
-  // TODO: clk_bram_i should be 2× FCLK_CLK0 (add second clk_wiz for full Step B speed).
-  // Tied to FCLK_CLK0 for now — design still functionally correct, throughput at ½ rate.
+  // -- Accelerator core --------------------------------------------
+  // TODO: clk_bram_i should be 2x FCLK_CLK0 (add second clk_wiz for full Step B speed).
+  // Tied to FCLK_CLK0 for now -- design still functionally correct, throughput at 1/2 rate.
   accel_core u_core (
     .clk_i         ( FCLK_CLK0        ),
     .clk_bram_i    ( FCLK_CLK0        ),

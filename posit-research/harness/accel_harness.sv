@@ -1,4 +1,4 @@
-// PERCIVAL Accelerator — synthesis-only top module (no PS7, no AXI).
+// PERCIVAL Accelerator -- synthesis-only top module (no PS7, no AXI).
 // Used by ./build.sh for fast timing/utilization checks and Fmax binary search.
 // All inputs are registered to prevent Vivado from optimising away the logic.
 
@@ -8,7 +8,7 @@ module accel_harness
 (
   input  logic        clk_in,     // 100 MHz board clock (from Zedboard)
   input  logic        rst_ni_in,  // active-low reset (from board button)
-  // Synthesis stimulus inputs — allow Vivado to see non-constant logic
+  // Synthesis stimulus inputs -- allow Vivado to see non-constant logic
   // (tie all to 0 in constraints; no LOC assignment needed for synth-only flow)
   input  logic [$clog2(INSTR_DEPTH)-1:0] ibram_addr_in,
   input  logic [63:0]                    ibram_wdata_in,
@@ -17,19 +17,19 @@ module accel_harness
   input  logic [DATA_WIDTH-1:0]          dbram_wdata_in,
   input  logic                           dbram_we_in,
   input  logic                           start_in,
-  // Synthesis observation outputs — prevent result logic from being trimmed
+  // Synthesis observation outputs -- prevent result logic from being trimmed
   output logic                           done_out,
   output logic [DATA_WIDTH-1:0]          dbram_rdata_out
 );
 
-  // ── Clocking wizard: board clock → synthesis target frequency ────────────────
+  // -- Clocking wizard: board clock -> synthesis target frequency ----
   // CLKOUT1: arith clock (target frequency, set by build.sh)
-  // CLKOUT2: BRAM clock = 2× CLKOUT1 (Step B DDR technique)
+  // CLKOUT2: BRAM clock = 2x CLKOUT1 (Step B DDR technique)
   logic clk_core, clk_bram, clk_locked;
 
   clk_wiz_0 u_clk_wiz (
     .clk_in1  ( clk_in     ),
-    .reset    ( 1'b0       ),   // reset unused — tied deasserted
+    .reset    ( 1'b0       ),   // reset unused -- tied deasserted
     .clk_out1 ( clk_core   ),
     .clk_out2 ( clk_bram   ),
     .locked   ( clk_locked )
@@ -38,7 +38,7 @@ module accel_harness
   logic rst_n;
   assign rst_n = rst_ni_in & clk_locked;
 
-  // ── Input registers — register from top-level ports so Vivado sees live inputs
+  // -- Input registers -- register from top-level ports so Vivado sees live inputs
   logic [$clog2(INSTR_DEPTH)-1:0] ibram_addr_r;
   logic [63:0]                    ibram_wdata_r;
   logic                           ibram_we_r;
@@ -57,7 +57,7 @@ module accel_harness
     start_r       <= start_in;
   end
 
-  // ── accel_core ────────────────────────────────────────────────────────────────
+  // -- accel_core ---------------------------------------------
   logic done_sig, running_sig;
   logic [63:0]         ibram_rdata_sig;
   logic [DATA_WIDTH-1:0] dbram_rdata_sig;

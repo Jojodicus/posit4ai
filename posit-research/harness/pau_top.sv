@@ -1,4 +1,4 @@
-// Copyright 2021-2023 David Mallasén Quintana.
+// Copyright 2021-2023 David Mallasen Quintana.
 //
 // Copyright and related rights are licensed under the Solderpad Hardware
 // License, Version 0.51 (the "License"); you may not use this file except in
@@ -9,7 +9,7 @@
 // CONDITIONS OF ANY KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations under the License.
 //
-// Author: David Mallasén <dmallase@ucm.es>
+// Author: David Mallasen <dmallase@ucm.es>
 // Date: 04.12.2021
 // Description: Posit Arithmetic Unit top-level module
 
@@ -70,7 +70,7 @@ module pau_top import ariane_pkg::*; (
                 unique case (operator_delay)
                     QCLR:      quire_d = '0;
                     // No gate needed here (unlike flo_posit_top): QNEG has latency=0
-                    // so operator_delay=QNEG persists for exactly 1 cycle — arith_unit
+                    // so operator_delay=QNEG persists for exactly 1 cycle -- arith_unit
                     // drives PADD (neutral) immediately after, so operator_delay returns
                     // to PADD one cycle later and cannot double-fire.
                     // flo_posit_top needs the pau_valid_d gate because FloPoCo cores
@@ -481,7 +481,7 @@ module pau_top import ariane_pkg::*; (
         assign sgnj_d = move_flip ? ~operand_a + {{POSLEN-1{1'b0}}, 1'b1}
                                   : operand_a;
 
-        // Combinatorial result mux — registered into result_o on pau_valid_d
+        // Combinatorial result mux -- registered into result_o on pau_valid_d
         riscv::xlen_t result_comb;
         always_comb begin : result_mux
             result_comb = '0;

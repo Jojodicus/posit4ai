@@ -31,10 +31,10 @@ foreach simset $all_simsets {
     set_property -name {xsim.compile.xvlog.more_options} -value {-d XSIM} -objects [get_filesets $simset]
 }
 
-# ── Add Source Files ───────────────────────────────────────────────────────────
-# Packages — compilation ORDER MATTERS: config_pkg first, then riscv, then ariane
+# -- Add Source Files -----------------------------------------------------
+# Packages -- compilation ORDER MATTERS: config_pkg first, then riscv, then ariane
 
-# 1. User configuration (synthesis/implementation only — simulation uses per-fileset overrides)
+# 1. User configuration (synthesis/implementation only -- simulation uses per-fileset overrides)
 add_files -norecurse $root_dir/harness/config_pkg.sv
 set_property used_in_simulation false [get_files */config_pkg.sv]
 
@@ -58,7 +58,7 @@ if {[llength $all_sv_files] > 0} {
     set_property file_type SystemVerilog $all_sv_files
 }
 
-# ── Common Cells ───────────────────────────────────────────────────────────────
+# -- Common Cells --------------------------------------------------------
 add_files -norecurse $root_dir/rtl/common_cells/src/lzc.sv
 add_files -norecurse $root_dir/rtl/common_cells/src/rr_arb_tree.sv
 
@@ -73,7 +73,7 @@ foreach svh_file [get_files -filter {NAME =~ "*.svh"}] {
     set_property is_global_include 1 $svh_file
 }
 
-# ── FPU Files ──────────────────────────────────────────────────────────────────
+# -- FPU Files ----------------------------------------------------------
 add_files -norecurse $root_dir/rtl/fpu/src/fpnew_fma.sv
 add_files -norecurse $root_dir/rtl/fpu/src/fpnew_opgroup_fmt_slice.sv
 add_files -norecurse $root_dir/rtl/fpu/src/fpnew_divsqrt_multi.sv
@@ -87,13 +87,13 @@ add_files -norecurse $root_dir/rtl/fpu/src/fpnew_rounding.sv
 add_files -norecurse $root_dir/rtl/fpu/src/fpnew_top.sv
 add_files -norecurse [glob $root_dir/rtl/fpu/src/fpu_div_sqrt_mvp/hdl/*.sv]
 
-# ── PAU Files (VHDL) ───────────────────────────────────────────────────────────
+# -- PAU Files (VHDL) ---------------------------------------------------
 add_files -norecurse [glob $root_dir/rtl/pau/*.vhd]
 
-# ── Flo-Posit FloPoCo Files (VHDL) ────────────────────────────────────────────
+# -- Flo-Posit FloPoCo Files (VHDL) ----------------------------------
 # brent_kung adder primitive (shared by all PositMAC wrappers; only one copy needed)
 add_files -norecurse $root_dir/rtl/Flo-Posit/PositMAC/brent_kung/no_pipe/brent_kung_PositMAC_8_2_30/brent_kung.vhd
-# PositMAC wrappers — entities renamed to avoid collision with PERCIVAL's PositMAC
+# PositMAC wrappers -- entities renamed to avoid collision with PERCIVAL's PositMAC
 add_files -norecurse $root_dir/harness/positmac8.vhd
 add_files -norecurse $root_dir/harness/positmac16.vhd
 add_files -norecurse $root_dir/harness/positmac32.vhd
@@ -107,9 +107,9 @@ set_property library flo_mac8  [get_files positmac8.vhd]
 set_property library flo_mac16 [get_files positmac16.vhd]
 set_property library flo_mac32 [get_files positmac32.vhd]
 # Remaining Flo-Posit cores (unique entity names, direct submodule references)
-# 8/16/32-bit Add and Mult share some sub-entity names within each pair — same pattern
+# 8/16/32-bit Add and Mult share some sub-entity names within each pair -- same pattern
 # as 8 vs 16 bit; Vivado accepts identical duplicate declarations in 'work'.
-# PERCIVAL uses _F50_ frequency suffix; FloPoCo uses _F0_ — no cross-library conflict.
+# PERCIVAL uses _F50_ frequency suffix; FloPoCo uses _F0_ -- no cross-library conflict.
 add_files -norecurse $root_dir/rtl/Flo-Posit/PositAdd/sign_magnitude/PositAdd_8_2/flopoco.vhdl
 add_files -norecurse $root_dir/rtl/Flo-Posit/PositAdd/sign_magnitude/PositAdd_16_2/flopoco.vhdl
 add_files -norecurse $root_dir/rtl/Flo-Posit/PositAdd/sign_magnitude/PositAdd_32_2/flopoco.vhdl
@@ -123,7 +123,7 @@ add_files -norecurse $root_dir/rtl/Flo-Posit/PositLAM/PositLAM_8_2/flopoco.vhdl
 add_files -norecurse $root_dir/rtl/Flo-Posit/PositLAM/PositLAM_16_2/flopoco.vhdl
 add_files -norecurse $root_dir/rtl/Flo-Posit/PositLAM/PositLAM_32_2/flopoco.vhdl
 
-# ── Accelerator RTL ────────────────────────────────────────────────────────────
+# -- Accelerator RTL ------------------------------------------------
 # Local copies of PERCIVAL cores (editable)
 add_files -norecurse $root_dir/harness/pau_top.sv
 add_files -norecurse $root_dir/harness/fpu_wrap.sv
@@ -141,7 +141,7 @@ add_files -norecurse $root_dir/harness/accel_axi_burst.sv
 add_files -norecurse $root_dir/harness/accel_harness.sv
 add_files -norecurse $root_dir/harness/zynq_accel_top.sv
 
-# ── Include Paths ──────────────────────────────────────────────────────────────
+# -- Include Paths -------------------------------------------------
 set inc_dirs [list \
     [file normalize $root_dir/harness/common_cells_patches] \
     [file normalize $root_dir/rtl/common_cells/include] \
@@ -154,7 +154,7 @@ foreach simset $all_simsets {
 
 set_property top accel_axi [current_fileset]
 
-# ── Testbenches ────────────────────────────────────────────────────────────────
+# -- Testbenches ------------------------------------------------
 # Map each accel_core sim fileset to its config override + testbench.
 # config_pkg_*.sv defines package config_pkg for that fileset (overrides harness/config_pkg.sv).
 foreach {simset cfg_file} {
@@ -182,7 +182,7 @@ foreach {simset cfg_file} {
     set_property top tb_accel_core [get_filesets $simset]
 }
 
-# AXI integration filesets — each tests the full AXI path with a different config.
+# AXI integration filesets -- each tests the full AXI path with a different config.
 # sim_axi      (PAU-32): verifies 32-bit DBRAM write/read path and STATUS polling.
 # sim_axi_pau64 (PAU-64): verifies DBRAM_DATA_HI 64-bit write/read path.
 foreach {simset cfg_file} {
@@ -195,14 +195,14 @@ foreach {simset cfg_file} {
     set_property top tb_accel_axi [get_filesets $simset]
 }
 
-# ── Ensure packages are used in simulation ─────────────────────────────────────
+# -- Ensure packages are used in simulation --------------------------
 # config_pkg.sv is synthesis-only; the rest are shared.
 foreach pkg {opcodes_pkg.sv cva6_config_pkg.sv riscv_pkg_mini.sv ariane_pkg_mini.sv cf_math_pkg.sv fpnew_pkg.sv} {
     catch { set_property used_in_simulation true [get_files */$pkg] }
     catch { set_property used_in_synthesis  true [get_files */$pkg] }
 }
 
-# ── Clocking Wizard IP ─────────────────────────────────────────────────────────
+# -- Clocking Wizard IP ---------------------------------------------
 create_ip -name clk_wiz -vendor xilinx.com -library ip -version 6.0 -module_name clk_wiz_0
 set_property -dict [list \
     CONFIG.PRIM_IN_FREQ {100.000} \
@@ -213,7 +213,7 @@ set_property -dict [list \
 ] [get_ips clk_wiz_0]
 generate_target all [get_ips clk_wiz_0]
 
-# ── Constraints ────────────────────────────────────────────────────────────────
+# -- Constraints ----------------------------------------------------
 if {[get_filesets -quiet constrs_1] == ""} { create_fileset -constrset constrs_1 }
 set timing_constraint [file normalize $root_dir/constraints/pau_axi_timing.xdc]
 if {[file exists $timing_constraint]} {
@@ -232,7 +232,7 @@ if {[llength $all_sv_files] > 0} {
     set_property file_type SystemVerilog $all_sv_files
 }
 
-# ── Set compile order (packages must come first) ───────────────────────────────
+# -- Set compile order (packages must come first) ---------------------
 update_compile_order -fileset sources_1
 foreach simset $all_simsets {
     update_compile_order -fileset $simset
@@ -263,9 +263,9 @@ foreach simset $all_simsets {
     }
 }
 
-puts "Compile order: config_pkg → opcodes_pkg → cva6 → riscv → ariane → cf_math → fpnew"
+puts "Compile order: config_pkg -> opcodes_pkg -> cva6 -> riscv -> ariane -> cf_math -> fpnew"
 
-# ── Create Zynq PS Block Design ────────────────────────────────────────────────
+# -- Create Zynq PS Block Design ------------------------------------
 puts ""
 puts "Creating Zynq PS block design..."
 source [file join $root_dir scripts create_bd.tcl]

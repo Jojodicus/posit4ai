@@ -1,6 +1,6 @@
-// PERCIVAL Accelerator — arithmetic unit wrapper.
+// PERCIVAL Accelerator -- arithmetic unit wrapper.
 // Instantiates either pau_top (PAU) or fpu_wrap (FPU) based on config_pkg::ACCEL_TYPE.
-// Presents a uniform (operand_a, operand_b, opcode, valid_i) → (result, valid_o, ready_o)
+// Presents a uniform (operand_a, operand_b, opcode, valid_i) -> (result, valid_o, ready_o)
 // interface to accel_core. Translates accelerator opcodes to the native arithmetic unit ops.
 //
 // QACC state for FPU mode (QUIRE_MODE="ACCUMULATOR"):  acc_q register here; uses FMA unit.
@@ -8,7 +8,7 @@
 // QACC state for PAU/FLO_PAU mode, QUIRE_MODE="ACCUMULATOR":
 //   FloPoCo (8/16/32-bit): nacc_q inside flo_posit_top; QMADD/QMSUB/QCLR/QNEG/QROUND
 //                           are sent directly to flopau and complete in 1 PAU cycle.
-//   PAU-32/64 (PERCIVAL):  acc_q register here; PMUL + PADD/PSUB two-pass via MAC_STEP → WAIT2.
+//   PAU-32/64 (PERCIVAL):  acc_q register here; PMUL + PADD/PSUB two-pass via MAC_STEP -> WAIT2.
 // QUIRE_MODE="DISABLED": all QACC_* ops return NaR/NaN combinatorially; no accumulator hardware.
 // DIV_MODE="DISABLE": OP_DIV returns NaR/NaN combinatorially; no PositDiv hardware synthesized.
 // SQRT_MODE="DISABLE": OP_SQRT returns NaR/NaN combinatorially; no PositSqrt hardware synthesized.
@@ -33,7 +33,7 @@ module arith_unit
   // Used for QACC_ADD (PAU quire or FLO_PAU_NO_QUIRE): QACC_ADD(a) = QMADD(a, 1.0)
   localparam logic [DATA_WIDTH-1:0] POSIT_ONE = DATA_WIDTH'(1) << (DATA_WIDTH-2);
 
-  // Compile-time flags as plain packed bits — avoids string comparisons inside
+  // Compile-time flags as plain packed bits -- avoids string comparisons inside
   // always_comb/unique-case blocks where Vivado rejects non-packed expressions.
   localparam bit IS_FLO_PAU     = (ACCEL_TYPE == "FLO_PAU");
   localparam bit IS_PAU         = (ACCEL_TYPE == "PAU") || IS_FLO_PAU;
@@ -58,39 +58,39 @@ module arith_unit
     DATA_WIDTH == 32 ? DATA_WIDTH'(32'h7FC0_0000) :
                        DATA_WIDTH'(64'h7FF8_0000_0000_0000);
 
-  // ── State machine ────────────────────────────────────────────────────────────
+  // -- State machine ---------------------------------------------
   // MAC_STEP: issues the second PAU op (PADD/PSUB) for no-quire QACC_MADD/MSUB
   // WAIT2:    waits for the second PAU op result
   typedef enum logic [2:0] { IDLE, WAIT, MAC_STEP, WAIT2, DONE } state_t;
   state_t state_q, state_d;
 
-  // ── Registered operands and opcode (latched when accepted in IDLE) ───────────
+  // -- Registered operands and opcode (latched when accepted in IDLE) -----
   opcode_t                opcode_q;
   logic [DATA_WIDTH-1:0]  op_a_q, op_b_q;
 
-  // ── Result and accumulator registers ─────────────────────────────────────────
+  // -- Result and accumulator registers --------------------------------
   logic [DATA_WIDTH-1:0]  result_q,    result_d;
   logic [DATA_WIDTH-1:0]  acc_q,       acc_d;       // unified accumulator (FPU or PAU no-quire)
   logic [DATA_WIDTH-1:0]  mul_result_q, mul_result_d; // temp: PMUL result in 2-pass MAC
 
-  // ── PAU interface ─────────────────────────────────────────────────────────────
+  // -- PAU interface -----------------------------------------------
   fu_data_t         pau_fu_data;
   logic             pau_valid_i_sig;
   logic             pau_ready_o_sig;
   logic             pau_valid_o_sig;
   riscv::xlen_t     pau_result_sig;
 
-  // ── FPU interface ─────────────────────────────────────────────────────────────
+  // -- FPU interface -----------------------------------------------
   fu_data_t         fpu_fu_data;
   logic             fpu_valid_i_sig;
   logic             fpu_ready_o_sig;
   logic             fpu_valid_o_sig;
   logic [FLEN-1:0]  fpu_result_sig;
 
-  // ── Arithmetic unit instantiation (only one branch synthesised) ──────────────
+  // -- Arithmetic unit instantiation (only one branch synthesised) ------
   // USE_FLOPOCO: FloPoCo Flo-Posit cores (flo_posit_top): supports 8/16/32-bit.
-  //   "PAU"     + 8/16  → flo_posit_top (PERCIVAL does not support <32-bit).
-  //   "FLO_PAU" + 8/16/32 → flo_posit_top.
+  //   "PAU"     + 8/16  -> flo_posit_top (PERCIVAL does not support <32-bit).
+  //   "FLO_PAU" + 8/16/32 -> flo_posit_top.
   // Otherwise PERCIVAL cores (pau_top): 32/64-bit only.
   if (USE_FLOPOCO) begin : g_flopau
 
@@ -151,7 +151,7 @@ module arith_unit
 
   end
 
-  // ── Active arithmetic unit signals ───────────────────────────────────────────
+  // -- Active arithmetic unit signals ----------------------------------
   logic             arith_valid_o;
   logic [DATA_WIDTH-1:0] arith_result;
 
@@ -160,7 +160,7 @@ module arith_unit
                          ? pau_result_sig[DATA_WIDTH-1:0]
                          : fpu_result_sig[DATA_WIDTH-1:0];
 
-  // ── Combinatorial opcode classification ──────────────────────────────────────
+  // -- Combinatorial opcode classification ---------------------------
   // is_comb_op: result available without calling the arithmetic unit
   logic is_comb_op;
   always_comb begin
@@ -199,7 +199,7 @@ module arith_unit
         OP_RELU:      comb_result = operand_a_i[DATA_WIDTH-1] ? '0 : operand_a_i;
         OP_DIV:       if (DIV_DISABLED)  comb_result = DISABLED_RESULT;
         OP_SQRT:      if (SQRT_DISABLED) comb_result = DISABLED_RESULT;
-        // Accumulator read: disabled → NaR; accumulator mode → read acc_q.
+        // Accumulator read: disabled -> NaR; accumulator mode -> read acc_q.
         OP_QACC_READ: if (!QUIRE_ENABLE)
                         comb_result = QUIRE_DISABLED ? DISABLED_RESULT : acc_q;
         OP_QACC_CLEAR, OP_QACC_NEG,
@@ -227,10 +227,10 @@ module arith_unit
     end
   end
 
-  // ── PAU fu_data_t construction ────────────────────────────────────────────────
+  // -- PAU fu_data_t construction ----------------------------------
   // When state_q == MAC_STEP: override operands/op for the second pass of 2-pass MAC.
   // Otherwise use un-registered inputs: pau_top samples fu_data in the same cycle
-  // pau_valid_i is asserted (first cycle of IDLE→WAIT transition).
+  // pau_valid_i is asserted (first cycle of IDLE->WAIT transition).
   logic [DATA_WIDTH-1:0] pau_op_a, pau_op_b;
   fu_op                  pau_fu_op;
 
@@ -260,12 +260,12 @@ module arith_unit
         OP_SQRT:       pau_fu_op = PSQRT;
         OP_QACC_ADD: begin
           if (PAU_NO_QUIRE && !FLO_PAU_NO_QUIRE) begin
-            // No-quire PAU-32/64: PADD(a, acc_q) → result = a + acc_q
+            // No-quire PAU-32/64: PADD(a, acc_q) -> result = a + acc_q
             pau_fu_op = PADD;
             pau_op_a  = operand_a_i;
             pau_op_b  = acc_q;
           end else begin
-            // Exact quire or flopau no-quire: QMADD(a, 1.0) → acc += a × 1.0 = a
+            // Exact quire or flopau no-quire: QMADD(a, 1.0) -> acc += a * 1.0 = a
             pau_fu_op = QMADD;
             pau_op_b  = POSIT_ONE;
           end
@@ -299,7 +299,7 @@ module arith_unit
     end
   end
 
-  // ── FPU fu_data_t construction ────────────────────────────────────────────────
+  // -- FPU fu_data_t construction ----------------------------------
   // Use un-registered inputs: fpu_wrap samples in the same cycle fpu_valid_i is asserted.
   // NaN-boxing: 32-bit floats stored in 64-bit containers need upper 32 bits = 0xFFFFFFFF.
   logic [FLEN-1:0] fpu_box_a, fpu_box_b, fpu_box_acc;
@@ -341,7 +341,7 @@ module arith_unit
       OP_SQRT: fpu_fu_op = FSQRT;
       OP_QACC_ADD: begin                // acc + a = FADD(acc, a)
         fpu_fu_op             = FADD;
-        fpu_fu_data.operand_b = fpu_box_acc;  // fpnew FADD: B+C → acc+a
+        fpu_fu_data.operand_b = fpu_box_acc;  // fpnew FADD: B+C -> acc+a
         fpu_fu_data.imm       = fpu_box_a;
       end
       OP_QACC_MADD: begin               // acc + a*b = FMADD(a, b, acc)
@@ -357,7 +357,7 @@ module arith_unit
     fpu_fu_data.operator = fpu_fu_op;
   end
 
-  // ── State machine logic ───────────────────────────────────────────────────────
+  // -- State machine logic ----------------------------------------
   always_comb begin
     state_d         = state_q;
     result_d        = result_q;
@@ -398,7 +398,7 @@ module arith_unit
       WAIT: begin
         if (arith_valid_o) begin
           result_d = arith_result;
-          // No-quire PAU-32/64 2-pass MAC: first pass (PMUL) done → issue PADD/PSUB.
+          // No-quire PAU-32/64 2-pass MAC: first pass (PMUL) done -> issue PADD/PSUB.
           // FLO_PAU_NO_QUIRE skips this: flopau completes QMADD/QMSUB in one PAU cycle.
           if (PAU_NO_QUIRE && !FLO_PAU_NO_QUIRE &&
               opcode_q inside {OP_QACC_MADD, OP_QACC_MSUB}) begin
@@ -445,7 +445,7 @@ module arith_unit
   assign result_o = (state_q == IDLE && valid_i && is_comb_op)
                     ? comb_result : result_q;
 
-  // ── Registers ─────────────────────────────────────────────────────────────────
+  // -- Registers -----------------------------------------------
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       state_q      <= IDLE;

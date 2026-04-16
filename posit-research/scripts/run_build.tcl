@@ -36,7 +36,7 @@ if {[file exists ${proj_dir}/${proj_name}.xpr]} {
 # Set top-level to simple harness (faster synthesis, no AXI overhead)
 set_property top accel_harness [current_fileset]
 
-# Update clocking wizard IP with requested frequency (CLKOUT1=target, CLKOUT2=2×target for BRAM)
+# Update clocking wizard IP with requested frequency (CLKOUT1=target, CLKOUT2=2*target for BRAM)
 puts "Updating clocking wizard to ${clock_freq_mhz} MHz (arith) / [expr {$clock_freq_mhz * 2}] MHz (BRAM)..."
 set bram_freq_mhz [expr {$clock_freq_mhz * 2}]
 set_property -dict [list \

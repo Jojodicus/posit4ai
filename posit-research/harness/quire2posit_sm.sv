@@ -1,5 +1,5 @@
 // Parameterised Quire-to-Posit converter for posit(POSLEN, es=2).
-// Purely combinatorial — the caller registers posit_o.
+// Purely combinatorial -- the caller registers posit_o.
 //
 // Algorithm mirrors PERCIVAL's Quire2Posit / PositFastEncoder (pau_q2p.vhd),
 // re-implemented in SV for arbitrary POSLEN (designed/tested for 8 and 16).
@@ -17,7 +17,7 @@ module quire2posit_sm #(
   output logic [POSLEN-1:0]     posit_o   // combinatorial
 );
 
-  // ── Derived constants ─────────────────────────────────────────────────────────
+  // -- Derived constants ---------------------------------------
   localparam int Q          = 16 * POSLEN;
   localparam int MAXEXP     = 4 * (POSLEN - 2);         // = log2(maxpos)
   localparam int POSRANGE_W = 8 * (POSLEN - 2) + 1;    // significant range bits
@@ -30,7 +30,7 @@ module quire2posit_sm #(
   // Regime value (magnitude of k, clipped to POSLEN-2)
   localparam int REGV_W     = $clog2(POSLEN - 1);
 
-  // ── Quire slice extraction ────────────────────────────────────────────────────
+  // -- Quire slice extraction -----------------------------------
   logic                     sgn;
   logic [CARRY_W-1:0]       carryBits;
   logic [POSRANGE_W-1:0]    positRange;
@@ -41,7 +41,7 @@ module quire2posit_sm #(
   assign positRange  = quire_i[MAXEXP+POSRANGE_W-1 : MAXEXP];
   assign stickyRange = quire_i[MAXEXP-1 : 0];
 
-  // ── Overflow and underflow ────────────────────────────────────────────────────
+  // -- Overflow and underflow ---------------------------------
   logic carryAllZeros, carryAllOnes, ovf, stkTmp;
 
   assign carryAllZeros = (carryBits == '0);
@@ -50,12 +50,12 @@ module quire2posit_sm #(
   assign ovf    = sgn ? carryAllZeros : carryAllOnes;
   assign stkTmp = (stickyRange != '0);
 
-  // ── LZOC: count leading zeros (sgn=0) or ones (sgn=1) in positRange ──────────
+  // ---- LZOC: count leading zeros (sgn=0) or ones (sgn=1) in positRange --------------------
   // Result is LZOC_W bits; maximum possible count = POSRANGE_W.
   logic [LZOC_W-1:0]     intExp;
   logic [POSRANGE_W-1:0] tmpFrac;
 
-  // ── LZOC: generate-based priority encoder ────────────────────────────────────
+  // ---- LZOC: generate-based priority encoder ------------------------------------------------------------------------
   // lzoc_in[i] = 1 when positRange bit (POSRANGE_W-1-i) differs from sgn; i=0 = MSB
   logic [POSRANGE_W-1:0] lzoc_in;
   generate
@@ -65,7 +65,7 @@ module quire2posit_sm #(
   endgenerate
 
   // Priority encode: intExp = index of first '1' in lzoc_in, or POSRANGE_W if all '0'.
-  // No break → unrolled to a parallel priority mux tree by synthesis.
+  // No break -> unrolled to a parallel priority mux tree by synthesis.
   always_comb begin : lzoc_enc
     intExp = LZOC_W'(POSRANGE_W);
     for (int i = POSRANGE_W-1; i >= 0; i--)
@@ -87,7 +87,7 @@ module quire2posit_sm #(
   endgenerate
   assign tmpFrac = lbs[LZOC_W];
 
-  // ── Zero / NaR detection ─────────────────────────────────────────────────────
+  // ---- Zero / NaR detection ----------------------------------------------------------------------------------------------------------
   logic intExpZero, intExpMax, positZero, nzn;
 
   assign intExpZero = (intExp == '0);
@@ -96,7 +96,7 @@ module quire2posit_sm #(
   assign positZero  = sgn ? intExpZero : intExpMax;
   assign nzn        = ~carryAllZeros | ~positZero | stkTmp;
 
-  // ── Fraction, guard, sticky extraction from normalised mantissa ───────────────
+  // ---- Fraction, guard, sticky extraction from normalised mantissa ------------------------------
   // tmpFrac[POSRANGE_W-1] is the hidden 1; fraction follows immediately.
   logic [FRAC_W-1:0] frac;
   logic              grd, stkBit, stk;
@@ -106,7 +106,7 @@ module quire2posit_sm #(
   assign stkBit = (tmpFrac[POSRANGE_W-3-FRAC_W:0] != '0);
   assign stk    = stkBit | stkTmp;
 
-  // ── Scaling factor sf = MAXEXP - intExp (clip to MAXEXP on overflow) ──────────
+  // ---- Scaling factor sf = MAXEXP - intExp (clip to MAXEXP on overflow) --------------------
   // sf[SF_W-1] = rc (regime direction), sf[SF_W-2:2] = k field, sf[1:0] = exp
   logic signed [SF_W-1:0] sf;
 
@@ -116,7 +116,7 @@ module quire2posit_sm #(
     sf    = ovf ? SF_W'(signed'(MAXEXP)) : sfTmp;
   end
 
-  // ── Posit encoder (mirrors PositFastEncoder from pau_q2p.vhd) ─────────────────
+  // ---- Posit encoder (mirrors PositFastEncoder from pau_q2p.vhd) ----------------------------------
   localparam int K_W = SF_W - 3;   // width of k field = SF_W - 1 (MSB) - 2 (es bits)
 
   logic               rc, regNeg, padBit, regOvf;
@@ -135,14 +135,14 @@ module quire2posit_sm #(
   assign regNeg = sgn ^ rc;
   assign padBit = ~regNeg;
 
-  // ── Right-shift-with-sticky (regime generator) ────────────────────────────────
+  // ---- Right-shift-with-sticky (regime generator) ----------------------------------------------------------------
   // inputShifter = {regNeg, exp[1:0], frac[FRAC_W-1:0], grd} = POSLEN-1 bits
   logic [POSLEN-2:0] inputShifter, shiftedPosit;
   logic              stkBit2;
 
   assign inputShifter = {regNeg, exp_field, frac, grd};
 
-  // ── Right barrel shifter with sticky (regime generator) ───────────────────────
+  // ---- Right barrel shifter with sticky (regime generator) ----------------------------------------------
   // Shifts inputShifter right by regValue, fills from left with padBit,
   // and OR-reduces all shifted-out bits into stkBit2.  REGV_W log2-stages.
   logic [POSLEN-2:0]    rbs     [REGV_W+1];
@@ -163,7 +163,7 @@ module quire2posit_sm #(
   assign shiftedPosit = rbs[REGV_W];
   assign stkBit2      = |rbs_stk;
 
-  // ── Round to nearest even ─────────────────────────────────────────────────────
+  // ---- Round to nearest even ----------------------------------------------------------------------------------------------------------
   logic [POSLEN-2:0] unroundedPosit, roundedPosit;
   logic              lsb, rnd_bit, stk_all, do_round;
 
@@ -174,7 +174,7 @@ module quire2posit_sm #(
   assign do_round       = rnd_bit & (lsb | stk_all | regOvf);
   assign roundedPosit   = unroundedPosit + (POSLEN-1)'(do_round);
 
-  // ── Final output ──────────────────────────────────────────────────────────────
+  // ---- Final output ----------------------------------------------------------------------------------------------------------------------------
   logic [POSLEN-2:0] unsignedPosit;
   assign unsignedPosit = nzn ? roundedPosit : '0;
   assign posit_o       = {sgn, unsignedPosit};

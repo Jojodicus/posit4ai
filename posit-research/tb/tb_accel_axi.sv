@@ -1,32 +1,32 @@
-// Testbench for accel_axi — AXI integration test, configuration-aware.
+// Testbench for accel_axi -- AXI integration test, configuration-aware.
 //
-// Tests the full path: AXI registers → BRAM → sequencer → arith_unit → BRAM → AXI.
+// Tests the full path: AXI registers -> BRAM -> sequencer -> arith_unit -> BRAM -> AXI.
 // Arithmetic correctness is covered by tb_accel_core; this test focuses on:
 //
-//   1. Instruction write path: IBRAM_ADDR → IBRAM_DATA_LO → IBRAM_DATA_HI (trigger)
-//   2. Data write path (32-bit): DBRAM_ADDR → DBRAM_DATA (trigger)
-//   3. Data write path (64-bit): DBRAM_ADDR → DBRAM_DATA → DBRAM_DATA_HI (trigger)
+//   1. Instruction write path: IBRAM_ADDR -> IBRAM_DATA_LO -> IBRAM_DATA_HI (trigger)
+//   2. Data write path (32-bit): DBRAM_ADDR -> DBRAM_DATA (trigger)
+//   3. Data write path (64-bit): DBRAM_ADDR -> DBRAM_DATA -> DBRAM_DATA_HI (trigger)
 //   4. STATUS polling: RUNNING high during a long-latency DIV, DONE asserts on HALT
-//   5. Data read path (32-bit): DBRAM_ADDR → (wait) → DBRAM_DATA
-//   6. Data read path (64-bit): DBRAM_ADDR → (wait) → DBRAM_DATA + DBRAM_DATA_HI
+//   5. Data read path (32-bit): DBRAM_ADDR -> (wait) -> DBRAM_DATA
+//   6. Data read path (64-bit): DBRAM_ADDR -> (wait) -> DBRAM_DATA + DBRAM_DATA_HI
 //   7. AXI writes while RUNNING are ACK'd but dropped (data preserved)
 //   8. Halt-then-restart: new program after DONE, verify it runs correctly
 //   9. DBRAM_ADDR auto-increment: stream 16 words in/out without re-writing addr
 //  10. Opcode coverage: SUB, MUL, SQRT, NEG, ABS, MOV, RELU, QACC_MSUB, QACC_NEG
 //
 // Simulation filesets:
-//   sim_axi       — PAU-32, exercises the 32-bit DBRAM data path
-//   sim_axi_pau64 — PAU-64, exercises DBRAM_DATA_HI for 64-bit values
+//   sim_axi       -- PAU-32, exercises the 32-bit DBRAM data path
+//   sim_axi_pau64 -- PAU-64, exercises DBRAM_DATA_HI for 64-bit values
 //
-// ── Program ──────────────────────────────────────────────────────────────────────
+// -- Program -----------------------------------------------------------
 //   d[0]=1.0  d[1]=2.0  d[2]=4.0
 //
-//   [0] ADD  d[0], d[1] → d[5]    1+2 = 3
-//   [1] DIV  d[2], d[1] → d[6]    4/2 = 2  (long latency: STATUS.RUNNING tested)
+//   [0] ADD  d[0], d[1] -> d[5]    1+2 = 3
+//   [1] DIV  d[2], d[1] -> d[6]    4/2 = 2  (long latency: STATUS.RUNNING tested)
 //   [2] QACC_CLEAR
 //   [3] QACC_ADD  d[1]             acc = 2
 //   [4] QACC_MADD d[0], d[1]       acc = 2+2 = 4
-//   [5] QACC_READ → d[7]           d[7] = 4
+//   [5] QACC_READ -> d[7]           d[7] = 4
 //   [6] HALT
 
 `timescale 1ns/1ps
@@ -38,7 +38,7 @@ module tb_accel_axi
 
   localparam real CLK_PERIOD = 10.0;  // 10 ns = 100 MHz
 
-  // ── Clock and reset ──────────────────────────────────────────────────────────
+  // -- Clock and reset -------------------------------------------
   logic clk, clk_bram, rst_n;
   initial clk = 0;
   always #(CLK_PERIOD/2) clk = ~clk;
@@ -51,7 +51,7 @@ module tb_accel_axi
     rst_n = 1;
   end
 
-  // ── AXI-Lite signals (32-bit address and data bus) ───────────────────────────
+  // ---- AXI-Lite signals (32-bit address and data bus) ------------------------------------------------------
   logic [31:0] s_axi_awaddr;  logic s_axi_awvalid, s_axi_awready;
   logic [31:0] s_axi_wdata;   logic [3:0] s_axi_wstrb;
   logic        s_axi_wvalid,  s_axi_wready;
@@ -60,31 +60,31 @@ module tb_accel_axi
   logic [31:0] s_axi_rdata;   logic [1:0] s_axi_rresp;
   logic        s_axi_rvalid,  s_axi_rready;
 
-  // ── accel_axi → accel_core control wires ─────────────────────────────────────
+  // ---- accel_axi -> accel_core control wires --------------------------------------------------------------------------
   logic                            accel_start;
   logic                            accel_rst_n;
   logic                            accel_done;
   logic                            accel_running;
 
-  // ── accel_axi ↔ arbiter (AXI-Lite DBRAM host, port A) ───────────────────────
+  // ---- accel_axi <-> arbiter (AXI-Lite DBRAM host, port A) ----------------------------------------------
   logic [$clog2(DATA_DEPTH)-1:0]   axi_dbram_addr;
   logic [DATA_WIDTH-1:0]           axi_dbram_wdata;
   logic                            axi_dbram_we;
   logic [DATA_WIDTH-1:0]           axi_dbram_rdata;
 
-  // ── accel_axi → accel_core IBRAM host ────────────────────────────────────────
+  // ---- accel_axi -> accel_core IBRAM host --------------------------------------------------------------------------------
   logic [$clog2(INSTR_DEPTH)-1:0]  ibram_addr;
   logic [63:0]                     ibram_wdata;
   logic                            ibram_we;
   logic [63:0]                     ibram_rdata;
 
-  // ── arbiter → accel_core DBRAM host ──────────────────────────────────────────
+  // ---- arbiter -> accel_core DBRAM host ------------------------------------------------------------------------------------
   logic [$clog2(DATA_DEPTH)-1:0]   core_dbram_addr;
   logic [DATA_WIDTH-1:0]           core_dbram_wdata;
   logic                            core_dbram_we;
   logic [DATA_WIDTH-1:0]           core_dbram_rdata;
 
-  // ── AXI4 burst slave signals (accel_axi_burst) ───────────────────────────────
+  // ---- AXI4 burst slave signals (accel_axi_burst) --------------------------------------------------------------
   // Write channel
   logic [3:0]  burst_awid;
   logic [31:0] burst_awaddr;
@@ -111,7 +111,7 @@ module tb_accel_axi
   logic [1:0]  burst_rresp;
   logic        burst_rlast;
   logic        burst_rvalid,  burst_rready;
-  // Port B → arbiter
+  // Port B -> arbiter
   logic                          burst_b_req;
   logic [$clog2(DATA_DEPTH)-1:0] burst_b_addr;
   logic [DATA_WIDTH-1:0]         burst_b_wdata;
@@ -158,7 +158,7 @@ module tb_accel_axi
     .dbram_rdata_i   ( axi_dbram_rdata  )
   );
 
-  // ── HP0 burst slave ───────────────────────────────────────────────────────────
+  // ---- HP0 burst slave ----------------------------------------------------------------------------------------------------------------------
   accel_axi_burst u_burst (
     .clk_i           ( clk              ),
     .rst_ni          ( rst_n            ),
@@ -184,7 +184,7 @@ module tb_accel_axi
     .b_rdata         ( burst_b_rdata    )
   );
 
-  // ── DBRAM host-port arbiter ───────────────────────────────────────────────────
+  // ---- DBRAM host-port arbiter ------------------------------------------------------------------------------------------------------
   accel_dbram_arb u_arb (
     .a_addr          ( axi_dbram_addr   ),
     .a_wdata         ( axi_dbram_wdata  ),
@@ -201,7 +201,7 @@ module tb_accel_axi
     .dbram_rdata_i   ( core_dbram_rdata )
   );
 
-  // ── Accelerator core ──────────────────────────────────────────────────────────
+  // ---- Accelerator core --------------------------------------------------------------------------------------------------------------------
   accel_core u_core (
     .clk_i         ( clk              ),
     .clk_bram_i    ( clk_bram         ),
@@ -219,11 +219,11 @@ module tb_accel_axi
     .dbram_rdata_o ( core_dbram_rdata )
   );
 
-  // ── Primitive AXI helpers ────────────────────────────────────────────────────
+  // ---- Primitive AXI helpers --------------------------------------------------------------------------------------------------------
   // #1 after every @(posedge clk) places signal changes in the next simulation
   // time step (1 ps), safely after the DUT's always_ff has sampled at the clock
   // edge.  Without this, the testbench's blocking assignments race with the
-  // DUT's flip-flop sampling in xsim's active region — a race that resolves
+  // DUT's flip-flop sampling in xsim's active region -- a race that resolves
   // differently for PAU vs FPU builds due to different elaboration/event order.
   task automatic axi_write(input logic [31:0] addr, input logic [31:0] data);
     @(posedge clk); #1;
@@ -256,12 +256,12 @@ module tb_accel_axi
     s_axi_rready = 0;
   endtask
 
-  // ── Higher-level register helpers ────────────────────────────────────────────
+  // ---- Higher-level register helpers ----------------------------------------------------------------------------------------
   // Write one 64-bit instruction word.
   task automatic write_instr(input int idx, input logic [63:0] instr);
     axi_write(32'h08, idx);             // IBRAM_ADDR
     axi_write(32'h0C, instr[31:0]);     // IBRAM_DATA_LO
-    axi_write(32'h10, instr[63:32]);    // IBRAM_DATA_HI → triggers BRAM write
+    axi_write(32'h10, instr[63:32]);    // IBRAM_DATA_HI -> triggers BRAM write
   endtask
 
   // Write one DATA_WIDTH-bit value to the data BRAM.
@@ -269,10 +269,10 @@ module tb_accel_axi
   task automatic write_data(input int idx, input logic [63:0] val);
     axi_write(32'h14, idx);
     if (DATA_WIDTH == 64) begin
-      axi_write(32'h18, val[31:0]);   // DBRAM_DATA    — low word (no trigger)
-      axi_write(32'h1C, val[63:32]);  // DBRAM_DATA_HI — high word, triggers write
+      axi_write(32'h18, val[31:0]);   // DBRAM_DATA    -- low word (no trigger)
+      axi_write(32'h1C, val[63:32]);  // DBRAM_DATA_HI -- high word, triggers write
     end else begin
-      axi_write(32'h18, val[31:0]);   // DBRAM_DATA — triggers write for 32-bit
+      axi_write(32'h18, val[31:0]);   // DBRAM_DATA -- triggers write for 32-bit
     end
   endtask
 
@@ -291,7 +291,7 @@ module tb_accel_axi
     end
   endtask
 
-  // ── AXI4 burst helpers ────────────────────────────────────────────────────────
+  // ---- AXI4 burst helpers ----------------------------------------------------------------------------------------------------------------
   // Hand-rolled INCR-only AXI4 burst tasks for the HP0 burst slave.
   // Each beat is a full DATA_WIDTH-wide word; the 64-bit bus carries it in the
   // low DATA_WIDTH bits (for DATA_WIDTH=32 the upper 32 bits of WDATA are X).
@@ -318,7 +318,7 @@ module tb_accel_axi
     @(posedge clk); #1;
     burst_awvalid = 1'b0;
 
-    // W channel — send len beats
+    // W channel -- send len beats
     for (int i = 0; i < len; i++) begin
       @(posedge clk); #1;
       burst_wdata  = data[i];
@@ -331,7 +331,7 @@ module tb_accel_axi
       burst_wlast  = 1'b0;
     end
 
-    // B channel — wait for response
+    // B channel -- wait for response
     wait(burst_bvalid);
     @(posedge clk); #1;
     burst_bready = 1'b0;
@@ -356,7 +356,7 @@ module tb_accel_axi
     @(posedge clk); #1;
     burst_arvalid = 1'b0;
 
-    // R channel — receive len beats into burst_rd_buf.
+    // R channel -- receive len beats into burst_rd_buf.
     // Capture rlast BEFORE the clock advance so we don't read the post-edge
     // value (after the clock, rd_beat_q has already incremented and rlast
     // reflects the *next* beat index, not the current one).
@@ -379,7 +379,7 @@ module tb_accel_axi
     return {op, a, b, res};
   endfunction
 
-  // ── Config-derived reference values ──────────────────────────────────────────
+  // ---- Config-derived reference values ------------------------------------------------------------------------------------
   logic [63:0] V_0, V_1, V_2, V_3, V_4, V_NEG2;
 
   initial begin
@@ -411,7 +411,7 @@ module tb_accel_axi
     end
   end
 
-  // ── Result tracking ───────────────────────────────────────────────────────────
+  // ---- Result tracking ----------------------------------------------------------------------------------------------------------------------
   int pass_count, fail_count;
 
   task automatic check(
@@ -517,7 +517,7 @@ module tb_accel_axi
     wait_done(label, timeout);
   endtask
 
-  // ── Test ─────────────────────────────────────────────────────────────────────
+  // ---- Test ------------------------------------------------------------------------------------------------------------------------------------------
   logic [31:0] status;
 
   initial begin
@@ -543,7 +543,7 @@ module tb_accel_axi
     $display("AXI integration test: %s-%0d", ACCEL_TYPE, DATA_WIDTH);
     $display("===================================================================");
 
-    // ── Load instruction BRAM via AXI ─────────────────────────────────────────
+    // ---- Load instruction BRAM via AXI ----------------------------------------------------------------------------------
     write_instr(0, make_instr(OP_ADD,        20'd0, 20'd1, 20'd5)); // 1+2=3
     write_instr(1, make_instr(OP_DIV,        20'd2, 20'd1, 20'd6)); // 4/2=2 (long lat.)
     write_instr(2, make_instr(OP_QACC_CLEAR, 20'd0, 20'd0, 20'd0));
@@ -552,18 +552,18 @@ module tb_accel_axi
     write_instr(5, make_instr(OP_QACC_READ,  20'd0, 20'd0, 20'd7)); // d[7]=4
     write_instr(6, make_instr(OP_HALT,       20'd0, 20'd0, 20'd0));
 
-    // ── Load data BRAM via AXI ────────────────────────────────────────────────
+    // ---- Load data BRAM via AXI ------------------------------------------------------------------------------------------------
     write_data(0, V_1);  // 1.0
     write_data(1, V_2);  // 2.0
     write_data(2, V_4);  // 4.0
 
     repeat(3) @(posedge clk);
 
-    // ── Start ─────────────────────────────────────────────────────────────────
+    // ---- Start ----------------------------------------------------------------------------------------------------------------------------------
     $display("[%0t] Starting accelerator via AXI...", $time);
     axi_write(32'h00, 32'h1);  // CTRL[0]=START
 
-    // ── Poll STATUS — verify RUNNING goes high, then DONE asserts ─────────────
+    // ---- Poll STATUS -- verify RUNNING goes high, then DONE asserts --------------------------
     // Read STATUS repeatedly; track that we saw RUNNING=1 before DONE=1.
     begin
       automatic int running_seen = 0;
@@ -588,7 +588,7 @@ module tb_accel_axi
         $finish;
       end
       if (!running_seen) begin
-        // DIV should take many cycles — if we never saw RUNNING the poll was too slow
+        // DIV should take many cycles -- if we never saw RUNNING the poll was too slow
         // or the design didn't assert it.  Warn but don't fail (timing-dependent).
         $display("  WARN: RUNNING was never observed during polling");
       end
@@ -596,7 +596,7 @@ module tb_accel_axi
 
     repeat(3) @(posedge clk);
 
-    // ── Check results ─────────────────────────────────────────────────────────
+    // ---- Check results ------------------------------------------------------------------------------------------------------------------
     $display("-- Write/read path + arithmetic --");
     check("ADD  1+2=3          via AXI [5]", V_3, 5);
     check("DIV  4/2=2 (stall)  via AXI [6]", V_2, 6);
@@ -604,14 +604,14 @@ module tb_accel_axi
     $display("-- Quire path via AXI --");
     check("QACC 2+(1*2)=4      via AXI [7]", V_4, 7);
 
-    // ── Test: AXI write while running is dropped ─────────────────────────────
+    // ---- Test: AXI write while running is dropped ----------------------------------------------------------
     // Write a known sentinel value to d[8], start a program that does NOT touch d[8],
     // attempt to overwrite d[8] via AXI while running, verify sentinel preserved.
     $display("-- AXI writes while running --");
     write_data(8, V_1);  // sentinel: d[8] = 1.0
 
     // Program: just a long DIV + HALT (doesn't touch d[8])
-    write_instr(0, make_instr(OP_DIV,  20'd2, 20'd1, 20'd9)); // 4/2=2 → d[9]
+    write_instr(0, make_instr(OP_DIV,  20'd2, 20'd1, 20'd9)); // 4/2=2 -> d[9]
     write_instr(1, make_instr(OP_HALT, 20'd0, 20'd0, 20'd0));
 
     repeat(2) @(posedge clk);
@@ -620,7 +620,7 @@ module tb_accel_axi
     // Immediately try to overwrite d[8] while running
     // (accel_axi should ACK but drop the BRAM write)
     repeat(3) @(posedge clk);
-    write_data(8, V_4);  // try to write 4.0 → should be dropped
+    write_data(8, V_4);  // try to write 4.0 -> should be dropped
 
     wait_done("write_while_running");
 
@@ -628,7 +628,7 @@ module tb_accel_axi
     check("d[8] sentinel preserved     [8]", V_1, 8);
     check("DIV  4/2=2 during test      [9]", V_2, 9);
 
-    // ── Test: halt-then-restart via AXI ──────────────────────────────────────
+    // ---- Test: halt-then-restart via AXI ----------------------------------------------------------------------------
     $display("-- Halt-then-restart via AXI --");
 
     write_instr(0, make_instr(OP_ADD,  20'd0, 20'd1, 20'd10)); // 1+2=3
@@ -640,7 +640,7 @@ module tb_accel_axi
     repeat(3) @(posedge clk);
     check("ADD  1+2=3 (restart) via AXI[10]", V_3, 10);
 
-    // ── Test: DBRAM address auto-increment (PIO streaming) ───────────────────
+    // ---- Test: DBRAM address auto-increment (PIO streaming) --------------------------------------
     // Write DBRAM_ADDR once, then stream 16 consecutive data-word writes
     // without re-writing the address register.  Read back the same way.
     $display("-- DBRAM address auto-increment (PIO streaming) --");
@@ -659,7 +659,7 @@ module tb_accel_axi
           3: expected[i] = V_4;
         endcase
 
-      // Write DBRAM[16..31] — set address ONCE then stream 16 trigger writes.
+      // Write DBRAM[16..31] -- set address ONCE then stream 16 trigger writes.
       axi_write(32'h14, 16);
       for (int i = 0; i < 16; i++) begin
         if (DATA_WIDTH == 64) begin
@@ -670,7 +670,7 @@ module tb_accel_axi
         end
       end
 
-      // Read back DBRAM[16..31] — set address ONCE then stream 16 reads.
+      // Read back DBRAM[16..31] -- set address ONCE then stream 16 reads.
       axi_write(32'h14, 16);
       repeat(4) @(posedge clk);   // BRAM registered-read settle
       for (int i = 0; i < 16; i++) begin
@@ -694,7 +694,7 @@ module tb_accel_axi
         $display("  PASS  autoinc_pio: 16 words written+read via streaming PIO");
     end
 
-    // ── Burst tests ───────────────────────────────────────────────────────────
+    // ---- Burst tests ----------------------------------------------------------------------------------------------------------------------
     // Use DBRAM slots 32..79 (clear of the earlier PIO tests).
     // Byte base address: slot * (DATA_WIDTH/8)
     $display("-- HP0 burst write then PIO read --");
@@ -717,7 +717,7 @@ module tb_accel_axi
       inputs[0] = V_1; inputs[1] = V_2; inputs[2] = V_4;
       axi4_write_burst(32'(BADDR), 3, inputs);
 
-      // Overwrite instruction BRAM: ADD d[80]+d[81]→d[83], DIV d[82]/d[81]→d[84], HALT
+      // Overwrite instruction BRAM: ADD d[80]+d[81]->d[83], DIV d[82]/d[81]->d[84], HALT
       write_instr(0, make_instr(OP_ADD,  20'd80, 20'd81, 20'd83));
       write_instr(1, make_instr(OP_DIV,  20'd82, 20'd81, 20'd84));
       write_instr(2, make_instr(OP_HALT, 20'd0,  20'd0,  20'd0));
@@ -756,13 +756,13 @@ module tb_accel_axi
       axi4_write_burst(32'(BADDR), 1, sentinel);
       repeat(2) @(posedge clk);
 
-      // Short program: DIV d[82]/d[81]→d[97] (long latency), then HALT
+      // Short program: DIV d[82]/d[81]->d[97] (long latency), then HALT
       write_instr(0, make_instr(OP_DIV,  20'd82, 20'd81, 20'd97));
       write_instr(1, make_instr(OP_HALT, 20'd0,  20'd0,  20'd0));
       repeat(2) @(posedge clk);
       axi_write(32'h00, 32'h1);  // START
 
-      // Attempt burst write to d[96] while running — should be silently dropped
+      // Attempt burst write to d[96] while running -- should be silently dropped
       repeat(3) @(posedge clk);
       axi4_write_burst(32'(BADDR), 1, poison);
 
@@ -781,7 +781,7 @@ module tb_accel_axi
       end
     end
 
-    // ── Opcode coverage: missing opcodes via AXI path ────────────────────────
+    // ---- Opcode coverage: missing opcodes via AXI path ------------------------------------------------
     // Exercises SUB, MUL, SQRT, NEG, ABS, MOV, RELU, QACC_MSUB, QACC_NEG
     // using d[0..2] already loaded above (1.0, 2.0, 4.0).
     // Results land in d[100..107].
@@ -813,7 +813,7 @@ module tb_accel_axi
     check("RELU max(0,-2)=0    [106]", V_0,    106);
     check("QACC_MSUB+NEG=-2.0 [107]", V_NEG2, 107);
 
-    // ── Summary ───────────────────────────────────────────────────────────────
+    // ---- Summary ------------------------------------------------------------------------------------------------------------------------------
     $display("===================================================================");
     $display("Results: %0d passed, %0d failed  (%s-%0d AXI)",
              pass_count, fail_count, ACCEL_TYPE, DATA_WIDTH);

@@ -1,4 +1,4 @@
-// PERCIVAL Accelerator — unified opcode set.
+// PERCIVAL Accelerator -- unified opcode set.
 // Identical opcodes used for both PAU and FPU modes.
 // arith_unit.sv translates these to the underlying arithmetic unit's native ops.
 
@@ -26,6 +26,6 @@ package opcodes_pkg;
   localparam opcode_t OP_QACC_MADD  = 4'hC;  // quire/acc += a * b
   localparam opcode_t OP_QACC_MSUB  = 4'hD;  // quire/acc -= a * b
   localparam opcode_t OP_QACC_NEG   = 4'hE;  // quire/acc = -quire/acc  (all addrs unused)
-  localparam opcode_t OP_QACC_READ  = 4'hF;  // result = round(quire/acc) → addr_result
+  localparam opcode_t OP_QACC_READ  = 4'hF;  // result = round(quire/acc) -> addr_result
 
 endpackage

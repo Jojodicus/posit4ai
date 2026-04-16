@@ -1,4 +1,4 @@
-// Testbench for accel_core — configuration-aware, comprehensive.
+// Testbench for accel_core -- configuration-aware, comprehensive.
 //
 // Compiled against different tb/configs/config_pkg_*.sv overrides by each sim fileset:
 //   sim_pau32               PAU  32-bit  exact
@@ -15,12 +15,12 @@
 //   sim_pau8_noquire        PAU   8-bit  QUIRE_MODE="ACCUMULATOR" (nacc_q in flo_posit_top)
 //   sim_pau16_noquire       PAU  16-bit  QUIRE_MODE="ACCUMULATOR" (nacc_q in flo_posit_top)
 //   sim_pau32_noquire       PAU  32-bit  QUIRE_MODE="ACCUMULATOR" (acc_q in arith_unit, 2-pass MAC)
-//   sim_flo_pau32           FLO_PAU 32-bit  exact quire  (FloPoCo cores; PSQRT→NaR)
+//   sim_flo_pau32           FLO_PAU 32-bit  exact quire  (FloPoCo cores; PSQRT->NaR)
 //   sim_flo_pau32_approx    FLO_PAU 32-bit  MUL_MODE="APPROX" (PositLAM_32_2)
 //   sim_flo_pau32_noquire   FLO_PAU 32-bit  QUIRE_MODE="ACCUMULATOR" (nacc_q in flo_posit_top)
 //   sim_flo_pau32_nodiv     FLO_PAU 32-bit  DIV_MODE="DISABLE" (PositDiv32 not synthesized)
 //
-// ── Coverage ─────────────────────────────────────────────────────────────────────
+// -- Coverage ---------------------------------------------------------
 // All 16 opcodes exercised:
 //   ADD SUB MUL DIV SQRT NEG ABS MOV RELU
 //   QACC_CLEAR QACC_ADD QACC_MADD QACC_MSUB QACC_NEG QACC_READ HALT
@@ -30,8 +30,8 @@
 //   - DIV/SQRT long-stall forwarding
 //   - NaR (posit) / NaN (FPU) propagation through all arithmetic ops
 //   - Zero operand: 0+0, 0*x, x/0, sqrt(0)
-//   - Same-address read/write (WAW: ADD d[0],d[1] → d[0])
-//   - Back-to-back comb ops (NEG→ABS→RELU chain, tests zero-latency path)
+//   - Same-address read/write (WAW: ADD d[0],d[1] -> d[0])
+//   - Back-to-back comb ops (NEG->ABS->RELU chain, tests zero-latency path)
 //   - Quire/accumulator: full sequence including QACC_NEG
 //   - Halt then restart with a new program
 //   - Max BRAM address access (DATA_DEPTH-1)
@@ -39,20 +39,20 @@
 //   - Quire accumulation stress (10-op sequence + NEG on zero)
 //   - Instruction BRAM saturation (all INSTR_DEPTH slots filled)
 //   - Approximate DIV/SQRT liveness (non-NaR output for DIV_MODE/SQRT_MODE="APPROX")
-//   - QACC_NEG double-fire: single neg→-x, double neg→+x (regression for pau_top QNEG gate)
+//   - QACC_NEG double-fire: single neg->-x, double neg->+x (regression for pau_top QNEG gate)
 //
-// ── Reference encodings ───────────────────────────────────────────────────────────
-//   Value │ posit<32,2>  │ posit<64,2>          │ fp32        │ fp64
-//   ──────┼─────────────┼──────────────────────┼─────────────┼─────────────────────
-//   0.0   │ 0x00000000  │ 0x0000000000000000   │ 0x00000000  │ 0x0000000000000000
-//   1.0   │ 0x40000000  │ 0x4000000000000000   │ 0x3F800000  │ 0x3FF0000000000000
-//   2.0   │ 0x48000000  │ 0x4800000000000000   │ 0x40000000  │ 0x4000000000000000
-//   3.0   │ 0x4C000000  │ 0x4C00000000000000   │ 0x40400000  │ 0x4008000000000000
-//   4.0   │ 0x50000000  │ 0x5000000000000000   │ 0x40800000  │ 0x4010000000000000
-//   5.0   │ 0x52000000  │ 0x5200000000000000   │ 0x40A00000  │ 0x4014000000000000
-//  -2.0   │ 0xB8000000  │ 0xB800000000000000   │ 0xC0000000  │ 0xC000000000000000
-//  -3.0   │ 0xB4000000  │ 0xB400000000000000   │ 0xC0400000  │ 0xC008000000000000
-//   NaR   │ 0x80000000  │ 0x8000000000000000   │    N/A      │    N/A
+// -- Reference encodings -------------------------------------------------
+//   Value | posit<32,2> | posit<64,2>          | fp32        | fp64
+//   ------+-------------+----------------------+-------------+--------------------
+//   0.0   | 0x00000000  | 0x0000000000000000   | 0x00000000  | 0x0000000000000000
+//   1.0   | 0x40000000  | 0x4000000000000000   | 0x3F800000  | 0x3FF0000000000000
+//   2.0   | 0x48000000  | 0x4800000000000000   | 0x40000000  | 0x4000000000000000
+//   3.0   | 0x4C000000  | 0x4C00000000000000   | 0x40400000  | 0x4008000000000000
+//   4.0   | 0x50000000  | 0x5000000000000000   | 0x40800000  | 0x4010000000000000
+//   5.0   | 0x52000000  | 0x5200000000000000   | 0x40A00000  | 0x4014000000000000
+//  -2.0   | 0xB8000000  | 0xB800000000000000   | 0xC0000000  | 0xC000000000000000
+//  -3.0   | 0xB4000000  | 0xB400000000000000   | 0xC0400000  | 0xC008000000000000
+//   NaR   | 0x80000000  | 0x8000000000000000   |    N/A      |    N/A
 
 `timescale 1ns/1ps
 
@@ -63,12 +63,12 @@ module tb_accel_core
 
   localparam real CLK_PERIOD = 10.0;   // 10 ns = 100 MHz
 
-  // ── Clock and reset ──────────────────────────────────────────────────────────
+  // -- Clock and reset -------------------------------------------------
   logic clk, clk_bram, rst_n;
   initial clk = 0;
   always #(CLK_PERIOD/2) clk = ~clk;
-  // clk_bram = 2× clk; same initial phase so clk_bram posedge coincides with
-  // clk posedge — that edge is phase_q=0 (read sub-cycle) inside accel_core.
+  // clk_bram = 2x clk; same initial phase so clk_bram posedge coincides with
+  // clk posedge -- that edge is phase_q=0 (read sub-cycle) inside accel_core.
   initial clk_bram = 0;
   always #(CLK_PERIOD/4) clk_bram = ~clk_bram;
 
@@ -78,7 +78,7 @@ module tb_accel_core
     rst_n = 1;
   end
 
-  // ── DUT ──────────────────────────────────────────────────────────────────────
+  // -- DUT -------------------------------------------------------------
   logic start, done, running;
 
   logic [$clog2(INSTR_DEPTH)-1:0] ibram_addr;
@@ -108,7 +108,7 @@ module tb_accel_core
     .dbram_rdata_o ( dbram_rdata )
   );
 
-  // ── BRAM helpers ─────────────────────────────────────────────────────────────
+  // -- BRAM helpers -------------------------------------------------
   task automatic write_ibram(input int addr, input logic [63:0] data);
     @(posedge clk);
     ibram_addr  <= addr;
@@ -143,15 +143,15 @@ module tb_accel_core
     return {op, a, b, res};
   endfunction
 
-  // ── Run program and wait for done ──────────────────────────────────────────
+  // -- Run program and wait for done -----------------------------------
   task automatic run_program();
     @(posedge clk); start = 1;
     @(posedge clk); start = 0;
-    @(posedge done);  // wait for 0→1 edge (not level) to avoid stale done from HALT_S
+    @(posedge done);  // wait for 0->1 edge (not level) to avoid stale done from HALT_S
     repeat(5) @(posedge clk);
   endtask
 
-  // ── Config-derived reference values ──────────────────────────────────────────
+  // -- Config-derived reference values ------------------------------
   logic [63:0] V_0, V_1, V_2, V_3, V_4, V_5, V_NEG2, V_NEG3;
   logic [63:0] V_SQRT_2, V_SQRT_FWD;
   // NaR for posit, quiet NaN for FPU
@@ -244,7 +244,7 @@ module tb_accel_core
     end
   end
 
-  // ── Result tracking ───────────────────────────────────────────────────────────
+  // -- Result tracking ---------------------------------------------
   int pass_count, fail_count;
 
   task automatic check(
@@ -310,19 +310,19 @@ module tb_accel_core
     end
   endtask
 
-  // ── Mode-aware check helpers ──────────────────────────────────────────────────
+  // -- Mode-aware check helpers -------------------------------------
   // These tasks encode the DIV/SQRT/QUIRE mode branching once, so call-sites can
   // describe the *intended* operation (e.g. "DIV 4/2=2") and the task appends a
   // short suffix explaining how the check was actually performed.
 
-  // DIV result: disabled → NaR, approx → liveness, else exact.
+  // DIV result: disabled -> NaR, approx -> liveness, else exact.
   task automatic check_div(
     input string       label,
     input logic [63:0] v_exact,
     input int          slot
   );
     if (DIV_MODE == "DISABLE")
-      check({label, " [disabled→NaR]"}, V_NAR, slot);
+      check({label, " [disabled->NaR]"}, V_NAR, slot);
     else if (DIV_MODE == "APPROX")
       check_not_nar({label, " [approx]"}, slot);
     else
@@ -336,7 +336,7 @@ module tb_accel_core
     input int          slot
   );
     if (DIV_MODE == "DISABLE")
-      check({label, " [div NaR→NaR prop]"}, V_NAR_PROP, slot);
+      check({label, " [div NaR->NaR prop]"}, V_NAR_PROP, slot);
     else if (DIV_MODE == "APPROX")
       check_not_nar({label, " [div approx fwd]"}, slot);
     else
@@ -353,9 +353,9 @@ module tb_accel_core
     no_sqrt_hw = ((ACCEL_TYPE == "PAU" && (DATA_WIDTH == 8 || DATA_WIDTH == 16)) ||
                   ACCEL_TYPE == "FLO_PAU");
     if (no_sqrt_hw)
-      check({label, " [no hw→NaR]"}, V_NAR, slot);
+      check({label, " [no hw->NaR]"}, V_NAR, slot);
     else if (SQRT_MODE == "DISABLE")
-      check({label, " [disabled→NaR]"}, V_NAR, slot);
+      check({label, " [disabled->NaR]"}, V_NAR, slot);
     else if (SQRT_MODE == "APPROX")
       check_not_nar({label, " [approx]"}, slot);
     else
@@ -372,9 +372,9 @@ module tb_accel_core
     no_sqrt_hw = ((ACCEL_TYPE == "PAU" && (DATA_WIDTH == 8 || DATA_WIDTH == 16)) ||
                   ACCEL_TYPE == "FLO_PAU");
     if (no_sqrt_hw)
-      check({label, " [no hw→NaR prop]"}, V_NAR_PROP, slot);
+      check({label, " [no hw->NaR prop]"}, V_NAR_PROP, slot);
     else if (SQRT_MODE == "DISABLE")
-      check({label, " [disabled→NaR prop]"}, V_NAR_PROP, slot);
+      check({label, " [disabled->NaR prop]"}, V_NAR_PROP, slot);
     else if (SQRT_MODE == "APPROX")
       check_not_nar({label, " [sqrt approx fwd]"}, slot);
     else
@@ -393,9 +393,9 @@ module tb_accel_core
                     ACCEL_TYPE == "FLO_PAU");
     sqrt_was_nar = no_sqrt_hw || (SQRT_MODE == "DISABLE");
     if (DIV_MODE == "DISABLE")
-      check({label, " [div disabled→NaR]"}, V_NAR, slot);
+      check({label, " [div disabled->NaR]"}, V_NAR, slot);
     else if (sqrt_was_nar)
-      check({label, " [sqrt NaR→NaR prop]"}, V_NAR, slot);
+      check({label, " [sqrt NaR->NaR prop]"}, V_NAR, slot);
     else if (SQRT_MODE == "APPROX" || DIV_MODE == "APPROX")
       check_not_nar({label, " [approx]"}, slot);
     else
@@ -409,12 +409,12 @@ module tb_accel_core
     input int          slot
   );
     if (QUIRE_MODE == "DISABLED")
-      check({label, " [disabled→NaR]"}, V_NAR, slot);
+      check({label, " [disabled->NaR]"}, V_NAR, slot);
     else
       check(label, v_exact, slot);
   endtask
 
-  // ── Test ─────────────────────────────────────────────────────────────────────
+  // -- Test -------------------------------------------------------------
   initial begin
     pass_count = 0;
     fail_count = 0;
@@ -430,9 +430,9 @@ module tb_accel_core
              ACCEL_TYPE, DATA_WIDTH, QUIRE_MODE, MUL_MODE, DIV_MODE, SQRT_MODE);
     $display("===================================================================");
 
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ==================================================================
     // PROGRAM 1: Main arithmetic + forwarding + quire
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ==================================================================
     // Data: d[0]=1.0  d[1]=2.0  d[2]=4.0  d[3]=0.0  d[4]=NaR/NaN
     write_dbram(0, V_1[DATA_WIDTH-1:0]);
     write_dbram(1, V_2[DATA_WIDTH-1:0]);
@@ -492,7 +492,7 @@ module tb_accel_core
     run_program();
     $display("[%0t] Program 1 done.", $time);
 
-    // ── Check Program 1 results ──────────────────────────────────────────────
+    // -- Check Program 1 results -------------------------------------------
     $display("-- Section 1: ADD/SUB chain with forwarding --");
     check("ADD  1+2=3             [10]",  V_3,    10);
     check("ADD  3+1=4 (fwd[10])  [11]",  V_4,    11);
@@ -551,10 +551,10 @@ module tb_accel_core
     check("ABS  |-2|=2  (fwd)     [53]", V_2,    53);
     check("RELU max(0,-2)=0 (fwd) [54]", V_0,    54);
 
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ==================================================================
     // PROGRAM 2: Halt-then-restart with new program
     // Verifies sequencer resets PC and runs fresh instructions after HALT.
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ==================================================================
     $display("-- Halt-then-restart --");
 
     // Restore d[0]=1.0 (was overwritten by WAW test)
@@ -574,10 +574,10 @@ module tb_accel_core
     check("MUL  1*4=4 (restart)   [60]", V_4, 60);
     check("ADD  4+1=5 (restart)   [61]", V_5, 61);
 
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ==================================================================
     // PROGRAM 3: Max BRAM address
     // Write data to DATA_DEPTH-1, read it via MOV.
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ==================================================================
     $display("-- Max BRAM address --");
 
     write_dbram(DATA_DEPTH-1, V_2[DATA_WIDTH-1:0]);  // 2.0 at max address
@@ -590,10 +590,10 @@ module tb_accel_core
 
     check("MOV  d[max]=2.0        [70]", V_2, 70);
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // PROGRAM 4: Pipeline stress — consecutive long-latency ops
-    // Two back-to-back DIVs, then SQRT→DIV forwarding.
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ==================================================================
+    // PROGRAM 4: Pipeline stress -- consecutive long-latency ops
+    // Two back-to-back DIVs, then SQRT->DIV forwarding.
+    // ==================================================================
     $display("-- Pipeline stress: consecutive DIV/SQRT --");
 
     // Restore d[0]=1.0 (may have been overwritten)
@@ -618,11 +618,11 @@ module tb_accel_core
     check_sqrt     ("SQRT sqrt(4)=2                [83]", V_2, 83);
     check_div_of_sqrt("DIV  (SQRT result)/1=2      [84]", V_2, 84);
 
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ==================================================================
     // PROGRAM 5: Quire accumulation stress test
     // Longer sequence: multiple QACC_ADD, QACC_MADD, QACC_MSUB, QACC_NEG.
     // Also tests QACC_NEG on a freshly cleared (zero) accumulator.
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ==================================================================
     $display("-- Quire stress test --");
 
     // Need d[0]=1.0, d[1]=2.0, d[2]=4.0 (should already be set)
@@ -653,13 +653,13 @@ module tb_accel_core
     run_program();
     $display("[%0t] Program 5 done.", $time);
 
-    check_qacc("QACC 3×ADD+2×MADD-MSUB-NEG+MADD=1 [90]", V_1, 90);
+    check_qacc("QACC 3*ADD+2*MADD-MSUB-NEG+MADD=1 [90]", V_1, 90);
     check_qacc("QACC NEG(0)=0                      [91]", V_0, 91);
 
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ==================================================================
     // PROGRAM 6: Instruction BRAM saturation
     // Fill all INSTR_DEPTH slots with MOVs, real op near end, HALT at last slot.
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ==================================================================
     $display("-- Instruction BRAM saturation --");
 
     // Restore d[0]=1.0, d[1]=2.0
@@ -667,7 +667,7 @@ module tb_accel_core
     write_dbram(1, V_2[DATA_WIDTH-1:0]);
 
     for (int i = 0; i < INSTR_DEPTH-2; i++)
-      write_ibram(i, make_instr(OP_MOV, 20'd0, 20'd0, 20'd0)); // NOP-like: MOV d[0]→d[0]
+      write_ibram(i, make_instr(OP_MOV, 20'd0, 20'd0, 20'd0)); // NOP-like: MOV d[0]->d[0]
     write_ibram(INSTR_DEPTH-2, make_instr(OP_ADD, 20'd0, 20'd1, 20'd95)); // 1+2=3
     write_ibram(INSTR_DEPTH-1, make_instr(OP_HALT, 20'd0, 20'd0, 20'd0));
 
@@ -679,27 +679,27 @@ module tb_accel_core
 
     check("ADD 1+2=3 at INSTR_DEPTH-2 [95]", V_3, 95);
 
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ==================================================================
     // PROGRAM 7: QACC_NEG double-fire regression
     // Verifies that two back-to-back QACC_NEG calls negate twice (net = identity)
     // rather than cancelling out (which would be the symptom of the double-fire
     // bug where operator_delay holds QNEG for an extra cycle without gating).
     //
-    // For PAU QUIRE_MODE="QUIRE" this exercises the pau_top QNEG gate added in §3.1.
+    // For PAU QUIRE_MODE="QUIRE" this exercises the pau_top QNEG gate.
     // For no-quire PAU and FPU this exercises arith_unit's acc_q NEG path.
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ==================================================================
     $display("-- QACC_NEG double-fire regression --");
 
     write_dbram(0, V_1[DATA_WIDTH-1:0]);
     write_dbram(1, V_2[DATA_WIDTH-1:0]);
 
-    // Single NEG: acc starts 0, add 2.0, negate → expect -2.0
+    // Single NEG: acc starts 0, add 2.0, negate -> expect -2.0
     write_ibram(0, make_instr(OP_QACC_CLEAR, 20'd0, 20'd0, 20'd0));
     write_ibram(1, make_instr(OP_QACC_ADD,   20'd1, 20'd0, 20'd0)); // acc = 2.0
     write_ibram(2, make_instr(OP_QACC_NEG,   20'd0, 20'd0, 20'd0)); // acc = -2.0
     write_ibram(3, make_instr(OP_QACC_READ,  20'd0, 20'd0, 20'd96)); // d[96] = -2.0
 
-    // Double NEG: accumulate 2.0, negate twice → expect +2.0
+    // Double NEG: accumulate 2.0, negate twice -> expect +2.0
     write_ibram(4, make_instr(OP_QACC_CLEAR, 20'd0, 20'd0, 20'd0));
     write_ibram(5, make_instr(OP_QACC_ADD,   20'd1, 20'd0, 20'd0)); // acc = 2.0
     write_ibram(6, make_instr(OP_QACC_NEG,   20'd0, 20'd0, 20'd0)); // acc = -2.0
@@ -714,10 +714,10 @@ module tb_accel_core
     run_program();
     $display("[%0t] Program 7 done.", $time);
 
-    check_qacc("QACC_NEG:   acc=2, neg→-2      [96]", V_NEG2, 96);
-    check_qacc("QACC_NEG×2: acc=2, neg,neg→+2  [97]", V_2,    97);
+    check_qacc("QACC_NEG:   acc=2, neg->-2      [96]", V_NEG2, 96);
+    check_qacc("QACC_NEGx2: acc=2, neg,neg->+2  [97]", V_2,    97);
 
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ==================================================================
     // PROGRAM 8: QMADD/QMSUB single-cycle accumulator
     // Specifically validates the flo_posit_top nacc_q path for PAU-8/16 no-quire.
     // Correct for all configs (quire-present PAU and FPU also produce exact results).
@@ -725,9 +725,9 @@ module tb_accel_core
     // Sequence:
     //   QCLR: acc = 0
     //   QMADD(d[1]=2, d[0]=1): acc = 2*1 + 0 = 2
-    //   QMADD(d[1]=2, d[0]=1): acc = 2*1 + 2 = 4   → QROUND → d[100] = V_4
-    //   QMSUB(d[1]=2, d[0]=1): acc = 4 - 2*1 = 2   → QROUND → d[101] = V_2
-    // ═══════════════════════════════════════════════════════════════════════════
+    //   QMADD(d[1]=2, d[0]=1): acc = 2*1 + 2 = 4   -> QROUND -> d[100] = V_4
+    //   QMSUB(d[1]=2, d[0]=1): acc = 4 - 2*1 = 2   -> QROUND -> d[101] = V_2
+    // ==================================================================
     $display("-- QMADD/QMSUB accumulator (PAU-8/16 no-quire focus) --");
 
     write_dbram(0, V_1[DATA_WIDTH-1:0]);
@@ -747,10 +747,10 @@ module tb_accel_core
     run_program();
     $display("[%0t] Program 8 done.", $time);
 
-    check_qacc("QMADD×2: 2*1+0, 2*1+2=4 [100]", V_4, 100);
+    check_qacc("QMADDx2: 2*1+0, 2*1+2=4 [100]", V_4, 100);
     check_qacc("QMSUB:   4-2*1=2         [101]", V_2, 101);
 
-    // ── Summary ───────────────────────────────────────────────────────────────
+    // -- Summary ---------------------------------------------------------
     $display("===================================================================");
     $display("Results: %0d passed, %0d failed  (%s-%0d quire=%s mul=%s div=%s sqrt=%s)",
              pass_count, fail_count,

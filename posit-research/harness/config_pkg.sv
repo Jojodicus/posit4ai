@@ -1,4 +1,4 @@
-// PERCIVAL Accelerator — single configuration file.
+// PERCIVAL Accelerator -- single configuration file.
 // Edit ONLY this file to change the accelerator's hardware parameters.
 // After editing, run ./clean.sh then ./build.sh or ./impl.sh.
 
@@ -25,30 +25,30 @@ package config_pkg;
 
   // ============================================================
   // Quire / Accumulator Mode
-  // "QUIRE"       – full hardware quire; QACC_* use exact posit accumulation.
+  // "QUIRE"       - full hardware quire; QACC_* use exact posit accumulation.
   //                 FPU ignores "QUIRE" and behaves as "ACCUMULATOR".
-  // "ACCUMULATOR" – register accumulator, no quire hardware.
+  // "ACCUMULATOR" - register accumulator, no quire hardware.
   //                 FLO_PAU 8/16/32: nacc_q in flo_posit_top (1-cycle MAC).
   //                 PAU-32/64: acc_q in arith_unit (2-pass PMUL+PADD/PSUB).
   //                 FPU: acc_q in arith_unit (FMA unit).
-  // "DISABLED"    – all QACC_* ops return NaR/NaN; no accumulator hardware.
+  // "DISABLED"    - all QACC_* ops return NaR/NaN; no accumulator hardware.
   // ============================================================
   parameter string QUIRE_MODE = "QUIRE";
 
   // ============================================================
   // Multiply Mode
-  // "EXACT"  – exact posit multiplication (all ACCEL_TYPEs).
-  // "APPROX" – log-domain approximate multiply (PositLAM / ApproxPositMult).
+  // "EXACT"  - exact posit multiplication (all ACCEL_TYPEs).
+  // "APPROX" - log-domain approximate multiply (PositLAM / ApproxPositMult).
   //            Supported: PAU-32/64 and FLO_PAU 8/16/32.  FPU: ignored.
   // ============================================================
   parameter string MUL_MODE = "EXACT";
 
   // ============================================================
   // Divide Mode
-  // "EXACT"   – exact division (all ACCEL_TYPEs).
-  // "APPROX"  – log-domain approximate divide (PAU-32/64 only).
+  // "EXACT"   - exact division (all ACCEL_TYPEs).
+  // "APPROX"  - log-domain approximate divide (PAU-32/64 only).
   //             FLO_PAU and FPU: not available; treated as "EXACT".
-  // "DISABLE" – OP_DIV returns NaR/NaN immediately; no PositDiv hardware
+  // "DISABLE" - OP_DIV returns NaR/NaN immediately; no PositDiv hardware
   //             synthesized.  Use when division is absent from the workload
   //             to remove the critical-path combinatorial divide block.
   // ============================================================
@@ -56,11 +56,11 @@ package config_pkg;
 
   // ============================================================
   // Square-Root Mode
-  // "EXACT"   – exact SQRT (PAU-32/64 and FPU).
+  // "EXACT"   - exact SQRT (PAU-32/64 and FPU).
   //             FLO_PAU always returns NaR (no FloPoCo SQRT core available).
-  // "APPROX"  – log-domain approximate sqrt (PAU-32/64 only).
+  // "APPROX"  - log-domain approximate sqrt (PAU-32/64 only).
   //             FLO_PAU and FPU: not available; treated as "EXACT".
-  // "DISABLE" – OP_SQRT returns NaR/NaN immediately; no PositSqrt hardware
+  // "DISABLE" - OP_SQRT returns NaR/NaN immediately; no PositSqrt hardware
   //             synthesized.  FLO_PAU: already has no SQRT hardware; no-op.
   // ============================================================
   parameter string SQRT_MODE = "EXACT";
@@ -68,23 +68,23 @@ package config_pkg;
   // ============================================================
   // Feature support matrix
   //
-  //  Feature               │ PAU-8/16 │ PAU-32/64 │ FLO_PAU 8/16/32 │ FPU-32/64
-  //  ──────────────────────┼──────────┼───────────┼─────────────────┼──────────
-  //  QUIRE_MODE="QUIRE"    │    ✓     │     ✓     │        ✓        │ ✗(=ACCUM)
-  //  QUIRE_MODE="ACCUMULATOR"    ✓     │     ✓     │        ✓        │    ✓
-  //  QUIRE_MODE="DISABLED" │    ✓     │     ✓     │        ✓        │    ✓
-  //  MUL_MODE="APPROX"     │    ✓     │     ✓     │        ✓        │    ✗
-  //  DIV_MODE="APPROX"     │    ✗     │     ✓     │        ✗        │    ✗
-  //  DIV_MODE="DISABLE"    │    ✓     │     ✓     │        ✓        │  ✓(bypass)
-  //  SQRT_MODE="APPROX"    │    ✗     │     ✓     │        ✗        │    ✗
-  //  SQRT_MODE="DISABLE"   │    ✓     │     ✓     │   ✓(already NaR)│  ✓(bypass)
+  //  Feature               | PAU-8/16 | PAU-32/64 | FLO_PAU 8/16/32 | FPU-32/64
+  //  ----------------------+----------+-----------+-----------------+----------
+  //  QUIRE_MODE="QUIRE"    |    Y     |     Y     |        Y        | N(=ACCUM)
+  //  QUIRE_MODE="ACCUMULATOR"    Y    |     Y     |        Y        |    Y
+  //  QUIRE_MODE="DISABLED" |    Y     |     Y     |        Y        |    Y
+  //  MUL_MODE="APPROX"     |    Y     |     Y     |        Y        |    N
+  //  DIV_MODE="APPROX"     |    N     |     Y     |        N        |    N
+  //  DIV_MODE="DISABLE"    |    Y     |     Y     |        Y        |  Y(bypass)
+  //  SQRT_MODE="APPROX"    |    N     |     Y     |        N        |    N
+  //  SQRT_MODE="DISABLE"   |    Y     |     Y     |   Y(already NaR)|  Y(bypass)
   // ============================================================
 
   // ============================================================
   // Memory Sizes
   // INSTR_DEPTH: number of 64-bit instruction words (max 2^20)
   // DATA_DEPTH:  number of DATA_WIDTH-bit data words (max 2^20)
-  // Instruction format: 4-bit opcode + 3 × 20-bit addresses = 64 bits
+  // Instruction format: 4-bit opcode + 3 x 20-bit addresses = 64 bits
   // ============================================================
   parameter int INSTR_DEPTH = 2 ** 15; // 2 MiB
   parameter int DATA_DEPTH  = 2 ** 15; // 2 MiB

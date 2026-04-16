@@ -1,4 +1,4 @@
-// PERCIVAL Accelerator — AXI-Lite slave.
+// PERCIVAL Accelerator -- AXI-Lite slave.
 //
 // AXI-Lite register map (base: 0x43C00000):
 //   0x00  CTRL       [0]=START, [1]=RESET  (write 1; self-clearing)
@@ -33,7 +33,7 @@ module accel_axi
   input  logic clk_i,
   input  logic rst_ni,
 
-  // ── AXI-Lite slave interface ────────────────────────────────────────────────
+  // -- AXI-Lite slave interface -------------------------------------
   (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI AWADDR"  *) input  logic [AXI_ADDR_WIDTH-1:0] s_axi_awaddr,
   (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI AWVALID" *) input  logic                      s_axi_awvalid,
   (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI AWREADY" *) output logic                      s_axi_awready,
@@ -52,26 +52,26 @@ module accel_axi
   (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI RVALID"  *) output logic                      s_axi_rvalid,
   (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 S_AXI RREADY"  *) input  logic                      s_axi_rready,
 
-  // ── accel_core control interface ────────────────────────────────────────────
+  // -- accel_core control interface ---------------------------------
   output logic start_o,    // one-cycle start pulse
   output logic rst_no,     // combined reset (rst_ni gated with CTRL.RESET)
   input  logic done_i,     // from accel_core.done_o
   input  logic running_i,  // from accel_core.running_o
 
-  // ── Instruction BRAM host port ──────────────────────────────────────────────
+  // -- Instruction BRAM host port -----------------------------------
   output logic [$clog2(INSTR_DEPTH)-1:0] ibram_addr_o,
   output logic [63:0]                    ibram_wdata_o,
   output logic                           ibram_we_o,
   input  logic [63:0]                    ibram_rdata_i,
 
-  // ── Data BRAM host port (routed via arbiter) ────────────────────────────────
+  // -- Data BRAM host port (routed via arbiter) --------------------
   output logic [$clog2(DATA_DEPTH)-1:0]  dbram_addr_o,
   output logic [DATA_WIDTH-1:0]          dbram_wdata_o,
   output logic                           dbram_we_o,
   input  logic [DATA_WIDTH-1:0]          dbram_rdata_i
 );
 
-  // ── Internal registers (AXI shadow) ──────────────────────────────────────────
+  // -- Internal registers (AXI shadow) ----------------------------
   logic [31:0]                     reg_ibram_addr;
   logic [31:0]                     reg_ibram_data_lo;
   logic [31:0]                     reg_ibram_data_hi;
@@ -90,7 +90,7 @@ module accel_axi
   assign ibram_addr_o = reg_ibram_addr[$clog2(INSTR_DEPTH)-1:0];
   assign dbram_addr_o = reg_dbram_addr[$clog2(DATA_DEPTH)-1:0];
 
-  // AXI write channel state — declared here so wr_data_q is in scope for the
+  // AXI write channel state -- declared here so wr_data_q is in scope for the
   // ibram_wdata_o / dbram_wdata_o assigns below (forward-reference warning fix).
   typedef enum logic [1:0] { WR_IDLE, WR_ADDR, WR_DATA, WR_RESP } wr_state_t;
   wr_state_t wr_state_q, wr_state_d;
@@ -101,8 +101,8 @@ module accel_axi
   // BRAM write data: bypass the shadow register for the triggering word,
   // since the shadow register update is sequential (same clock edge as WE)
   // and would otherwise supply the stale value.
-  //   IBRAM trigger = write to 0x10 (DATA_HI) → high word from wr_data_q
-  //   DBRAM trigger = write to 0x18 (32-bit) or 0x1C (64-bit) → from wr_data_q
+  //   IBRAM trigger = write to 0x10 (DATA_HI) -> high word from wr_data_q
+  //   DBRAM trigger = write to 0x18 (32-bit) or 0x1C (64-bit) -> from wr_data_q
   assign ibram_wdata_o = ibram_we_o ? {wr_data_q[31:0], reg_ibram_data_lo}
                                     : {reg_ibram_data_hi, reg_ibram_data_lo};
   assign dbram_wdata_o = dbram_we_o
@@ -115,7 +115,7 @@ module accel_axi
   logic [63:0] dbram_rdata_64;
   assign dbram_rdata_64 = 64'(dbram_rdata_i);
 
-  // ── AXI write channel ─────────────────────────────────────────────────────────
+  // -- AXI write channel -------------------------------------------
   always_comb begin
     wr_state_d    = wr_state_q;
     s_axi_awready = 1'b0;
@@ -152,13 +152,13 @@ module accel_axi
               if (wr_data_q[0]) start_o    = !running_i;
               if (wr_data_q[1]) core_reset = 1'b1;
             end
-            5'h10: begin  // IBRAM_DATA_HI — triggers BRAM write
+            5'h10: begin  // IBRAM_DATA_HI -- triggers BRAM write
               if (!running_i) ibram_we_o = 1'b1;
             end
-            5'h18: begin  // DBRAM_DATA — triggers data BRAM write (32-bit wide)
+            5'h18: begin  // DBRAM_DATA -- triggers data BRAM write (32-bit wide)
               if (!running_i && DATA_WIDTH <= 32) dbram_we_o = 1'b1;
             end
-            5'h1C: begin  // DBRAM_DATA_HI — triggers data BRAM write (64-bit wide)
+            5'h1C: begin  // DBRAM_DATA_HI -- triggers data BRAM write (64-bit wide)
               if (!running_i && DATA_WIDTH == 64) dbram_we_o = 1'b1;
             end
             default: ;
@@ -228,7 +228,7 @@ module accel_axi
     end
   end
 
-  // ── AXI read channel ──────────────────────────────────────────────────────────
+  // -- AXI read channel ----------------------------------------
   typedef enum logic { RD_IDLE, RD_DATA } rd_state_t;
   rd_state_t rd_state_q, rd_state_d;
   logic [AXI_ADDR_WIDTH-1:0] rd_addr_q;

@@ -1,4 +1,4 @@
-// PERCIVAL Accelerator — core: instruction BRAM + data BRAM + 3-stage pipeline + arith_unit.
+// PERCIVAL Accelerator -- core: instruction BRAM + data BRAM + 3-stage pipeline + arith_unit.
 //
 // Instruction format (64-bit fixed-width):
 //   [63:60] opcode       4 bits  (16 opcodes)
@@ -6,18 +6,18 @@
 //   [39:20] addr_b      20 bits
 //   [19: 0] addr_result 20 bits
 //
-// Step B — 3-stage pipeline with 2× BRAM clock (XAPP706 alpha-blending technique):
+// Step B -- 3-stage pipeline with 2x BRAM clock (XAPP706 alpha-blending technique):
 //
 //   All three stages run in parallel each clk_i cycle:
-//   IF  : Present PC to IBRAM port B; registered output → ibram_fetch_rdata.
+//   IF  : Present PC to IBRAM port B; registered output -> ibram_fetch_rdata.
 //   ID  : Decode ibram_fetch_rdata; present addr_a/addr_b to DBRAM at clk_bram phase 0;
 //         capture operands into op_a_q/op_b_q at phase 1.
 //   EX  : Submit op_a_q/op_b_q to arith_unit (when ready); write result to DBRAM
 //         at phase 1 when arith_valid_o fires.
 //
-// clk_bram = 2 × clk_i, phase-aligned:
-//   phase 0 (1st clk_bram edge after clk_i ↑): DBRAM reads addr_a (port A) and addr_b (port B)
-//   phase 1 (2nd clk_bram edge): capture dbram output → op_a_q/op_b_q; write result (port A)
+// clk_bram = 2x clk_i, phase-aligned:
+//   phase 0 (1st clk_bram edge after clk_i ^): DBRAM reads addr_a (port A) and addr_b (port B)
+//   phase 1 (2nd clk_bram edge): capture dbram output -> op_a_q/op_b_q; write result (port A)
 //
 // Stall (pipeline freeze):
 //   RAW hazard: EX instruction will write to an address read by ID instruction and
@@ -28,7 +28,7 @@
 //
 // arith_valid_i is only asserted when arith_ready_o, preventing double-submission.
 //
-// Top-level FSM (4 states — stages run in parallel inside RUNNING_S):
+// Top-level FSM (4 states -- stages run in parallel inside RUNNING_S):
 //   IDLE_S  : waiting for start_i; pipeline empty
 //   RUNNING_S: pipeline active; stall/advance based on hazards
 //   HALT_S  : OP_HALT reached; done_o asserted
@@ -38,28 +38,28 @@ module accel_core
   import opcodes_pkg::*;
 (
   input  logic clk_i,
-  input  logic clk_bram_i,   // 2× clk_i, phase-aligned (first edge after clk_i ↑ is phase 0)
+  input  logic clk_bram_i,   // 2x clk_i, phase-aligned (first edge after clk_i ^ is phase 0)
   input  logic rst_ni,
 
-  // ── Control ──────────────────────────────────────────────────────────────────
+  // -- Control -----------------------------------------------------------
   input  logic start_i,
   output logic done_o,
   output logic running_o,
 
-  // ── Instruction BRAM host port (only accessible when stopped) ─────────────────
+  // -- Instruction BRAM host port (only accessible when stopped) -------------
   input  logic [$clog2(INSTR_DEPTH)-1:0] ibram_addr_i,
   input  logic [63:0]                    ibram_wdata_i,
   input  logic                           ibram_we_i,
   output logic [63:0]                    ibram_rdata_o,
 
-  // ── Data BRAM host port (only accessible when stopped) ────────────────────────
+  // -- Data BRAM host port (only accessible when stopped) -----------------
   input  logic [$clog2(DATA_DEPTH)-1:0]  dbram_addr_i,
   input  logic [DATA_WIDTH-1:0]          dbram_wdata_i,
   input  logic                           dbram_we_i,
   output logic [DATA_WIDTH-1:0]          dbram_rdata_o
 );
 
-  // ── BRAMs ────────────────────────────────────────────────────────────────────
+  // -- BRAMs --------------------------------------------------------------
   logic [63:0]           instr_mem [0:INSTR_DEPTH-1];
   logic [DATA_WIDTH-1:0] data_mem  [0:DATA_DEPTH-1];
 
@@ -71,7 +71,7 @@ module accel_core
   end
   // synthesis translate_on
 
-  // ── Phase counter (at clk_bram) ───────────────────────────────────────────────
+  // -- Phase counter (at clk_bram) ------------------------------------------
   // phase_q=0: read sub-cycle; phase_q=1: write sub-cycle.
   // Resets to 0 so the first clk_bram edge after reset is a read sub-cycle.
   logic phase_q;
@@ -80,7 +80,7 @@ module accel_core
     else         phase_q <= ~phase_q;
   end
 
-  // ── BRAM port signals ─────────────────────────────────────────────────────────
+  // -- BRAM port signals --------------------------------------------------
   logic [$clog2(DATA_DEPTH)-1:0]  dbram_porta_addr;
   logic [DATA_WIDTH-1:0]          dbram_porta_wdata;
   logic                           dbram_porta_we;
@@ -90,25 +90,25 @@ module accel_core
   logic [DATA_WIDTH-1:0]          dbram_portb_rdata;  // registered at clk_bram
 
   // Operand capture registers: populated at phase 1 of the ID cycle.
-  // These are sampled by arith_unit at clk_i ↑ of the EX cycle (after phase 1 of ID).
+  // These are sampled by arith_unit at clk_i ^ of the EX cycle (after phase 1 of ID).
   logic [DATA_WIDTH-1:0] op_a_q, op_b_q;
 
-  // ── IBRAM — true dual-port BRAM ────────────────────────────────────────────
+  // -- IBRAM -- true dual-port BRAM -------------------------------------
   // Memory array: sync only (no async reset) so Vivado infers BRAM.
   //
-  // Port A — host read/write (ibram_addr_i), clk_i
-  // Port B — IF-stage fetch  (pc_q, read-only), clk_i
+  // Port A -- host read/write (ibram_addr_i), clk_i
+  // Port B -- IF-stage fetch  (pc_q, read-only), clk_i
 
   logic [63:0] ibram_fetch_rdata;  // port B registered output (serves as IF/ID reg)
 
-  // Port A — host access
+  // Port A -- host access
   always_ff @(posedge clk_i) begin
     if (ibram_we_i && !running_o)
       instr_mem[ibram_addr_i] <= ibram_wdata_i;
     ibram_rdata_o <= instr_mem[ibram_addr_i];
   end
 
-  // Port B — sequencer instruction fetch (read-only, sync, with read-enable)
+  // Port B -- sequencer instruction fetch (read-only, sync, with read-enable)
   // Gate on !stall so ibram_fetch_rdata holds its value while the pipeline is
   // frozen (pc_q was already advanced past the IF-stage instruction).
   // When not in RUNNING_S, stall=0 so reads proceed freely (don't-care data).
@@ -124,7 +124,7 @@ module accel_core
   logic capture_ops;
   assign capture_ops = if_id_valid_q && (!id_ex_valid_q || !stall);
 
-  // ── DBRAM port A — clocked at clk_bram ────────────────────────────────────────
+  // -- DBRAM port A -- clocked at clk_bram ------------------------------
   // phase 0: latch data at dbram_porta_addr into dbram_porta_rdata
   // phase 1: capture dbram_porta_rdata into op_a_q (gated); write if dbram_porta_we
   // Memory array: sync only (no async reset) so Vivado infers BRAM
@@ -145,7 +145,7 @@ module accel_core
     end
   end
 
-  // ── DBRAM port B — clocked at clk_bram ────────────────────────────────────────
+  // -- DBRAM port B -- clocked at clk_bram ------------------------------
   // Memory array: sync only (no async reset) so Vivado infers BRAM
   always_ff @(posedge clk_bram_i) begin
     if (!phase_q) begin
@@ -164,7 +164,7 @@ module accel_core
   // Host data BRAM read via port A registered output
   assign dbram_rdata_o = dbram_porta_rdata;
 
-  // ── Pipeline registers ────────────────────────────────────────────────────────
+  // -- Pipeline registers ------------------------------------------------
   logic        if_id_valid_q;  // ibram_fetch_rdata holds a valid instruction
 
   // id_ex_q: decoded fields from ID stage
@@ -185,14 +185,14 @@ module accel_core
   // op_a_q/op_b_q at phase 1. Cleared on pipeline advance.
   logic ex_complete_q;
 
-  // ── PC ────────────────────────────────────────────────────────────────────────
+  // -- PC ----------------------------------------------------------------
   logic [$clog2(INSTR_DEPTH)-1:0] pc_q;
 
-  // ── Top-level FSM ─────────────────────────────────────────────────────────────
+  // -- Top-level FSM ----------------------------------------------------
   typedef enum logic [1:0] { IDLE_S, RUNNING_S, HALT_S, UNUSED_S } seq_state_t;
   seq_state_t seq_state_q;
 
-  // ── Arith unit interface ──────────────────────────────────────────────────────
+  // -- Arith unit interface ----------------------------------------------
   logic [DATA_WIDTH-1:0]  arith_op_a, arith_op_b;
   opcode_t                arith_opcode;
   logic                   arith_valid_i;
@@ -212,7 +212,7 @@ module accel_core
     .ready_o     ( arith_ready_o )
   );
 
-  // ── Needs-writeback helper ────────────────────────────────────────────────────
+  // -- Needs-writeback helper ---------------------------------------------
   function automatic logic needs_wb(opcode_t op);
     case (op)
       OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_SQRT,
@@ -221,11 +221,11 @@ module accel_core
     endcase
   endfunction
 
-  // ── Status outputs ────────────────────────────────────────────────────────────
+  // -- Status outputs ----------------------------------------------------
   assign running_o = (seq_state_q == RUNNING_S);
   assign done_o    = (seq_state_q == HALT_S);
 
-  // ── Stall detection ───────────────────────────────────────────────────────────
+  // -- Stall detection --------------------------------------------------
   // Simple rule: while an instruction is in EX, stall until its arith result has
   // been observed (ex_complete_q=1). During that final "complete" cycle, phase 0
   // re-reads the next instruction's operands from DBRAM (now including this
@@ -238,7 +238,7 @@ module accel_core
     stall = (seq_state_q == RUNNING_S) && id_ex_valid_q && !ex_complete_q;
   end
 
-  // ── BRAM port address/control combinatorial ───────────────────────────────────
+  // -- BRAM port address/control combinatorial ----------------------------
   always_comb begin
     dbram_porta_addr  = '0;
     dbram_porta_wdata = '0;
@@ -252,10 +252,10 @@ module accel_core
     unique case (seq_state_q)
 
       RUNNING_S: begin
-        // ── IF: IBRAM port B output (ibram_fetch_rdata) updated by BRAM block ─
+        // -- IF: IBRAM port B output (ibram_fetch_rdata) updated by BRAM block
 
-        // ── DBRAM: phase 0 = read operands for ID instruction;
-        //           phase 1 = write result for EX instruction ─────────────────
+        // -- DBRAM: phase 0 = read operands for ID instruction;
+        //           phase 1 = write result for EX instruction
         if (!phase_q) begin
           // Read sub-cycle: addr_a and addr_b for instruction currently in ID
           dbram_porta_addr = if_id_valid_q ? ibram_fetch_rdata[59:40] : '0;
@@ -269,7 +269,7 @@ module accel_core
           end
         end
 
-        // ── EX: submit to arith_unit only when it is ready AND we haven't
+        // -- EX: submit to arith_unit only when it is ready AND we haven't
         //       already observed completion for the current EX instruction.
         //       The !ex_complete_q gate prevents re-issue on the trailing
         //       "re-read" cycle (when arith_unit has returned to IDLE but
@@ -286,14 +286,14 @@ module accel_core
       default: begin
         dbram_porta_addr  = dbram_addr_i;
         dbram_porta_wdata = dbram_wdata_i;
-        // Gate host writes to phase 1 so they land correctly in the 2× clock domain
+        // Gate host writes to phase 1 so they land correctly in the 2x clock domain
         dbram_porta_we    = dbram_we_i && !running_o && phase_q;
       end
 
     endcase
   end
 
-  // ── Sequencer registers ───────────────────────────────────────────────────────
+  // -- Sequencer registers ----------------------------------------------
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       seq_state_q   <= IDLE_S;
@@ -329,7 +329,7 @@ module accel_core
           end
 
           if (!stall) begin
-            // ── ID → EX: decode ibram_fetch_rdata into EX stage ─────────────
+            // -- ID -> EX: decode ibram_fetch_rdata into EX stage
             if (if_id_valid_q) begin
               if (opcode_t'(ibram_fetch_rdata[63:60]) == OP_HALT) begin
                 // HALT: flush EX; transition to HALT_S
@@ -348,14 +348,14 @@ module accel_core
               id_ex_valid_q <= 1'b0;
             end
 
-            // ── IF: BRAM port B output (ibram_fetch_rdata) already holds
-            //    instr_mem[pc_q] — mark valid for next cycle's decode.
+            // -- IF: BRAM port B output (ibram_fetch_rdata) already holds
+            //    instr_mem[pc_q] -- mark valid for next cycle's decode.
             if_id_valid_q <= 1'b1;
 
-            // ── PC advance ────────────────────────────────────────────────────
+            // -- PC advance ------------------------------------------------
             pc_q <= pc_q + 1;
           end
-          // else: stall — id_ex_q, ibram_fetch_rdata, pc_q all frozen
+          // else: stall -- id_ex_q, ibram_fetch_rdata, pc_q all frozen
         end
 
         HALT_S: begin
@@ -375,7 +375,7 @@ module accel_core
     end
   end
 
-  // ── Assertions ────────────────────────────────────────────────────────────────
+  // -- Assertions ------------------------------------------------------
   // synthesis translate_off
 
   // 1. done_o and running_o are mutually exclusive.
