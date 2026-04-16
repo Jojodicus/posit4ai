@@ -40,10 +40,13 @@ set_property top zynq_accel_top [current_fileset]
 
 # Update clocking wizard IP with requested frequency
 # (clk_wiz_0 is used by accel_harness for build flow; not present in impl top)
-puts "Updating clocking wizard to ${clock_freq_mhz} MHz output..."
+puts "Updating clocking wizard to ${clock_freq_mhz} MHz (arith) / [expr {$clock_freq_mhz * 2}] MHz (BRAM)..."
+set bram_freq_mhz [expr {$clock_freq_mhz * 2}]
 set_property -dict [list \
     CONFIG.PRIM_IN_FREQ {100.000} \
     CONFIG.CLKOUT1_REQUESTED_OUT_FREQ "$clock_freq_mhz" \
+    CONFIG.CLKOUT2_USED {true} \
+    CONFIG.CLKOUT2_REQUESTED_OUT_FREQ "$bram_freq_mhz" \
 ] [get_ips clk_wiz_0]
 generate_target all [get_ips clk_wiz_0]
 
