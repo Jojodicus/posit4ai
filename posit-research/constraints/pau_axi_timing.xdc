@@ -23,6 +23,6 @@
 ## inputs has a full clk_i period to settle (7.5 ns at 100 MHz arith / 200 MHz BRAM).
 ## Without this constraint Vivado applies a 5 ns (clk_bram) setup budget.
 set_multicycle_path -setup 2 -from [get_cells {u_core/data_mem_reg*}] \
-    -to [get_cells {u_core/u_arith/*}]
+    -to [get_cells -filter {IS_SEQUENTIAL} {u_core/u_arith/*}]
 set_multicycle_path -hold 1 -from [get_cells {u_core/data_mem_reg*}] \
-    -to [get_cells {u_core/u_arith/*}]
+    -to [get_cells -filter {IS_SEQUENTIAL} {u_core/u_arith/*}]

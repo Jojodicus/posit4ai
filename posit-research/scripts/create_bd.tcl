@@ -6,8 +6,14 @@
 
 set root_dir [file normalize [file join [file dirname [info script]] ..]]
 
+if {[info exists env(CLOCK_FREQ_MHZ)]} {
+    set clock_freq_mhz $env(CLOCK_FREQ_MHZ)
+} else {
+    set clock_freq_mhz 100
+}
+
 puts "=========================================="
-puts "Creating Zynq PS Block Design"
+puts "Creating Zynq PS Block Design (FCLK0 = ${clock_freq_mhz} MHz)"
 puts "=========================================="
 
 # Remove existing block design if present
@@ -57,7 +63,7 @@ if {$board_set} {
 # Configure PS7 for Zedboard
 set_property -dict [list \
     CONFIG.PCW_USE_M_AXI_GP0 {1} \
-    CONFIG.PCW_FPGA0_PERIPHERAL_FREQMHZ {100} \
+    CONFIG.PCW_FPGA0_PERIPHERAL_FREQMHZ "$clock_freq_mhz" \
     CONFIG.PCW_CRYSTAL_PERIPHERAL_FREQMHZ {33.333333} \
     CONFIG.PCW_PRESET_BANK0_VOLTAGE {LVCMOS 3.3V} \
     CONFIG.PCW_PRESET_BANK1_VOLTAGE {LVCMOS 1.8V} \
@@ -194,7 +200,7 @@ puts ""
 puts "=========================================="
 puts "Block Design Created Successfully"
 puts "=========================================="
-puts "  PS7 FCLK_CLK0:     100 MHz"
+puts "  PS7 FCLK_CLK0:     ${clock_freq_mhz} MHz"
 puts "  GP0 slave base:    0x43C00000  (control + IBRAM, AXI4-Lite)"
 puts "  GP1 burst base:    0x80000000  (DBRAM bulk load, AXI4 burst)"
 puts "  BD Wrapper:        zynq_ps_wrapper"

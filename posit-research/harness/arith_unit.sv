@@ -66,7 +66,6 @@ module arith_unit
 
   // -- Registered operands and opcode (latched when accepted in IDLE) -----
   opcode_t                opcode_q;
-  logic [DATA_WIDTH-1:0]  op_a_q, op_b_q;
 
   // -- Result and accumulator registers --------------------------------
   logic [DATA_WIDTH-1:0]  result_q,    result_d;
@@ -450,8 +449,6 @@ module arith_unit
     if (!rst_ni) begin
       state_q      <= IDLE;
       opcode_q     <= OP_HALT;
-      op_a_q       <= '0;
-      op_b_q       <= '0;
       result_q     <= '0;
       acc_q        <= '0;
       mul_result_q <= '0;
@@ -463,8 +460,6 @@ module arith_unit
       // Latch operands when accepted
       if (state_q == IDLE && valid_i) begin
         opcode_q <= opcode_i;
-        op_a_q   <= operand_a_i;
-        op_b_q   <= operand_b_i;
       end
     end
   end

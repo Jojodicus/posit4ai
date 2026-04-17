@@ -580,6 +580,8 @@ module pau_top import ariane_pkg::*; (
                 conv_l2p_q     <= '0;
                 conv_lu2p_q    <= '0;
                 result_o       <= '0;
+                operator_delay <= FMADD;
+                operator_q     <= FMADD;
             end else begin
                 state_q        <= state_d;
                 if (QUIRE_PRESENT) begin

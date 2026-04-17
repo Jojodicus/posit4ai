@@ -60,8 +60,12 @@ module accel_core
 );
 
   // -- BRAMs --------------------------------------------------------------
-  logic [63:0]           instr_mem [0:INSTR_DEPTH-1];
-  logic [DATA_WIDTH-1:0] data_mem  [0:DATA_DEPTH-1];
+  // ram_style hint: force block RAM inference. Combined with the registered
+  // output paths (dbram_*_rdata, ibram_fetch_rdata) this lets Vivado pack the
+  // output FFs into the BRAM tile's DOA_REG/DOB_REG (OREG), shortening the
+  // read-to-arith-unit routing without adding a pipeline cycle.
+  (* ram_style = "block" *) logic [63:0]           instr_mem [0:INSTR_DEPTH-1];
+  (* ram_style = "block" *) logic [DATA_WIDTH-1:0] data_mem  [0:DATA_DEPTH-1];
 
   // Simulation: zero-initialise so unwritten slots decode as OP_HALT (opcode 0).
   // synthesis translate_off
@@ -170,8 +174,6 @@ module accel_core
   // id_ex_q: decoded fields from ID stage
   typedef struct packed {
     opcode_t     opcode;
-    logic [19:0] addr_a;
-    logic [19:0] addr_b;
     logic [19:0] addr_result;
     logic        writes_dbram;  // 1 if this instruction writes a result back to DBRAM
   } id_ex_t;
@@ -337,8 +339,6 @@ module accel_core
                 id_ex_valid_q <= 1'b0;
               end else begin
                 id_ex_q.opcode      <= opcode_t'(ibram_fetch_rdata[63:60]);
-                id_ex_q.addr_a      <= ibram_fetch_rdata[59:40];
-                id_ex_q.addr_b      <= ibram_fetch_rdata[39:20];
                 id_ex_q.addr_result <= ibram_fetch_rdata[19:0];
                 id_ex_q.writes_dbram <= needs_wb(opcode_t'(ibram_fetch_rdata[63:60]));
                 id_ex_valid_q       <= 1'b1;
