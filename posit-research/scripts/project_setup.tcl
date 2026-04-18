@@ -39,14 +39,14 @@ add_files -norecurse $root_dir/harness/config_pkg.sv
 set_property used_in_simulation false [get_files */config_pkg.sv]
 
 # 2. Accelerator opcode set (no dependencies)
-add_files -norecurse $root_dir/harness/opcodes_pkg.sv
+add_files -norecurse $root_dir/harness/pkg/opcodes_pkg.sv
 
 # 3. CVA6/riscv packages (needed by pau_top and fpu_wrap)
-add_files -norecurse $root_dir/harness/cva6_config_pkg.sv
-add_files -norecurse $root_dir/harness/riscv_pkg_mini.sv
+add_files -norecurse $root_dir/harness/pkg/cva6_config_pkg.sv
+add_files -norecurse $root_dir/harness/pkg/riscv_pkg_mini.sv
 
 # 4. ariane_pkg (imports config_pkg and riscv)
-add_files -norecurse $root_dir/harness/ariane_pkg_mini.sv
+add_files -norecurse $root_dir/harness/pkg/ariane_pkg_mini.sv
 
 # 5. fpnew support packages
 add_files -norecurse $root_dir/rtl/common_cells/src/cf_math_pkg.sv
@@ -62,11 +62,12 @@ if {[llength $all_sv_files] > 0} {
 add_files -norecurse $root_dir/rtl/common_cells/src/lzc.sv
 add_files -norecurse $root_dir/rtl/common_cells/src/rr_arb_tree.sv
 
-# Patched .svh files for Vivado XSim compatibility
-add_files -norecurse $root_dir/harness/common_cells_patches/registers.svh
-add_files -norecurse $root_dir/harness/common_cells_patches/assertions.svh
-add_files -norecurse $root_dir/harness/common_cells_patches/common_cells/registers.svh
-add_files -norecurse $root_dir/harness/common_cells_patches/common_cells/assertions.svh
+# Patched .svh files for Vivado XSim compatibility.
+# Upstream PERCIVAL sources use `include "common_cells/registers.svh"` (with the
+# directory prefix), so include_dirs must point at the parent of common_cells/
+# and the files live inside that subdirectory.
+add_files -norecurse $root_dir/harness/patches/common_cells/registers.svh
+add_files -norecurse $root_dir/harness/patches/common_cells/assertions.svh
 
 foreach svh_file [get_files -filter {NAME =~ "*.svh"}] {
     set_property file_type {SystemVerilog Header} $svh_file
@@ -94,9 +95,9 @@ add_files -norecurse [glob $root_dir/rtl/pau/*.vhd]
 # brent_kung adder primitive (shared by all PositMAC wrappers; only one copy needed)
 add_files -norecurse $root_dir/rtl/Flo-Posit/PositMAC/brent_kung/no_pipe/brent_kung_PositMAC_8_2_30/brent_kung.vhd
 # PositMAC wrappers -- entities renamed to avoid collision with PERCIVAL's PositMAC
-add_files -norecurse $root_dir/harness/positmac8.vhd
-add_files -norecurse $root_dir/harness/positmac16.vhd
-add_files -norecurse $root_dir/harness/positmac32.vhd
+add_files -norecurse $root_dir/harness/arith/positmac8.vhd
+add_files -norecurse $root_dir/harness/arith/positmac16.vhd
+add_files -norecurse $root_dir/harness/arith/positmac32.vhd
 # Compile each MAC wrapper into its own library to avoid internal FloPoCo entity
 # name collisions (PositDecoder_*_uid4/8, IntMultiplier_F0_uid12, etc. are reused
 # across 8-bit, 16-bit and 32-bit with different port widths).  In VHDL, "library work;"
@@ -125,25 +126,25 @@ add_files -norecurse $root_dir/rtl/Flo-Posit/PositLAM/PositLAM_32_2/flopoco.vhdl
 
 # -- Accelerator RTL ------------------------------------------------
 # Local copies of PERCIVAL cores (editable)
-add_files -norecurse $root_dir/harness/pau_top.sv
-add_files -norecurse $root_dir/harness/fpu_wrap.sv
+add_files -norecurse $root_dir/harness/arith/pau_top.sv
+add_files -norecurse $root_dir/harness/arith/fpu_wrap.sv
 
 # FloPoCo wrapper (quire2posit_sm must precede flo_posit_top)
-add_files -norecurse $root_dir/harness/quire2posit_sm.sv
-add_files -norecurse $root_dir/harness/flo_posit_top.sv
+add_files -norecurse $root_dir/harness/arith/quire2posit_sm.sv
+add_files -norecurse $root_dir/harness/arith/flo_posit_top.sv
 
 # New accelerator modules (in dependency order)
-add_files -norecurse $root_dir/harness/arith_unit.sv
-add_files -norecurse $root_dir/harness/accel_core.sv
-add_files -norecurse $root_dir/harness/accel_axi.sv
-add_files -norecurse $root_dir/harness/accel_dbram_arb.sv
-add_files -norecurse $root_dir/harness/accel_axi_burst.sv
-add_files -norecurse $root_dir/harness/accel_harness.sv
-add_files -norecurse $root_dir/harness/zynq_accel_top.sv
+add_files -norecurse $root_dir/harness/arith/arith_unit.sv
+add_files -norecurse $root_dir/harness/core/accel_core.sv
+add_files -norecurse $root_dir/harness/axi/accel_axi.sv
+add_files -norecurse $root_dir/harness/axi/accel_dbram_arb.sv
+add_files -norecurse $root_dir/harness/axi/accel_axi_burst.sv
+add_files -norecurse $root_dir/harness/top/accel_harness.sv
+add_files -norecurse $root_dir/harness/top/zynq_accel_top.sv
 
 # -- Include Paths -------------------------------------------------
 set inc_dirs [list \
-    [file normalize $root_dir/harness/common_cells_patches] \
+    [file normalize $root_dir/harness/patches] \
     [file normalize $root_dir/rtl/common_cells/include] \
     [file normalize $root_dir/rtl/fpu/src/fpu_div_sqrt_mvp/hdl] \
 ]

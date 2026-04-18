@@ -56,36 +56,9 @@ zynq_accel_top            (impl top: PS7 + AXI)
 
 `accel_harness` is a synthesis-only wrapper (no PS7, clocked via `clk_wiz_0`) used by `./build.sh` and `find_fmax.tcl` for fast timing/utilization checks.
 
-**Instruction format (64-bit)**: `[63:60]` opcode · `[59:40]` addr_a · `[39:20]` addr_b · `[19:0]` addr_result. Opcodes are shared across PAU/FPU and defined in `harness/opcodes_pkg.sv` (ADD, SUB, MUL, DIV, SQRT, QACC_*, HALT, …).
+**Instruction format (64-bit)**: `[63:60]` opcode · `[59:40]` addr_a · `[39:20]` addr_b · `[19:0]` addr_result. Opcodes are shared across PAU/FPU and defined in `harness/pkg/opcodes_pkg.sv`.
 
-## Project Layout
-
-```
-harness/        SystemVerilog accelerator RTL + config
-  config_pkg.sv     ← edit this
-  opcodes_pkg.sv    unified opcode set
-  accel_core.sv     sequencer + BRAMs + arith_unit
-  accel_axi.sv      AXI-Lite register slave
-  accel_axi_burst.sv AXI4 burst slave for bulk DBRAM I/O
-  accel_dbram_arb.sv DBRAM port arbiter (AXI-Lite vs burst)
-  accel_harness.sv  synthesis-only top (clk_wiz + accel_core)
-  zynq_accel_top.sv implementation top (PS7 + AXI + core)
-  arith_unit.sv     opcode → PAU/FLO_PAU/FPU dispatch
-  pau_top.sv        PAU wrapper (32/64-bit PERCIVAL path)
-  flo_posit_top.sv  FloPoCo posit wrapper (8/16/32-bit path)
-  fpu_wrap.sv       fpnew FPU wrapper
-  positmac{8,16,32}.vhd FloPoCo MAC wrappers
-rtl/            Symlinks to PERCIVAL upstream (pau/, fpu/, common_cells/, Flo-Posit/)
-tb/             Testbenches + per-config overrides
-  tb_accel_core.sv   core-level (BRAM + sequencer + arith_unit)
-  tb_accel_axi.sv    AXI register-interface level
-  configs/*.sv       config_pkg overrides, one per sim fileset
-scripts/        Vivado TCL automation
-constraints/    Timing constraints (XDC)
-reports/        Generated after build/impl
-```
-
-`rtl/` contains **symlinks** into PERCIVAL; do not edit in-place. `harness/pau_top.sv` and `harness/fpu_wrap.sv` are local editable copies.
+Source tree at a glance: `harness/config_pkg.sv` (edit this), with the rest of the RTL grouped under `harness/{pkg,arith,core,axi,top,patches}/`. Testbenches and per-fileset config overrides live under `tb/`. `rtl/` is symlinks into upstream PERCIVAL — don't edit in place (local editable copies of `pau_top.sv` / `fpu_wrap.sv` are in `harness/arith/`).
 
 ## Testing
 

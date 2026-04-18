@@ -41,13 +41,12 @@ The filesets are registered twice — once in `scripts/project_setup.tcl` (the `
 ## Architecture
 
 ### Layout
-- `rtl/` — **symlinks** into `../PERCIVAL/` (`pau/`, `fpu/`, `common_cells/`, `Flo-Posit/`). Do not edit in-place.
-- `harness/` — accelerator RTL, including local editable copies of `pau_top.sv` / `fpu_wrap.sv`.
-  - `config_pkg.sv` is the **only** user-facing configuration file (see below).
-  - `positmac{8,16,32}.vhd` are FloPoCo MAC wrappers compiled into per-width libraries (`flo_mac8/16/32`) to sidestep duplicate entity names across widths.
+- `harness/config_pkg.sv` is the **only** user-facing configuration file (see below).
+- `harness/` RTL is grouped into subfolders: `pkg/` (packages), `arith/` (PAU/FPU/FloPoCo back-ends + MAC wrappers), `core/` (`accel_core`), `axi/` (register + burst slaves + arbiter), `top/` (`accel_harness`, `zynq_accel_top`), `patches/common_cells/` (XSim-compatible `.svh` overrides for the upstream `include "common_cells/…"` paths).
+- `harness/arith/positmac{8,16,32}.vhd` are FloPoCo MAC wrappers compiled into per-width libraries (`flo_mac8/16/32`) to sidestep duplicate entity names across widths.
+- `rtl/` — **symlinks** into `../PERCIVAL/` (`pau/`, `fpu/`, `common_cells/`, `Flo-Posit/`). Do not edit in-place; local editable copies of `pau_top.sv` / `fpu_wrap.sv` are in `harness/arith/`.
 - `tb/` — testbenches plus per-fileset config overrides in `tb/configs/`.
-- `scripts/` — Vivado TCL automation.
-- `constraints/` — timing XDC.
+- `scripts/` — Vivado TCL automation. `constraints/` — timing XDC.
 
 ### Top Modules
 
