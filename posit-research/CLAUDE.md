@@ -1,154 +1,112 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working in this repository.
 
 ## Project Overview
 
-PERCIVAL research project comparing Posit Arithmetic Unit (PAU) vs Floating Point Unit (FPU) performance through standalone FPGA synthesis and timing analysis. Targets Xilinx Zedboard (Zynq-7000, part: xc7z020clg484-1) using Vivado 2025.2.
+Standalone FPGA accelerator comparing PERCIVAL's Posit Arithmetic Unit (PAU) against an IEEE 754 FPU on the same opcode set. Target: Zedboard (Zynq-7000, `xc7z020clg484-1`), Vivado 2025.2 at `/tools/Xilinx/2025.2/Vivado/`.
 
-## Development Commands
+See `README.md` for the end-user walkthrough; this file focuses on nuances that aren't obvious from the code.
 
-### Quick Development Workflow
+## Development Loop
+
 ```bash
-./clean.sh              # Clean all build artifacts
-./build.sh [FREQ_MHZ]   # Fast synthesis-only (default: 100 MHz)
-./test.sh               # Run simulation filesets (sim_core, sim_axi)
-./impl.sh [FREQ_MHZ]    # Full implementation with bitstream generation
-./open.sh               # Open Vivado GUI for inspection
+./clean.sh              # wipe vivado_proj/ and reports/
+./test.sh               # run all 21 sim filesets via run_all_tests.tcl
+./build.sh [FREQ_MHZ]   # synthesis-only on accel_harness (default 100 MHz)
+./impl.sh  [FREQ_MHZ]   # full P&R + bitstream on zynq_accel_top (default 100 MHz)
+./open.sh               # open the project in the Vivado GUI
 ```
 
-### Vivado Environment
-All shell scripts automatically source Vivado environment from `scripts/vivado_env.sh`. The Vivado installation path is `/tools/Xilinx/2025.2/Vivado/`.
+All shell scripts source `scripts/vivado_env.sh` automatically.
 
-### Build Outputs
-- **Synthesis reports** (`./build.sh`): `reports/build_timing.rpt`, `reports/build_utilization.rpt`
-- **Implementation reports** (`./impl.sh`): `reports/timing_summary.rpt`, `reports/timing_detailed.rpt`, `reports/utilization*.rpt`, `reports/power.rpt`, `reports/clock_networks.rpt`
-- **Bitstream**: `vivado_proj/posit_research.runs/impl_1/zynq_accel_top.bit`
-
-### Testing
-Two simulation filesets run via `./test.sh`:
-- `sim_core` - Tests `tb_accel_core.sv` (BRAM + sequencer + arith_unit)
-- `sim_axi`  - Tests `tb_accel_axi.sv` (AXI register interface)
-
-### Manual Vivado Invocation
-If shell scripts are insufficient:
+Manual invocations when the wrappers aren't enough:
 ```bash
-# Create/setup project
 /tools/Xilinx/2025.2/Vivado/bin/vivado -mode batch -source scripts/project_setup.tcl
-
-# Open GUI
 /tools/Xilinx/2025.2/Vivado/bin/vivado vivado_proj/posit_research.xpr
-
-# Find maximum frequency (binary search over 4 iterations)
 /tools/Xilinx/2025.2/Vivado/bin/vivado -mode batch -source scripts/find_fmax.tcl
 ```
 
+### Testing
+
+`scripts/run_all_tests.tcl` launches 21 filesets; each compiles `tb_accel_core.sv` (18 filesets) or `tb_accel_axi.sv` (3 filesets) against a `tb/configs/config_pkg_*.sv` override. Fail markers scanned in each sim log: `FAIL:`, `TIMEOUT:`, `FATAL`, `Assertion failed`, `$fatal`, `ASSERT`. Logs: `vivado_proj/posit_research.sim/<fileset>/behav/xsim/simulate.log`.
+
+The filesets are registered twice — once in `scripts/project_setup.tcl` (the `accel_core_simsets` / `axi_simsets` lists and the `{simset cfg_file}` mapping) and once in `scripts/run_all_tests.tcl`. Both must be updated when adding a config.
+
+### Build vs Impl
+
+- `./build.sh` → `scripts/run_build.tcl`, top is `accel_harness` (no PS7, `clk_wiz_0` set from `CLOCK_FREQ_MHZ`). Fast — synthesis only. Use for quick utilization / timing feedback.
+- `./impl.sh` → `scripts/run_impl.tcl`, top is `zynq_accel_top` (PS7 block design, AXI-Lite + AXI4 burst). Full P&R and bitstream. `CLOCK_FREQ_MHZ` plumbs through to PS7 `FCLK_CLK0`.
+
 ## Architecture
 
-### Project Structure
-- `rtl/` - **Symlinks** to PERCIVAL upstream sources: `common_cells/`, `fpu/`, `pau/` (VHDL)
-- `harness/` - Accelerator RTL
-  - `config_pkg.sv` - **User-facing configuration** (edit this to change arithmetic unit, width, etc.)
-  - `opcodes_pkg.sv` - Unified opcode set (same for PAU and FPU)
-  - `arith_unit.sv` - Instantiates either `pau_top` or `fpu_wrap` based on `config_pkg::ACCEL_TYPE`
-  - `accel_core.sv` - Instruction BRAM + data BRAM + sequencer + `arith_unit`
-  - `accel_axi.sv` - AXI-Lite slave wrapping `accel_core`
-  - `accel_harness.sv` - Synthesis-only top (no PS7) for `./build.sh`
-  - `zynq_accel_top.sv` - Full implementation top (PS7 + `accel_axi`) for `./impl.sh`
-  - `pau_top.sv`, `fpu_wrap.sv` - Local editable copies from PERCIVAL
-  - `cva6_config_pkg.sv`, `riscv_pkg_mini.sv`, `ariane_pkg_mini.sv` - Internal packages (do not edit)
-- `tb/` - Testbenches (`tb_accel_core.sv`, `tb_accel_axi.sv`)
-- `scripts/` - TCL scripts for Vivado automation
-- `constraints/` - Timing constraints (XDC files)
+### Layout
+- `rtl/` — **symlinks** into `../PERCIVAL/` (`pau/`, `fpu/`, `common_cells/`, `Flo-Posit/`). Do not edit in-place.
+- `harness/` — accelerator RTL, including local editable copies of `pau_top.sv` / `fpu_wrap.sv`.
+  - `config_pkg.sv` is the **only** user-facing configuration file (see below).
+  - `positmac{8,16,32}.vhd` are FloPoCo MAC wrappers compiled into per-width libraries (`flo_mac8/16/32`) to sidestep duplicate entity names across widths.
+- `tb/` — testbenches plus per-fileset config overrides in `tb/configs/`.
+- `scripts/` — Vivado TCL automation.
+- `constraints/` — timing XDC.
 
-### Top-Level Architecture
+### Top Modules
 
-**zynq_accel_top** (implementation top):
-- Used by `./impl.sh` for full implementation and bitstream generation
-- Instantiates `zynq_ps_wrapper` (PS7 block design) and `accel_axi`
-- AXI slave at `0x43C00000`, runs at 100 MHz from PS7 FCLK_CLK0
+- **`zynq_accel_top`** (impl top, `./impl.sh`) — PS7 via `zynq_ps_wrapper` + `accel_axi` (AXI-Lite register slave, `0x43C00000`) + `accel_axi_burst` (AXI4 burst slave on PS7 GP1) + `accel_dbram_arb` + `accel_core`. Currently clocks `accel_core.clk_bram_i` from `FCLK_CLK0` (1×, not 2×) — the 2× DBRAM-multipump path is wired but unused at impl; see the TODO inline.
+- **`accel_harness`** (build top, `./build.sh`, `find_fmax.tcl`) — `clk_wiz_0` (100 MHz → `CLOCK_FREQ_MHZ` primary, 2× secondary for `clk_bram`) + `accel_core`. No PS7, no AXI, no burst path.
 
-**accel_harness** (quick build top):
-- Used by `./build.sh` and `find_fmax.tcl` for synthesis-only timing/utilization checks
-- Contains `clk_wiz_0` (100 MHz → target freq) and `accel_core`
+### Core Internals
 
-### Accelerator Core
-- **Instruction BRAM**: 64-bit × 256 words (dual-port: host write, sequencer fetch)
-- **Data BRAM**: DATA_WIDTH × 4096 words (true dual-port: host r/w, sequencer r/w)
-- **Sequencer**: 5-stage pipeline (FETCH→DECODE→EXEC→WAIT_ARITH→WRITEBACK)
-- **arith_unit**: maps accelerator opcodes to PAU (`QMADD`, `PADD`, …) or FPU (`FMADD`, `FADD`, …)
+- Instruction BRAM: 64-bit × `INSTR_DEPTH` (default `2**15` = 32K words), true dual-port.
+- Data BRAM: `DATA_WIDTH` × `DATA_DEPTH` (default `2**15` = 32K words), true dual-port, clocked at `clk_bram_i` (intended 2× `clk_i`; alpha-blending / XAPP706 pattern).
+- Sequencer: 3-stage pipeline (IF / ID / EX) running in parallel inside `RUNNING_S`. FSM states: `IDLE_S → RUNNING_S → HALT_S`. Stalls on RAW hazards and arith-busy.
+- `arith_unit` dispatches to `pau_top`, `flo_posit_top`, or `fpu_wrap` based on `ACCEL_TYPE` and `DATA_WIDTH`.
 
 ### Instruction Format (64-bit)
-```
-[63:60] opcode (4-bit)  [59:40] addr_a (20-bit)  [39:20] addr_b (20-bit)  [19:0] addr_result (20-bit)
-```
-16 opcodes, up to 1M data addresses (DATA_DEPTH configurable, max 2^20).
 
-### Package Dependencies (compile order)
-1. `config_pkg.sv` - user configuration
-2. `opcodes_pkg.sv` - accelerator opcodes
-3. `cva6_config_pkg.sv`, `riscv_pkg_mini.sv` - needed by pau_top/fpu_wrap
-4. `ariane_pkg_mini.sv` - PAU/FPU internal types (imports config_pkg)
-5. `cf_math_pkg.sv`, `fpnew_pkg.sv` - FPU support
+```
+[63:60] opcode  [59:40] addr_a  [39:20] addr_b  [19:0] addr_result
+```
+
+16 opcodes in `opcodes_pkg.sv`; up to 2**20 data addresses (DATA_DEPTH is the actual cap and is configurable up to `2**20`).
+
+### Package Compile Order
+`config_pkg` → `opcodes_pkg` → `cva6_config_pkg` → `riscv_pkg_mini` → `ariane_pkg_mini` → `cf_math_pkg` → `fpnew_pkg`. Handled by `project_setup.tcl` via `reorder_files -front`; per-sim filesets additionally front their own `config_pkg_*.sv` override.
 
 ## Configuration
 
-### Arithmetic Unit and Width
-Edit **only** `harness/config_pkg.sv`:
-```sv
-parameter string ACCEL_TYPE  = "PAU";   // "PAU" or "FPU"
-parameter int    DATA_WIDTH  = 32;      // 32 or 64
-parameter string QUIRE_MODE = "QUIRE";       // "QUIRE" / "ACCUMULATOR" / "DISABLED"
-parameter string MUL_MODE   = "EXACT";       // "EXACT" / "APPROX" (log-domain; PAU+FLO_PAU)
-parameter string DIV_MODE   = "EXACT";       // "EXACT" / "APPROX" (PAU-32/64) / "DISABLE"
-parameter string SQRT_MODE  = "EXACT";       // "EXACT" / "APPROX" (PAU-32/64) / "DISABLE"
-```
+Edit **only** `harness/config_pkg.sv`. Full option table with per-`ACCEL_TYPE` support matrix lives in the file itself — prefer reading it over paraphrasing.
 
-Note: posit es=2 and quire width (16 x DATA_WIDTH) are fixed in the pre-generated VHDL. Changing these requires regenerating PAU cores via FloPoCo.
+Key routing rules that are easy to miss:
+- `ACCEL_TYPE = "PAU"` with `DATA_WIDTH ∈ {8, 16}` automatically uses FloPoCo cores (PERCIVAL does not supply those widths). Use `"FLO_PAU"` to force FloPoCo for 32-bit too.
+- `ACCEL_TYPE = "FPU"` ignores `QUIRE_MODE = "QUIRE"` — treated as `"ACCUMULATOR"`.
+- `ACCEL_TYPE = "FLO_PAU"` has no SQRT core; `SQRT_MODE = "EXACT"` returns NaR.
+- `MUL_MODE = "APPROX"` requires PAU or FLO_PAU; FPU ignores it.
+- `DIV_MODE = "APPROX"` / `SQRT_MODE = "APPROX"` are PAU-32/64 only.
 
-After changing `config_pkg.sv`, run `./clean.sh` then rebuild.
+After editing, `./clean.sh` then rebuild.
 
-### Clock Frequency
-```bash
-./build.sh 150   # Synthesise accel_harness at 150 MHz (updates clk_wiz_0)
-./impl.sh        # Implement zynq_accel_top at 100 MHz (PS7 FCLK_CLK0)
-```
+Posit `es = 2` and quire width `16 × DATA_WIDTH` are fixed in the pre-generated VHDL — regenerating via FloPoCo is the only way to change them.
 
-## Timing Analysis
+## Timing
 
-Check `reports/timing_summary.rpt` after implementation:
-- **WNS ≥ 0**: Timing met ✓
-- **WNS < 0**: Timing violation — reduce clock frequency or optimise RTL
+`reports/timing_summary.rpt` after `./impl.sh`:
+- **WNS ≥ 0**: timing met.
+- **WNS < 0**: lower the target frequency or tighten RTL.
 
-For Fmax measurement: `./build.sh [FREQ]` or `find_fmax.tcl` (synthesis only, fast).
+For a quick Fmax estimate, run `./build.sh [FREQ]` or `scripts/find_fmax.tcl` — both synthesis-only on `accel_harness`.
 
-## Common Development Patterns
+## Adding RTL
 
-### Typical Development Cycle
-1. Edit `harness/config_pkg.sv` to select PAU/FPU, width, options
-2. `./clean.sh`
-3. `./test.sh` (functional simulation)
-4. `./build.sh [FREQ]` (quick synthesis + timing)
-5. `./impl.sh` (full implementation + bitstream)
-6. `./open.sh` (inspect timing/utilization in GUI)
-
-### Adding New RTL Files
 Edit `scripts/project_setup.tcl`:
-- Add source files with `add_files -norecurse <path>`
-- Set `.sv` files as SystemVerilog: `set_property file_type SystemVerilog [get_files <file>]`
-- Update compile order: `update_compile_order -fileset sources_1`
-
-### Language Mixing
-- PAU core: VHDL (in `rtl/pau/*.vhd`)
-- FPU, common cells, harnesses: SystemVerilog
-- Vivado handles mixed-language simulation and synthesis automatically
+- `add_files -norecurse <path>`
+- Set `.sv` files explicitly: `set_property file_type SystemVerilog [get_files <file>]`
+- `update_compile_order -fileset sources_1`
+- For a new simulation variant, register the fileset in both the `accel_core_simsets` / `axi_simsets` list and the `{simset cfg_file}` mapping (plus the same list in `run_all_tests.tcl`).
 
 ## Notes
-- Project name: `posit_research`
-- Project directory: `vivado_proj/`
-- AXI slave mapped at `0x43C00000` on PS7 M_AXI_GP0 (100 MHz FCLK_CLK0)
-- `rtl/` contains **symlinks** to PERCIVAL upstream (`../PERCIVAL/`); do not edit in-place
-- `harness/pau_top.sv` and `harness/fpu_wrap.sv` are local editable copies from PERCIVAL
-- Block design (`zynq_ps`) created by `scripts/create_bd.tcl`, sourced from `project_setup.tcl`
-- Comparison matrix: PAU-32 vs FPU-32, PAU-32(approx) vs PAU-32(exact), PAU-64 vs PAU-32
-- After running tests, the test logs can be viewed in `vivado_proj/posit_research.sim/*/behav/xsim/simulate.log`
+
+- Project name / directory: `posit_research` / `vivado_proj/`.
+- AXI-Lite slave at `0x43C00000`; AXI4 burst slave on PS7 GP1.
+- PAU core is VHDL (in `rtl/pau/`, `rtl/Flo-Posit/`); FPU, common cells, harness are SystemVerilog. Vivado handles the mixed-language elaboration.
+- Block design `zynq_ps` is (re)created by `scripts/create_bd.tcl`, sourced from `project_setup.tcl`.
+- Comparison matrix: PAU-32 vs FPU-32, PAU-32 exact vs approx, PAU-64 vs PAU-32, FLO_PAU 8/16/32 vs PAU where applicable.

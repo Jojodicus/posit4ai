@@ -22,4 +22,4 @@ rm -f results.csv
 # Remove reports directory
 rm -rf reports/
 
-echo "Clean complete. You can now run scripts/project_setup.tcl or scripts/find_fmax.tcl"
+echo "Clean complete. Re-run ./test.sh, ./build.sh, or ./impl.sh to rebuild the project."

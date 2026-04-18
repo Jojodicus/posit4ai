@@ -28,10 +28,10 @@
 //
 // arith_valid_i is only asserted when arith_ready_o, preventing double-submission.
 //
-// Top-level FSM (4 states -- stages run in parallel inside RUNNING_S):
-//   IDLE_S  : waiting for start_i; pipeline empty
+// Top-level FSM (IDLE_S -> RUNNING_S -> HALT_S; stages run in parallel inside RUNNING_S):
+//   IDLE_S   : waiting for start_i; pipeline empty
 //   RUNNING_S: pipeline active; stall/advance based on hazards
-//   HALT_S  : OP_HALT reached; done_o asserted
+//   HALT_S   : OP_HALT reached; done_o asserted
 
 module accel_core
   import config_pkg::*;
@@ -191,7 +191,7 @@ module accel_core
   logic [$clog2(INSTR_DEPTH)-1:0] pc_q;
 
   // -- Top-level FSM ----------------------------------------------------
-  typedef enum logic [1:0] { IDLE_S, RUNNING_S, HALT_S, UNUSED_S } seq_state_t;
+  typedef enum logic [1:0] { IDLE_S, RUNNING_S, HALT_S } seq_state_t;
   seq_state_t seq_state_q;
 
   // -- Arith unit interface ----------------------------------------------
