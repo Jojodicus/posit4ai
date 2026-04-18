@@ -1,17 +1,21 @@
 // PERCIVAL Accelerator -- arithmetic unit wrapper.
 // Instantiates either pau_top (PAU) or fpu_wrap (FPU) based on config_pkg::ACCEL_TYPE.
 // Presents a uniform (operand_a, operand_b, opcode, valid_i) -> (result, valid_o, ready_o)
-// interface to accel_core. Translates accelerator opcodes to the native arithmetic unit ops.
+// interface to accel_core.
 //
-// QACC state for FPU mode (QUIRE_MODE="ACCUMULATOR"):  acc_q register here; uses FMA unit.
-// QACC state for PAU mode, QUIRE_MODE="QUIRE":         inside pau_top / flo_posit_top (quire).
-// QACC state for PAU/FLO_PAU mode, QUIRE_MODE="ACCUMULATOR":
-//   FloPoCo (8/16/32-bit): nacc_q inside flo_posit_top; QMADD/QMSUB/QCLR/QNEG/QROUND
-//                           are sent directly to flopau and complete in 1 PAU cycle.
-//   PAU-32/64 (PERCIVAL):  acc_q register here; PMUL + PADD/PSUB two-pass via MAC_STEP -> WAIT2.
-// QUIRE_MODE="DISABLED": all QACC_* ops return NaR/NaN combinatorially; no accumulator hardware.
-// DIV_MODE="DISABLE": OP_DIV returns NaR/NaN combinatorially; no PositDiv hardware synthesized.
-// SQRT_MODE="DISABLE": OP_SQRT returns NaR/NaN combinatorially; no PositSqrt hardware synthesized.
+// Pipelined issue model:
+//   S_IDLE  : ready_o=1; can accept comb op (zero-latency) or issue to PAU/FPU.
+//   S_BUSY  : op in-flight in PAU/FPU. When arith_valid_o fires:
+//             - For non-2-pass ops: assert valid_o + result_o same cycle, return to
+//               S_IDLE, and accept a new op THIS SAME CYCLE if valid_i is high.
+//             - For 2-pass MAC (PAU-32/64 no-quire QMADD/QMSUB): capture mul result
+//               and transition to S_MAC_STEP.
+//   S_MAC_STEP : issue PADD/PSUB second pass.
+//   S_MAC_BUSY : wait for second pass; on arith_valid_o, fire valid_o and accept
+//                a new op same cycle.
+//
+// Eliminates the DONE-state delay of the previous FSM (saves 1 cycle per op) and
+// allows true back-to-back issue once PAU/FPU is ready again.
 
 module arith_unit
   import config_pkg::*;
@@ -23,79 +27,59 @@ module arith_unit
   input  logic [DATA_WIDTH-1:0]   operand_a_i,
   input  logic [DATA_WIDTH-1:0]   operand_b_i,
   input  opcode_t                 opcode_i,
-  input  logic                    valid_i,    // 1-cycle pulse: sequencer submits operation
+  input  logic                    valid_i,
   output logic [DATA_WIDTH-1:0]   result_o,
-  output logic                    valid_o,    // 1-cycle pulse: result ready
-  output logic                    ready_o     // high when idle and accepting new operations
+  output logic                    valid_o,
+  output logic                    ready_o
 );
 
-  // Posit 1.0 encoding: 0_1_00...0 = 1 << (DATA_WIDTH-2)
-  // Used for QACC_ADD (PAU quire or FLO_PAU_NO_QUIRE): QACC_ADD(a) = QMADD(a, 1.0)
   localparam logic [DATA_WIDTH-1:0] POSIT_ONE = DATA_WIDTH'(1) << (DATA_WIDTH-2);
 
-  // Compile-time flags as plain packed bits -- avoids string comparisons inside
-  // always_comb/unique-case blocks where Vivado rejects non-packed expressions.
   localparam bit IS_FLO_PAU     = (ACCEL_TYPE == "FLO_PAU");
   localparam bit IS_PAU         = (ACCEL_TYPE == "PAU") || IS_FLO_PAU;
-  // USE_FLOPOCO: routes to flo_posit_top (FloPoCo cores) rather than pau_top (PERCIVAL).
-  // "PAU" uses FloPoCo for 8/16-bit (PERCIVAL doesn't support those widths).
-  // "FLO_PAU" forces FloPoCo for all supported widths (8, 16, 32).
   localparam bit USE_FLOPOCO    = IS_FLO_PAU || (IS_PAU && bit'(DATA_WIDTH < 32));
   localparam bit QUIRE_ENABLE   = (QUIRE_MODE == "QUIRE");
   localparam bit QUIRE_DISABLED = (QUIRE_MODE == "DISABLED");
   localparam bit DIV_DISABLED   = (DIV_MODE   == "DISABLE");
   localparam bit SQRT_DISABLED  = (SQRT_MODE  == "DISABLE");
-  // PAU_NO_QUIRE / FLO_PAU_NO_QUIRE: only "ACCUMULATOR" mode activates the register paths.
   localparam bit PAU_NO_QUIRE     = IS_PAU      & (QUIRE_MODE == "ACCUMULATOR");
-  // FLO_PAU_NO_QUIRE: FloPoCo cores with QUIRE_MODE="ACCUMULATOR".
-  // Dedicated single-cycle QMADD/QMSUB hardware in flo_posit_top (nacc_q).
   localparam bit FLO_PAU_NO_QUIRE = USE_FLOPOCO & (QUIRE_MODE == "ACCUMULATOR");
 
-  // NaR (posit) or quiet NaN (FPU) returned for disabled operations.
   localparam logic [DATA_WIDTH-1:0] POSIT_NAR      = DATA_WIDTH'(1) << (DATA_WIDTH-1);
   localparam logic [DATA_WIDTH-1:0] DISABLED_RESULT =
     IS_PAU      ? POSIT_NAR :
     DATA_WIDTH == 32 ? DATA_WIDTH'(32'h7FC0_0000) :
                        DATA_WIDTH'(64'h7FF8_0000_0000_0000);
 
-  // -- State machine ---------------------------------------------
-  // MAC_STEP: issues the second PAU op (PADD/PSUB) for no-quire QACC_MADD/MSUB
-  // WAIT2:    waits for the second PAU op result
-  typedef enum logic [2:0] { IDLE, WAIT, MAC_STEP, WAIT2, DONE } state_t;
+  // 2-pass MAC = PAU-32/64 no-quire QMADD/QMSUB (PMUL then PADD/PSUB).
+  // FLO_PAU_NO_QUIRE handles QMADD/QMSUB in flopau (single op).
+  localparam bit USE_2PASS_MAC = PAU_NO_QUIRE && !FLO_PAU_NO_QUIRE;
+
+  typedef enum logic [1:0] { S_IDLE, S_BUSY, S_MAC_STEP, S_MAC_BUSY } state_t;
   state_t state_q, state_d;
 
-  // -- Registered operands and opcode (latched when accepted in IDLE) -----
-  opcode_t                opcode_q;
+  opcode_t                opcode_q, opcode_d;
 
-  // -- Result and accumulator registers --------------------------------
   logic [DATA_WIDTH-1:0]  result_q,    result_d;
-  logic [DATA_WIDTH-1:0]  acc_q,       acc_d;       // unified accumulator (FPU or PAU no-quire)
-  logic [DATA_WIDTH-1:0]  mul_result_q, mul_result_d; // temp: PMUL result in 2-pass MAC
+  logic [DATA_WIDTH-1:0]  acc_q,       acc_d;
+  logic [DATA_WIDTH-1:0]  mul_result_q, mul_result_d;
 
-  // -- PAU interface -----------------------------------------------
+  // -- PAU / FPU interfaces -----------------------------------------------
   fu_data_t         pau_fu_data;
   logic             pau_valid_i_sig;
   logic             pau_ready_o_sig;
   logic             pau_valid_o_sig;
   riscv::xlen_t     pau_result_sig;
 
-  // -- FPU interface -----------------------------------------------
   fu_data_t         fpu_fu_data;
   logic             fpu_valid_i_sig;
   logic             fpu_ready_o_sig;
   logic             fpu_valid_o_sig;
   logic [FLEN-1:0]  fpu_result_sig;
 
-  // -- Arithmetic unit instantiation (only one branch synthesised) ------
-  // USE_FLOPOCO: FloPoCo Flo-Posit cores (flo_posit_top): supports 8/16/32-bit.
-  //   "PAU"     + 8/16  -> flo_posit_top (PERCIVAL does not support <32-bit).
-  //   "FLO_PAU" + 8/16/32 -> flo_posit_top.
-  // Otherwise PERCIVAL cores (pau_top): 32/64-bit only.
   if (USE_FLOPOCO) begin : g_flopau
-
     flo_posit_top flopau_inst (
-      .clk_i,
-      .rst_ni,
+      .clk_i, .rst_ni,
       .fu_data_i      ( pau_fu_data    ),
       .pau_valid_i    ( pau_valid_i_sig ),
       .pau_ready_o    ( pau_ready_o_sig ),
@@ -103,16 +87,12 @@ module arith_unit
       .pau_valid_o    ( pau_valid_o_sig ),
       .result_o       ( pau_result_sig  )
     );
-
     assign fpu_ready_o_sig = 1'b0;
     assign fpu_valid_o_sig = 1'b0;
     assign fpu_result_sig  = '0;
-
   end else if (ACCEL_TYPE == "PAU") begin : g_pau
-
     pau_top pau_inst (
-      .clk_i,
-      .rst_ni,
+      .clk_i, .rst_ni,
       .fu_data_i      ( pau_fu_data    ),
       .pau_valid_i    ( pau_valid_i_sig ),
       .pau_ready_o    ( pau_ready_o_sig ),
@@ -120,22 +100,18 @@ module arith_unit
       .pau_valid_o    ( pau_valid_o_sig ),
       .result_o       ( pau_result_sig  )
     );
-
     assign fpu_ready_o_sig = 1'b0;
     assign fpu_valid_o_sig = 1'b0;
     assign fpu_result_sig  = '0;
-
   end else begin : g_fpu
-
     fpu_wrap fpu_inst (
-      .clk_i,
-      .rst_ni,
+      .clk_i, .rst_ni,
       .flush_i          ( 1'b0             ),
       .fpu_valid_i      ( fpu_valid_i_sig   ),
       .fpu_ready_o      ( fpu_ready_o_sig   ),
       .fu_data_i        ( fpu_fu_data       ),
-      .fpu_fmt_i        ( DATA_WIDTH == 64 ? 2'b01 : 2'b00 ),  // FP64 or FP32
-      .fpu_rm_i         ( 3'b000            ),  // round-nearest-even
+      .fpu_fmt_i        ( DATA_WIDTH == 64 ? 2'b01 : 2'b00 ),
+      .fpu_rm_i         ( 3'b000            ),
       .fpu_frm_i        ( 3'b000            ),
       .fpu_prec_i       ( 7'b0              ),
       .fpu_trans_id_o   (                   ),
@@ -143,38 +119,26 @@ module arith_unit
       .fpu_valid_o      ( fpu_valid_o_sig   ),
       .fpu_exception_o  (                   )
     );
-
     assign pau_ready_o_sig = 1'b0;
     assign pau_valid_o_sig = 1'b0;
     assign pau_result_sig  = '0;
-
   end
 
-  // -- Active arithmetic unit signals ----------------------------------
-  logic             arith_valid_o;
+  logic                  arith_valid_o_int;
   logic [DATA_WIDTH-1:0] arith_result;
-
-  assign arith_valid_o = IS_PAU ? pau_valid_o_sig : fpu_valid_o_sig;
-  assign arith_result  = IS_PAU
-                         ? pau_result_sig[DATA_WIDTH-1:0]
-                         : fpu_result_sig[DATA_WIDTH-1:0];
+  assign arith_valid_o_int = IS_PAU ? pau_valid_o_sig : fpu_valid_o_sig;
+  assign arith_result      = IS_PAU
+                             ? pau_result_sig[DATA_WIDTH-1:0]
+                             : fpu_result_sig[DATA_WIDTH-1:0];
 
   // -- Combinatorial opcode classification ---------------------------
-  // is_comb_op: result available without calling the arithmetic unit
   logic is_comb_op;
   always_comb begin
     is_comb_op = 1'b0;
     case (opcode_i)
       OP_NEG, OP_ABS, OP_MOV, OP_RELU: is_comb_op = 1'b1;
-      // Disabled ops: return NaR/NaN immediately, no arithmetic unit call.
       OP_DIV:  if (DIV_DISABLED)  is_comb_op = 1'b1;
       OP_SQRT: if (SQRT_DISABLED) is_comb_op = 1'b1;
-      // QACC state updates without arithmetic:
-      //   QUIRE_DISABLED: all QACC_* return NaR/NaN immediately.
-      //   FPU: CLEAR/NEG/READ handled here (no hw needed).
-      //   PAU + QUIRE_MODE="ACCUMULATOR": CLEAR/NEG/READ handled here (2's complement / read acc).
-      //   PAU + QUIRE_MODE="QUIRE": routed to quire in pau_top, not here.
-      // FLO_PAU_NO_QUIRE routes CLEAR/NEG/READ to flopau (nacc_q), not comb_op.
       OP_QACC_CLEAR, OP_QACC_NEG, OP_QACC_READ:
         if (QUIRE_DISABLED || !IS_PAU || (PAU_NO_QUIRE && !FLO_PAU_NO_QUIRE))
           is_comb_op = 1'b1;
@@ -184,13 +148,12 @@ module arith_unit
     endcase
   end
 
-  // Combinatorial result (valid in IDLE when valid_i and is_comb_op are asserted)
   logic [DATA_WIDTH-1:0] comb_result;
   always_comb begin
     comb_result = '0;
     if (IS_PAU) begin
       case (opcode_i)
-        OP_NEG:       comb_result = ~operand_a_i + DATA_WIDTH'(1);  // 2's complement
+        OP_NEG:       comb_result = ~operand_a_i + DATA_WIDTH'(1);
         OP_ABS:       comb_result = operand_a_i[DATA_WIDTH-1]
                                     ? (~operand_a_i + DATA_WIDTH'(1))
                                     : operand_a_i;
@@ -198,7 +161,6 @@ module arith_unit
         OP_RELU:      comb_result = operand_a_i[DATA_WIDTH-1] ? '0 : operand_a_i;
         OP_DIV:       if (DIV_DISABLED)  comb_result = DISABLED_RESULT;
         OP_SQRT:      if (SQRT_DISABLED) comb_result = DISABLED_RESULT;
-        // Accumulator read: disabled -> NaR; accumulator mode -> read acc_q.
         OP_QACC_READ: if (!QUIRE_ENABLE)
                         comb_result = QUIRE_DISABLED ? DISABLED_RESULT : acc_q;
         OP_QACC_CLEAR, OP_QACC_NEG,
@@ -206,7 +168,7 @@ module arith_unit
           if (QUIRE_DISABLED) comb_result = DISABLED_RESULT;
         default: ;
       endcase
-    end else begin  // FPU
+    end else begin
       case (opcode_i)
         OP_NEG:        comb_result = (operand_a_i == '0)
                                    ? '0
@@ -216,8 +178,8 @@ module arith_unit
         OP_RELU:       comb_result = operand_a_i[DATA_WIDTH-1] ? '0 : operand_a_i;
         OP_DIV:        if (DIV_DISABLED)  comb_result = DISABLED_RESULT;
         OP_SQRT:       if (SQRT_DISABLED) comb_result = DISABLED_RESULT;
-        OP_QACC_CLEAR: comb_result = QUIRE_DISABLED ? DISABLED_RESULT : '0;    // not written back
-        OP_QACC_NEG:   comb_result = QUIRE_DISABLED ? DISABLED_RESULT : '0;    // not written back
+        OP_QACC_CLEAR: comb_result = QUIRE_DISABLED ? DISABLED_RESULT : '0;
+        OP_QACC_NEG:   comb_result = QUIRE_DISABLED ? DISABLED_RESULT : '0;
         OP_QACC_READ:  comb_result = QUIRE_DISABLED ? DISABLED_RESULT : acc_q;
         OP_QACC_ADD, OP_QACC_MADD, OP_QACC_MSUB:
           if (QUIRE_DISABLED) comb_result = DISABLED_RESULT;
@@ -226,27 +188,24 @@ module arith_unit
     end
   end
 
-  // -- PAU fu_data_t construction ----------------------------------
-  // When state_q == MAC_STEP: override operands/op for the second pass of 2-pass MAC.
-  // Otherwise use un-registered inputs: pau_top samples fu_data in the same cycle
-  // pau_valid_i is asserted (first cycle of IDLE->WAIT transition).
+  // -- PAU operand/op mux ----------------------------------------------
   logic [DATA_WIDTH-1:0] pau_op_a, pau_op_b;
   fu_op                  pau_fu_op;
 
   always_comb begin
-    pau_op_a  = operand_a_i;  // un-registered current inputs (default)
+    pau_op_a  = operand_a_i;
     pau_op_b  = operand_b_i;
-    pau_fu_op = PADD;         // safe default
+    pau_fu_op = PADD;
 
-    if (state_q == MAC_STEP) begin
-      // Second pass of QACC_MADD or QACC_MSUB (QUIRE_ENABLE=0).
-      // mul_result_q holds the product from the first pass.
+    if (state_q == S_MAC_STEP) begin
+      // Second pass of QMADD/QMSUB (no-quire PAU-32/64). Operands come from
+      // the registered acc and the just-captured mul result.
       if (opcode_q == OP_QACC_MSUB) begin
-        pau_fu_op = PSUB;          // acc - product
+        pau_fu_op = PSUB;
         pau_op_a  = acc_q;
         pau_op_b  = mul_result_q;
-      end else begin               // OP_QACC_MADD
-        pau_fu_op = PADD;          // acc + product
+      end else begin
+        pau_fu_op = PADD;
         pau_op_a  = mul_result_q;
         pau_op_b  = acc_q;
       end
@@ -258,23 +217,20 @@ module arith_unit
         OP_DIV:        pau_fu_op = PDIV;
         OP_SQRT:       pau_fu_op = PSQRT;
         OP_QACC_ADD: begin
-          if (PAU_NO_QUIRE && !FLO_PAU_NO_QUIRE) begin
-            // No-quire PAU-32/64: PADD(a, acc_q) -> result = a + acc_q
+          if (USE_2PASS_MAC) begin
             pau_fu_op = PADD;
             pau_op_a  = operand_a_i;
             pau_op_b  = acc_q;
           end else begin
-            // Exact quire or flopau no-quire: QMADD(a, 1.0) -> acc += a * 1.0 = a
             pau_fu_op = QMADD;
             pau_op_b  = POSIT_ONE;
           end
         end
-        // No-quire PAU-32/64: 2-pass (PMUL first); flopau no-quire: single-cycle QMADD/QMSUB
-        OP_QACC_MADD:  pau_fu_op = (QUIRE_ENABLE | FLO_PAU_NO_QUIRE) ? QMADD : PMUL;
-        OP_QACC_MSUB:  pau_fu_op = (QUIRE_ENABLE | FLO_PAU_NO_QUIRE) ? QMSUB : PMUL;
-        OP_QACC_CLEAR: pau_fu_op = QCLR;    // reached when QUIRE_ENABLE=1 or FLO_PAU_NO_QUIRE
-        OP_QACC_NEG:   pau_fu_op = QNEG;    // reached when QUIRE_ENABLE=1 or FLO_PAU_NO_QUIRE
-        OP_QACC_READ:  pau_fu_op = QROUND;  // reached when QUIRE_ENABLE=1 or FLO_PAU_NO_QUIRE
+        OP_QACC_MADD:  pau_fu_op = USE_2PASS_MAC ? PMUL : QMADD;
+        OP_QACC_MSUB:  pau_fu_op = USE_2PASS_MAC ? PMUL : QMSUB;
+        OP_QACC_CLEAR: pau_fu_op = QCLR;
+        OP_QACC_NEG:   pau_fu_op = QNEG;
+        OP_QACC_READ:  pau_fu_op = QROUND;
         default: ;
       endcase
     end
@@ -283,12 +239,7 @@ module arith_unit
   always_comb begin
     pau_fu_data           = '0;
     pau_fu_data.fu        = PAU;
-    // Drive PADD (neutral) when not actively issuing to PAU.
-    // This ensures operator_delay returns to a quire-neutral value between
-    // operations, preventing stale PositMAC output from corrupting the quire.
     pau_fu_data.operator  = pau_valid_i_sig ? pau_fu_op : PADD;
-    // Zero-pad to XLEN width; when DATA_WIDTH==XLEN the replication count would be
-    // 0 (unsupported by Vivado), so assign directly in that case.
     if (DATA_WIDTH == riscv::XLEN) begin
       pau_fu_data.operand_a = pau_op_a;
       pau_fu_data.operand_b = pau_op_b;
@@ -298,14 +249,12 @@ module arith_unit
     end
   end
 
-  // -- FPU fu_data_t construction ----------------------------------
-  // Use un-registered inputs: fpu_wrap samples in the same cycle fpu_valid_i is asserted.
-  // NaN-boxing: 32-bit floats stored in 64-bit containers need upper 32 bits = 0xFFFFFFFF.
+  // -- FPU operand/op mux ----------------------------------------------
   logic [FLEN-1:0] fpu_box_a, fpu_box_b, fpu_box_acc;
   if (DATA_WIDTH == 32) begin : g_nanbox
-    assign fpu_box_a   = {{32{1'b1}}, operand_a_i};  // un-registered
+    assign fpu_box_a   = {{32{1'b1}}, operand_a_i};
     assign fpu_box_b   = {{32{1'b1}}, operand_b_i};
-    assign fpu_box_acc = {{32{1'b1}}, acc_q};         // accumulator is always registered
+    assign fpu_box_acc = {{32{1'b1}}, acc_q};
   end else begin : g_nonanbox
     assign fpu_box_a   = operand_a_i;
     assign fpu_box_b   = operand_b_i;
@@ -319,18 +268,15 @@ module arith_unit
     fpu_fu_data.fu        = FPU;
     fpu_fu_data.operand_a = fpu_box_a;
     fpu_fu_data.operand_b = fpu_box_b;
-    fpu_fu_data.imm       = fpu_box_b;  // default: second operand in C
+    fpu_fu_data.imm       = fpu_box_b;
 
-    case (opcode_i)  // un-registered opcode
+    case (opcode_i)
       OP_ADD: begin
-        // fpnew FADD computes B + C (A is forced to 1.0 internally by the FMA unit).
-        // Set B=a, C=b so the result is a + b.
         fpu_fu_op             = FADD;
         fpu_fu_data.operand_b = fpu_box_a;
         fpu_fu_data.imm       = fpu_box_b;
       end
       OP_SUB: begin
-        // fpnew FSUB computes B - C.  Set B=a, C=b so the result is a - b.
         fpu_fu_op             = FSUB;
         fpu_fu_data.operand_b = fpu_box_a;
         fpu_fu_data.imm       = fpu_box_b;
@@ -338,16 +284,16 @@ module arith_unit
       OP_MUL:  fpu_fu_op = FMUL;
       OP_DIV:  fpu_fu_op = FDIV;
       OP_SQRT: fpu_fu_op = FSQRT;
-      OP_QACC_ADD: begin                // acc + a = FADD(acc, a)
+      OP_QACC_ADD: begin
         fpu_fu_op             = FADD;
-        fpu_fu_data.operand_b = fpu_box_acc;  // fpnew FADD: B+C -> acc+a
+        fpu_fu_data.operand_b = fpu_box_acc;
         fpu_fu_data.imm       = fpu_box_a;
       end
-      OP_QACC_MADD: begin               // acc + a*b = FMADD(a, b, acc)
+      OP_QACC_MADD: begin
         fpu_fu_op       = FMADD;
         fpu_fu_data.imm = fpu_box_acc;
       end
-      OP_QACC_MSUB: begin               // acc - a*b = -(a*b) + acc = FNMSUB(a,b,acc)
+      OP_QACC_MSUB: begin
         fpu_fu_op       = FNMSUB;
         fpu_fu_data.imm = fpu_box_acc;
       end
@@ -356,111 +302,125 @@ module arith_unit
     fpu_fu_data.operator = fpu_fu_op;
   end
 
-  // -- State machine logic ----------------------------------------
+  // -- Acc update for QACC_CLEAR/NEG comb path -----------------------
+  function automatic logic [DATA_WIDTH-1:0] negate_acc(logic [DATA_WIDTH-1:0] v);
+    if (IS_PAU) negate_acc = ~v + DATA_WIDTH'(1);
+    else        negate_acc = (v == '0) ? '0 : {~v[DATA_WIDTH-1], v[DATA_WIDTH-2:0]};
+  endfunction
+
+  // -- Control --------------------------------------------------------
+  // accept_new: ready to consume a fresh op this cycle.
+  //   - S_IDLE: always.
+  //   - S_BUSY: when arith_valid_o fires AND the result is final (not 2-pass first half).
+  //   - S_MAC_BUSY: when arith_valid_o fires (second pass complete).
+  // valid_o: pulse when the current op finishes this cycle (comb path or arith path).
+  logic accept_new;
+  logic firing_arith_result;
+
   always_comb begin
     state_d         = state_q;
+    opcode_d        = opcode_q;
     result_d        = result_q;
     acc_d           = acc_q;
     mul_result_d    = mul_result_q;
-    ready_o         = 1'b0;
-    valid_o         = 1'b0;
     pau_valid_i_sig = 1'b0;
     fpu_valid_i_sig = 1'b0;
+    valid_o         = 1'b0;
+    accept_new      = 1'b0;
+    firing_arith_result = 1'b0;
 
     unique case (state_q)
-
-      IDLE: begin
-        ready_o = 1'b1;
-        if (valid_i) begin
-          if (is_comb_op) begin
-            // Zero-latency: result and valid_o available combinatorially this cycle.
-            // Stay in IDLE (no DONE detour). Accumulator updated at clock edge.
-            result_d = comb_result;
-            valid_o  = 1'b1;
-            if (opcode_i == OP_QACC_CLEAR && !QUIRE_DISABLED)
-              acc_d = '0;
-            if (opcode_i == OP_QACC_NEG && !QUIRE_DISABLED)
-              acc_d = IS_PAU
-                      ? (~acc_q + DATA_WIDTH'(1))
-                      : (acc_q == '0 ? '0
-                                     : {~acc_q[DATA_WIDTH-1], acc_q[DATA_WIDTH-2:0]});
-            // state stays IDLE
-          end else begin
-            // Submit to arithmetic unit (1-cycle pulse)
-            if (IS_PAU) pau_valid_i_sig = 1'b1;
-            else                     fpu_valid_i_sig = 1'b1;
-            state_d = WAIT;
-          end
-        end
+      S_IDLE: begin
+        accept_new = 1'b1;
       end
 
-      WAIT: begin
-        if (arith_valid_o) begin
-          result_d = arith_result;
-          // No-quire PAU-32/64 2-pass MAC: first pass (PMUL) done -> issue PADD/PSUB.
-          // FLO_PAU_NO_QUIRE skips this: flopau completes QMADD/QMSUB in one PAU cycle.
-          if (PAU_NO_QUIRE && !FLO_PAU_NO_QUIRE &&
-              opcode_q inside {OP_QACC_MADD, OP_QACC_MSUB}) begin
+      S_BUSY: begin
+        if (arith_valid_o_int) begin
+          if (USE_2PASS_MAC && opcode_q inside {OP_QACC_MADD, OP_QACC_MSUB}) begin
             mul_result_d = arith_result;
-            state_d = MAC_STEP;
+            state_d      = S_MAC_STEP;
           end else begin
-            // Update accumulator (FPU or PAU-32/64 no-quire).
-            // FLO_PAU_NO_QUIRE uses flopau's nacc_q; no acc_d update needed here.
             if (!FLO_PAU_NO_QUIRE && opcode_q inside {OP_QACC_ADD, OP_QACC_MADD, OP_QACC_MSUB})
               acc_d = arith_result;
-            state_d = DONE;
+            result_d = arith_result;
+            valid_o  = 1'b1;
+            firing_arith_result = 1'b1;
+            state_d  = S_IDLE;
+            // accept_new stays 0 -- accel_core will issue next cycle (we
+            // saved one cycle vs the old DONE-state design but do not yet
+            // open the back-to-back path).
           end
         end
       end
 
-      MAC_STEP: begin
-        // Issue second PAU operation: PADD(product, acc) or PSUB(acc, product).
-        // PAU just completed the PMUL and is ready to accept a new operation.
-        // pau_fu_data is driven from state_q == MAC_STEP branch above.
+      S_MAC_STEP: begin
+        // Issue second PAU op (PADD/PSUB). pau_op_a/b/op already overridden above.
         pau_valid_i_sig = 1'b1;
-        state_d = WAIT2;
+        state_d         = S_MAC_BUSY;
       end
 
-      WAIT2: begin
-        // Waiting for the second PAU op (PADD/PSUB) result.
-        if (arith_valid_o) begin
-          acc_d = arith_result;
-          result_d  = arith_result;
-          state_d   = DONE;
+      S_MAC_BUSY: begin
+        if (arith_valid_o_int) begin
+          acc_d    = arith_result;
+          result_d = arith_result;
+          valid_o  = 1'b1;
+          firing_arith_result = 1'b1;
+          state_d  = S_IDLE;
         end
       end
 
-      DONE: begin
-        valid_o = 1'b1;
-        state_d = IDLE;
-      end
-
-      default: state_d = IDLE;
+      default: state_d = S_IDLE;
     endcase
+
+    // Issue path: when accepting a new op this cycle. Overrides state_d/result_d
+    // assignments above (intended).
+    if (accept_new && valid_i) begin
+      if (is_comb_op) begin
+        result_d = comb_result;
+        valid_o  = 1'b1;
+        if (opcode_i == OP_QACC_CLEAR && !QUIRE_DISABLED)
+          acc_d = '0;
+        if (opcode_i == OP_QACC_NEG && !QUIRE_DISABLED)
+          acc_d = negate_acc(acc_q);
+        // state stays S_IDLE
+        state_d = S_IDLE;
+      end else begin
+        if (IS_PAU) pau_valid_i_sig = 1'b1;
+        else        fpu_valid_i_sig = 1'b1;
+        opcode_d = opcode_i;
+        state_d  = S_BUSY;
+      end
+    end
   end
 
-  // Bypass: comb_ops produce result_o combinatorially (zero-latency);
-  // registered result_q used for all other ops.
-  assign result_o = (state_q == IDLE && valid_i && is_comb_op)
-                    ? comb_result : result_q;
+  assign ready_o = accept_new;
 
-  // -- Registers -----------------------------------------------
+  // result_o priority:
+  //   1. firing_arith_result this cycle -> arith_result
+  //   2. accepting a comb op this cycle -> comb_result
+  //   3. otherwise -> registered result_q (stable from previous valid_o)
+  always_comb begin
+    if (firing_arith_result)
+      result_o = arith_result;
+    else if (accept_new && valid_i && is_comb_op)
+      result_o = comb_result;
+    else
+      result_o = result_q;
+  end
+
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      state_q      <= IDLE;
+      state_q      <= S_IDLE;
       opcode_q     <= OP_HALT;
       result_q     <= '0;
       acc_q        <= '0;
       mul_result_q <= '0;
     end else begin
       state_q      <= state_d;
+      opcode_q     <= opcode_d;
       result_q     <= result_d;
       acc_q        <= acc_d;
       mul_result_q <= mul_result_d;
-      // Latch operands when accepted
-      if (state_q == IDLE && valid_i) begin
-        opcode_q <= opcode_i;
-      end
     end
   end
 
