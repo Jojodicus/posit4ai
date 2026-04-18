@@ -5,7 +5,7 @@ Standalone FPGA accelerator for comparing Posit Arithmetic (PAU) vs IEEE 754 Flo
 ## Prerequisites
 
 - **Vivado 2025.2** at `/tools/Xilinx/2025.2/Vivado/`
-- **PERCIVAL** repo cloned at `../PERCIVAL/` (sibling directory — `rtl/` is symlinks into it)
+- **PERCIVAL** repo cloned at `../PERCIVAL/` (sibling directory - `rtl/` is symlinks into it)
 
 ## Quick Start
 
@@ -22,13 +22,13 @@ After changing `config_pkg.sv`, always `./clean.sh` before rebuilding.
 
 ## Configuration
 
-All user-tunable parameters live in **`harness/config_pkg.sv`** — it is the only file you need to touch.
+All user-tunable parameters live in **`harness/config_pkg.sv`** - it is the only file you need to touch.
 
 | Parameter     | Values                                     | Notes                                                      |
 |---------------|--------------------------------------------|------------------------------------------------------------|
 | `ACCEL_TYPE`  | `"PAU"` / `"FLO_PAU"` / `"FPU"`            | Posit (PERCIVAL), Posit (FloPoCo-only), or IEEE 754 FPU     |
 | `DATA_WIDTH`  | `8` / `16` / `32` / `64`                   | `FLO_PAU`: 8/16/32 only. `FPU`: 32/64 only.                |
-| `QUIRE_MODE`  | `"QUIRE"` / `"ACCUMULATOR"` / `"DISABLED"` | Exact quire, register accumulator, or all QACC_* → NaR/NaN |
+| `QUIRE_MODE`  | `"QUIRE"` / `"ACCUMULATOR"` / `"DISABLED"` | Exact quire, register accumulator, or all QACC_* -> NaR/NaN |
 | `MUL_MODE`    | `"EXACT"` / `"APPROX"`                     | Log-domain approx (PAU, FLO_PAU only)                      |
 | `DIV_MODE`    | `"EXACT"` / `"APPROX"` / `"DISABLE"`       | APPROX only on PAU-32/64. DISABLE removes the divider.     |
 | `SQRT_MODE`   | `"EXACT"` / `"APPROX"` / `"DISABLE"`       | APPROX only on PAU-32/64. FLO_PAU always returns NaR.      |
@@ -37,34 +37,34 @@ All user-tunable parameters live in **`harness/config_pkg.sv`** — it is the on
 
 `ACCEL_TYPE = "PAU"` with `DATA_WIDTH` 8 or 16 transparently dispatches to FloPoCo cores (PERCIVAL only supplies 32/64-bit). For all supported combinations and which features are honoured per type, see the "Feature support matrix" comment block in `config_pkg.sv`.
 
-Posit `es=2` and the quire width (`16 × DATA_WIDTH`) are baked into the pre-generated VHDL cores. Changing either requires regenerating the PAU/FloPoCo VHDL.
+Posit `es=2` and the quire width (`16 x DATA_WIDTH`) are baked into the pre-generated VHDL cores. Changing either requires regenerating the PAU/FloPoCo VHDL.
 
 ## Architecture
 
 ```
 zynq_accel_top            (impl top: PS7 + AXI)
-├── zynq_ps_wrapper       (PS7 block design; 100 MHz FCLK_CLK0)
-├── accel_axi             (AXI-Lite slave at 0x43C00000, register interface)
-├── accel_axi_burst       (AXI4 burst slave, GP1, bulk DBRAM transfers)
-├── accel_dbram_arb       (arbiter between the two AXI masters)
-└── accel_core            (sequencer + BRAMs + arithmetic)
-    ├── Instruction BRAM  (64-bit × INSTR_DEPTH, true dual-port)
-    ├── Data BRAM         (DATA_WIDTH × DATA_DEPTH, true dual-port, 2× clk)
-    ├── Sequencer         (3-stage pipeline: IF / ID / EX with stall-on-hazard)
-    └── arith_unit        (unified opcode → PAU / FLO_PAU / FPU back-end)
++-- zynq_ps_wrapper       (PS7 block design; 100 MHz FCLK_CLK0)
++-- accel_axi             (AXI-Lite slave at 0x43C00000, register interface)
++-- accel_axi_burst       (AXI4 burst slave, GP1, bulk DBRAM transfers)
++-- accel_dbram_arb       (arbiter between the two AXI masters)
+\+-- accel_core            (sequencer + BRAMs + arithmetic)
+    +-- Instruction BRAM  (64-bit x INSTR_DEPTH, true dual-port)
+    +-- Data BRAM         (DATA_WIDTH x DATA_DEPTH, true dual-port, 2x clk)
+    +-- Sequencer         (3-stage pipeline: IF / ID / EX with stall-on-hazard)
+    \- arith_unit        (unified opcode -> PAU / FLO_PAU / FPU back-end)
 ```
 
 `accel_harness` is a synthesis-only wrapper (no PS7, clocked via `clk_wiz_0`) used by `./build.sh` and `find_fmax.tcl` for fast timing/utilization checks.
 
-**Instruction format (64-bit)**: `[63:60]` opcode · `[59:40]` addr_a · `[39:20]` addr_b · `[19:0]` addr_result. Opcodes are shared across PAU/FPU and defined in `harness/pkg/opcodes_pkg.sv`.
+**Instruction format (64-bit)**: `[63:60]` opcode `[59:40]` addr_a `[39:20]` addr_b `[19:0]` addr_result. Opcodes are shared across PAU/FPU and defined in `harness/pkg/opcodes_pkg.sv`.
 
-Source tree at a glance: `harness/config_pkg.sv` (edit this), with the rest of the RTL grouped under `harness/{pkg,arith,core,axi,top,patches}/`. Testbenches and per-fileset config overrides live under `tb/`. `rtl/` is symlinks into upstream PERCIVAL — don't edit in place (local editable copies of `pau_top.sv` / `fpu_wrap.sv` are in `harness/arith/`).
+Source tree at a glance: `harness/config_pkg.sv` (edit this), with the rest of the RTL grouped under `harness/{pkg,arith,core,axi,top,patches}/`. Testbenches and per-fileset config overrides live under `tb/`. `rtl/` is symlinks into upstream PERCIVAL - don't edit in place (local editable copies of `pau_top.sv` / `fpu_wrap.sv` are in `harness/arith/`).
 
 ## Testing
 
 ```bash
 ./test.sh           # runs all 21 simulation filesets
-./open.sh           # GUI — useful for waveform debugging
+./open.sh           # GUI - useful for waveform debugging
 ```
 
 `run_all_tests.tcl` launches 21 filesets covering the comparison matrix. Each compiles `tb_accel_core` (or `tb_accel_axi`) against a `tb/configs/config_pkg_*.sv` override so one invocation exercises every supported configuration.
@@ -82,7 +82,7 @@ To add a new configuration: drop a `config_pkg_xxx.sv` into `tb/configs/`, then 
 |---------------|--------------------------------|----------------------------------|
 | `./build.sh`  | `reports/build_timing.rpt`     | Post-synthesis WNS estimate      |
 | `./build.sh`  | `reports/build_utilization.rpt`| LUT / FF / DSP / BRAM counts     |
-| `./impl.sh`   | `reports/timing_summary.rpt`   | Final WNS (≥ 0 = timing met)     |
+| `./impl.sh`   | `reports/timing_summary.rpt`   | Final WNS (>= 0 = timing met)     |
 | `./impl.sh`   | `reports/utilization*.rpt`     | Per-module resource breakdown    |
 | `./impl.sh`   | `reports/power.rpt`            | Estimated power consumption      |
 
