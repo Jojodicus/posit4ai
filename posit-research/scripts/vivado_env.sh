@@ -2,21 +2,65 @@
 # Vivado Environment Setup Helper
 # Sources Vivado settings and provides helper functions for batch/GUI invocation
 
-# Vivado installation path
-VIVADO_SETTINGS="/tools/Xilinx/2025.2/Vivado/.settings64-Vivado.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+VIVADO_SYMLINK="$PROJECT_ROOT/vivado"
 
-# Check if Vivado settings file exists
+prompt_yes_no() {
+    local prompt="$1"
+    local response
+    while true; do
+        read -p "$prompt [y/n]: " response
+        case "$response" in
+            [Yy]|[Yy][Ee][Ss]) return 0 ;;
+            [Nn]|[Nn][Oo]) return 1 ;;
+            *) echo "Please answer y or n" ;;
+        esac
+    done
+}
+
+resolve_vivado_path() {
+    if [ -L "$VIVADO_SYMLINK" ]; then
+        echo "$(readlink -f "$VIVADO_SYMLINK")"
+    else
+        echo ""
+    fi
+}
+
+vivado_install_dir() {
+    local vdir
+    vdir=$(resolve_vivado_path)
+    if [ -n "$vdir" ] && [ -d "$vdir" ]; then
+        echo "$vdir"
+        return 0
+    fi
+    return 1
+}
+
+if ! vivado_install_dir &>/dev/null; then
+    echo "No Vivado installation found."
+    echo "Would you like to search for Vivado now? (Recommended)"
+    if prompt_yes_no "Search for Vivado?"; then
+        "$SCRIPT_DIR/find_vivado.sh"
+    else
+        echo "ERROR: Cannot proceed without Vivado installation"
+        exit 1
+    fi
+fi
+
+VIVADO_DIR=$(vivado_install_dir)
+VIVADO_SETTINGS="$VIVADO_DIR/.settings64-Vivado.sh"
+
 if [ ! -f "$VIVADO_SETTINGS" ]; then
     echo "ERROR: Vivado settings file not found at: $VIVADO_SETTINGS"
-    echo "Please update VIVADO_SETTINGS path in scripts/vivado_env.sh"
+    echo "Please check your Vivado installation or re-run the finder:"
+    echo "  ./scripts/find_vivado.sh"
     exit 1
 fi
 
-# Source Vivado environment
 source "$VIVADO_SETTINGS"
 
-# Export convenience variables
-export VIVADO_BIN="/tools/Xilinx/2025.2/Vivado/bin/vivado"
+export VIVADO_BIN="$VIVADO_DIR/bin/vivado"
 export PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PROJECT_FILE="$PROJECT_ROOT/vivado_proj/posit_research.xpr"
 

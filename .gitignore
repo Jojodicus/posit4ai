@@ -15,3 +15,4 @@ posit-research/**/*.csv
 posit-research/**/*.str
 posit-research/**/.Xil/
 posit-research/xvlog.pb
+posit-research/vivado
