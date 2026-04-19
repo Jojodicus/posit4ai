@@ -12,8 +12,8 @@
 //   PSQRT                     -- returns NaR (unsupported in FloPoCo)
 //
 // MUL_MODE="APPROX" (POS_LOG_MULT=1): uses PositLAM (log-domain approximate multiplier)
-// DIV_MODE="DISABLE" (DIV_DISABLE=1): PositDiv not instantiated; PDIV -> NaR
-// DIV_MODE="APPROX", SQRT_MODE="APPROX/DISABLE": no effect -- no approx cores available;
+// DIV_MODE="DISABLED" (DIV_DISABLE=1): PositDiv not instantiated; PDIV -> NaR
+// DIV_MODE="APPROX", SQRT_MODE="APPROX/DISABLED": no effect -- no approx cores available;
 //   PositDiv is always exact when instantiated; SQRT always -> NaR (no FloPoCo SQRT core)
 
 module flo_posit_top import ariane_pkg::*; (

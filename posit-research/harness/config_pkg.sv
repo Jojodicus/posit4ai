@@ -48,7 +48,7 @@ package config_pkg;
   // "EXACT"   - exact division (all ACCEL_TYPEs).
   // "APPROX"  - log-domain approximate divide (PAU-32/64 only).
   //             FLO_PAU and FPU: not available; treated as "EXACT".
-  // "DISABLE" - OP_DIV returns NaR/NaN immediately; no PositDiv hardware
+  // "DISABLED" - OP_DIV returns NaR/NaN immediately; no PositDiv hardware
   //             synthesized.  Use when division is absent from the workload
   //             to remove the critical-path combinatorial divide block.
   // ============================================================
@@ -60,7 +60,7 @@ package config_pkg;
   //             FLO_PAU always returns NaR (no FloPoCo SQRT core available).
   // "APPROX"  - log-domain approximate sqrt (PAU-32/64 only).
   //             FLO_PAU and FPU: not available; treated as "EXACT".
-  // "DISABLE" - OP_SQRT returns NaR/NaN immediately; no PositSqrt hardware
+  // "DISABLED" - OP_SQRT returns NaR/NaN immediately; no PositSqrt hardware
   //             synthesized.  FLO_PAU: already has no SQRT hardware; no-op.
   // ============================================================
   parameter string SQRT_MODE = "EXACT";
@@ -75,9 +75,9 @@ package config_pkg;
   //  QUIRE_MODE="DISABLED" |    Y     |     Y     |        Y        |    Y
   //  MUL_MODE="APPROX"     |    Y     |     Y     |        Y        |    N
   //  DIV_MODE="APPROX"     |    N     |     Y     |        N        |    N
-  //  DIV_MODE="DISABLE"    |    Y     |     Y     |        Y        |  Y(bypass)
+  //  DIV_MODE="DISABLED"   |    Y     |     Y     |        Y        |  Y(bypass)
   //  SQRT_MODE="APPROX"    |    N     |     Y     |        N        |    N
-  //  SQRT_MODE="DISABLE"   |    Y     |     Y     |   Y(already NaR)|  Y(bypass)
+  //  SQRT_MODE="DISABLED"  |    Y     |     Y     |   Y(already NaR)|  Y(bypass)
   // ============================================================
 
   // ============================================================

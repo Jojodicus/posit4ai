@@ -67,8 +67,8 @@ package ariane_pkg;
     localparam bit          POS_LOG_MULT  = (config_pkg::MUL_MODE   == "APPROX");
     localparam bit          POS_LOG_DIV   = (config_pkg::DIV_MODE   == "APPROX");
     localparam bit          POS_LOG_SQRT  = (config_pkg::SQRT_MODE  == "APPROX");
-    localparam bit          DIV_DISABLE   = (config_pkg::DIV_MODE   == "DISABLE");
-    localparam bit          SQRT_DISABLE  = (config_pkg::SQRT_MODE  == "DISABLE");
+    localparam bit          DIV_DISABLE   = (config_pkg::DIV_MODE   == "DISABLED");
+    localparam bit          SQRT_DISABLE  = (config_pkg::SQRT_MODE  == "DISABLED");
     localparam bit          POS_PRESENT   = (config_pkg::ACCEL_TYPE == "PAU");
     localparam bit          FP_PRESENT    = (config_pkg::ACCEL_TYPE == "FPU");
     localparam int unsigned FLEN          = 64;  // FPU always uses 64-bit containers

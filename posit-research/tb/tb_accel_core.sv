@@ -18,7 +18,7 @@
 //   sim_flo_pau32           FLO_PAU 32-bit  exact quire  (FloPoCo cores; PSQRT->NaR)
 //   sim_flo_pau32_approx    FLO_PAU 32-bit  MUL_MODE="APPROX" (PositLAM_32_2)
 //   sim_flo_pau32_noquire   FLO_PAU 32-bit  QUIRE_MODE="ACCUMULATOR" (nacc_q in flo_posit_top)
-//   sim_flo_pau32_nodiv     FLO_PAU 32-bit  DIV_MODE="DISABLE" (PositDiv32 not synthesized)
+//   sim_flo_pau32_nodiv     FLO_PAU 32-bit  DIV_MODE="DISABLED" (PositDiv32 not synthesized)
 //
 // -- Coverage ---------------------------------------------------------
 // All 16 opcodes exercised:
@@ -321,7 +321,7 @@ module tb_accel_core
     input logic [63:0] v_exact,
     input int          slot
   );
-    if (DIV_MODE == "DISABLE")
+    if (DIV_MODE == "DISABLED")
       check({label, " [disabled->NaR]"}, V_NAR, slot);
     else if (DIV_MODE == "APPROX")
       check_not_nar({label, " [approx]"}, slot);
@@ -335,7 +335,7 @@ module tb_accel_core
     input logic [63:0] v_exact,
     input int          slot
   );
-    if (DIV_MODE == "DISABLE")
+    if (DIV_MODE == "DISABLED")
       check({label, " [div NaR->NaR prop]"}, V_NAR_PROP, slot);
     else if (DIV_MODE == "APPROX")
       check_not_nar({label, " [div approx fwd]"}, slot);
@@ -354,7 +354,7 @@ module tb_accel_core
                   ACCEL_TYPE == "FLO_PAU");
     if (no_sqrt_hw)
       check({label, " [no hw->NaR]"}, V_NAR, slot);
-    else if (SQRT_MODE == "DISABLE")
+    else if (SQRT_MODE == "DISABLED")
       check({label, " [disabled->NaR]"}, V_NAR, slot);
     else if (SQRT_MODE == "APPROX")
       check_not_nar({label, " [approx]"}, slot);
@@ -373,7 +373,7 @@ module tb_accel_core
                   ACCEL_TYPE == "FLO_PAU");
     if (no_sqrt_hw)
       check({label, " [no hw->NaR prop]"}, V_NAR_PROP, slot);
-    else if (SQRT_MODE == "DISABLE")
+    else if (SQRT_MODE == "DISABLED")
       check({label, " [disabled->NaR prop]"}, V_NAR_PROP, slot);
     else if (SQRT_MODE == "APPROX")
       check_not_nar({label, " [sqrt approx fwd]"}, slot);
@@ -391,8 +391,8 @@ module tb_accel_core
     bit no_sqrt_hw, sqrt_was_nar;
     no_sqrt_hw   = ((ACCEL_TYPE == "PAU" && (DATA_WIDTH == 8 || DATA_WIDTH == 16)) ||
                     ACCEL_TYPE == "FLO_PAU");
-    sqrt_was_nar = no_sqrt_hw || (SQRT_MODE == "DISABLE");
-    if (DIV_MODE == "DISABLE")
+    sqrt_was_nar = no_sqrt_hw || (SQRT_MODE == "DISABLED");
+    if (DIV_MODE == "DISABLED")
       check({label, " [div disabled->NaR]"}, V_NAR, slot);
     else if (sqrt_was_nar)
       check({label, " [sqrt NaR->NaR prop]"}, V_NAR, slot);

@@ -40,8 +40,8 @@ module arith_unit
   localparam bit USE_FLOPOCO    = IS_FLO_PAU || (IS_PAU && bit'(DATA_WIDTH < 32));
   localparam bit QUIRE_ENABLE   = (QUIRE_MODE == "QUIRE");
   localparam bit QUIRE_DISABLED = (QUIRE_MODE == "DISABLED");
-  localparam bit DIV_DISABLED   = (DIV_MODE   == "DISABLE");
-  localparam bit SQRT_DISABLED  = (SQRT_MODE  == "DISABLE");
+  localparam bit DIV_DISABLED   = (DIV_MODE   == "DISABLED");
+  localparam bit SQRT_DISABLED  = (SQRT_MODE  == "DISABLED");
   localparam bit PAU_NO_QUIRE     = IS_PAU      & (QUIRE_MODE == "ACCUMULATOR");
   localparam bit FLO_PAU_NO_QUIRE = USE_FLOPOCO & (QUIRE_MODE == "ACCUMULATOR");
 
