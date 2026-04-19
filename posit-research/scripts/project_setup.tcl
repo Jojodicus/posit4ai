@@ -269,7 +269,7 @@ puts "Compile order: config_pkg -> opcodes_pkg -> cva6 -> riscv -> ariane -> cf_
 # -- Create Zynq PS Block Design ------------------------------------
 puts ""
 puts "Creating Zynq PS block design..."
-source [file join $root_dir scripts create_bd.tcl]
+source -notrace [file join $root_dir scripts create_bd.tcl]
 
 set_property top zynq_accel_top [current_fileset]
 update_compile_order -fileset sources_1

@@ -29,7 +29,7 @@ if {[file exists ${proj_dir}/${proj_name}.xpr]} {
     open_project ${proj_dir}/${proj_name}.xpr
 } else {
     puts "Project not found. Creating new project..."
-    source [file join $root_dir scripts project_setup.tcl]
+    source -notrace [file join $root_dir scripts project_setup.tcl]
     # Project is already open after create_project in project_setup.tcl
 }
 

@@ -2,7 +2,7 @@
 #   vivado -mode batch -source scripts/run_one_test.tcl -tclargs <simset>
 
 if {![file exists vivado_proj/posit_research.xpr]} {
-    source scripts/project_setup.tcl
+    source -notrace scripts/project_setup.tcl
 } else {
     open_project vivado_proj/posit_research.xpr
 }

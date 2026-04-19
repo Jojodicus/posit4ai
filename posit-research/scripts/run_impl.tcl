@@ -32,7 +32,7 @@ if {[file exists ${proj_dir}/${proj_name}.xpr]} {
     open_project ${proj_dir}/${proj_name}.xpr
 } else {
     puts "Project not found. Creating new project..."
-    source [file join $root_dir scripts project_setup.tcl]
+    source -notrace [file join $root_dir scripts project_setup.tcl]
     # Project is already open after create_project in project_setup.tcl
 }
 
@@ -55,7 +55,7 @@ if {[llength $ps7_cells] > 0} {
 if {$need_bd_rebuild} {
     puts "Rebuilding block design for FCLK_CLK0 = ${clock_freq_mhz} MHz..."
     set env(CLOCK_FREQ_MHZ) $clock_freq_mhz
-    source [file join $root_dir scripts create_bd.tcl]
+    source -notrace [file join $root_dir scripts create_bd.tcl]
     set_property top zynq_accel_top [current_fileset]
 } else {
     puts "Existing BD already configured for ${clock_freq_mhz} MHz -- no rebuild needed."

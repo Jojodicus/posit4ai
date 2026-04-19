@@ -69,7 +69,7 @@ export PROJECT_FILE="$PROJECT_ROOT/vivado_proj/posit_research.xpr"
 run_vivado_batch() {
     local tcl_script="$1"
     shift
-    "$VIVADO_BIN" -mode batch -source "$tcl_script" "$@"
+    "$VIVADO_BIN" -mode batch -notrace -source "$tcl_script" "$@"
 }
 
 # Helper function: Run Vivado in GUI mode
