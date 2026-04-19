@@ -6,13 +6,13 @@ xposit-tools/
 *.elf
 pk
 
-# Research Project Artifacts
-posit-research/vivado_proj/
-posit-research/reports/
-posit-research/**/*.log
-posit-research/**/*.jou
-posit-research/**/*.csv
-posit-research/**/*.str
-posit-research/**/.Xil/
-posit-research/xvlog.pb
-posit-research/vivado
+# PAWN Artifacts
+PAWN/vivado_proj/
+PAWN/reports/
+PAWN/**/*.log
+PAWN/**/*.jou
+PAWN/**/*.csv
+PAWN/**/*.str
+PAWN/**/.Xil/
+PAWN/xvlog.pb
+PAWN/vivado

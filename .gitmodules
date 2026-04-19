@@ -4,8 +4,8 @@
 [submodule "riscv-pk"]
 	path = riscv-pk
 	url = https://github.com/riscv-software-src/riscv-pk
-[submodule "posit-research/rtl/Flo-Posit"]
-	path = posit-research/rtl/Flo-Posit
+[submodule "PAWN/rtl/Flo-Posit"]
+	path = PAWN/rtl/Flo-Posit
 	url = https://github.com/RaulMurillo/Flo-Posit
 [submodule "llvm-xposit"]
 	path = llvm-xposit
