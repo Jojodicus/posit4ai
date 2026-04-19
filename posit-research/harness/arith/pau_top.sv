@@ -21,6 +21,7 @@ module pau_top import ariane_pkg::*; (
     output logic                     pau_ready_o,
     output logic [TRANS_ID_BITS-1:0] pau_trans_id_o,
     output logic                     pau_valid_o,
+    output logic                     pau_about_to_fire_o, // 1 cycle before pau_valid_o
     output riscv::xlen_t             result_o
 );
     if (POS_PRESENT) begin : pau_gen
@@ -613,6 +614,9 @@ module pau_top import ariane_pkg::*; (
                 end
             end
         end  // pos_hold_reg
+
+        // Expose 1-cycle-early fire signal for upstream scheduler.
+        assign pau_about_to_fire_o = pau_valid_d;
 
         // Select PAU input data: from register if valid data in register, else directly from input
         assign operand_a  = use_hold ? operand_a_q  : operand_a_d;

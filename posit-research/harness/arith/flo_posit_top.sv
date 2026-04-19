@@ -24,8 +24,12 @@ module flo_posit_top import ariane_pkg::*; (
     output logic                     pau_ready_o,
     output logic [TRANS_ID_BITS-1:0] pau_trans_id_o,
     output logic                     pau_valid_o,
+    output logic                     pau_about_to_fire_o, // 1 cycle before pau_valid_o
     output riscv::xlen_t             result_o
 );
+
+  assign pau_about_to_fire_o = pau_valid_d;
+
 
   // -- Sanity check -----------------------------------------------
   if (POSLEN != 8 && POSLEN != 16 && POSLEN != 32)

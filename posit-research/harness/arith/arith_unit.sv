@@ -30,7 +30,14 @@ module arith_unit
   input  logic                    valid_i,
   output logic [DATA_WIDTH-1:0]   result_o,
   output logic                    valid_o,
-  output logic                    ready_o
+  output logic                    ready_o,
+  // 1 cycle before valid_o for PAU (delayed-fire) path; same cycle as valid_o
+  // for comb/FPU paths. Signals the upstream pipeline that it can advance.
+  output logic                    about_to_fire_o,
+  // 1 when valid_o this cycle corresponds to a PAU op issued in a PRIOR
+  // cycle (i.e. the writeback address lives in accel_core's wb_q shadow,
+  // not in id_ex_q). 0 for same-cycle comb/FPU fires.
+  output logic                    fire_delayed_o
 );
 
   localparam logic [DATA_WIDTH-1:0] POSIT_ONE = DATA_WIDTH'(1) << (DATA_WIDTH-2);
@@ -69,6 +76,7 @@ module arith_unit
   logic             pau_valid_i_sig;
   logic             pau_ready_o_sig;
   logic             pau_valid_o_sig;
+  logic             pau_about_to_fire_sig;
   riscv::xlen_t     pau_result_sig;
 
   fu_data_t         fpu_fu_data;
@@ -80,12 +88,13 @@ module arith_unit
   if (USE_FLOPOCO) begin : g_flopau
     flo_posit_top flopau_inst (
       .clk_i, .rst_ni,
-      .fu_data_i      ( pau_fu_data    ),
-      .pau_valid_i    ( pau_valid_i_sig ),
-      .pau_ready_o    ( pau_ready_o_sig ),
-      .pau_trans_id_o (                ),
-      .pau_valid_o    ( pau_valid_o_sig ),
-      .result_o       ( pau_result_sig  )
+      .fu_data_i          ( pau_fu_data    ),
+      .pau_valid_i        ( pau_valid_i_sig ),
+      .pau_ready_o        ( pau_ready_o_sig ),
+      .pau_trans_id_o     (                ),
+      .pau_valid_o        ( pau_valid_o_sig ),
+      .pau_about_to_fire_o( pau_about_to_fire_sig ),
+      .result_o           ( pau_result_sig  )
     );
     assign fpu_ready_o_sig = 1'b0;
     assign fpu_valid_o_sig = 1'b0;
@@ -93,12 +102,13 @@ module arith_unit
   end else if (ACCEL_TYPE == "PAU") begin : g_pau
     pau_top pau_inst (
       .clk_i, .rst_ni,
-      .fu_data_i      ( pau_fu_data    ),
-      .pau_valid_i    ( pau_valid_i_sig ),
-      .pau_ready_o    ( pau_ready_o_sig ),
-      .pau_trans_id_o (                ),
-      .pau_valid_o    ( pau_valid_o_sig ),
-      .result_o       ( pau_result_sig  )
+      .fu_data_i          ( pau_fu_data    ),
+      .pau_valid_i        ( pau_valid_i_sig ),
+      .pau_ready_o        ( pau_ready_o_sig ),
+      .pau_trans_id_o     (                ),
+      .pau_valid_o        ( pau_valid_o_sig ),
+      .pau_about_to_fire_o( pau_about_to_fire_sig ),
+      .result_o           ( pau_result_sig  )
     );
     assign fpu_ready_o_sig = 1'b0;
     assign fpu_valid_o_sig = 1'b0;
@@ -119,9 +129,10 @@ module arith_unit
       .fpu_valid_o      ( fpu_valid_o_sig   ),
       .fpu_exception_o  (                   )
     );
-    assign pau_ready_o_sig = 1'b0;
-    assign pau_valid_o_sig = 1'b0;
-    assign pau_result_sig  = '0;
+    assign pau_ready_o_sig        = 1'b0;
+    assign pau_valid_o_sig        = 1'b0;
+    assign pau_about_to_fire_sig  = 1'b0;
+    assign pau_result_sig         = '0;
   end
 
   logic                  arith_valid_o_int;
@@ -346,9 +357,12 @@ module arith_unit
             valid_o  = 1'b1;
             firing_arith_result = 1'b1;
             state_d  = S_IDLE;
-            // accept_new stays 0 -- accel_core will issue next cycle (we
-            // saved one cycle vs the old DONE-state design but do not yet
-            // open the back-to-back path).
+            // Back-to-back issue for non-comb ops: advance pipeline now, issue
+            // next PAU/FPU op same cycle. Comb next-ops fall through to S_IDLE
+            // and issue next cycle (avoids result-bus collision).
+            // Gating on is_comb_op only (not valid_i) avoids a comb loop
+            // through ready_o -> arith_valid_i -> accept_new.
+            if (!is_comb_op) accept_new = 1'b1;
           end
         end
       end
@@ -366,6 +380,7 @@ module arith_unit
           valid_o  = 1'b1;
           firing_arith_result = 1'b1;
           state_d  = S_IDLE;
+          if (!is_comb_op) accept_new = 1'b1;
         end
       end
 
@@ -394,6 +409,36 @@ module arith_unit
   end
 
   assign ready_o = accept_new;
+
+  // about_to_fire_o: tells accel_core its pipeline can advance this cycle.
+  //   - Comb op fires this cycle    -> same cycle as valid_o.
+  //   - PAU (non-MAC) delayed fire  -> 1 cycle before valid_o (pau_about_to_fire_sig).
+  //   - PAU 2-pass MAC or FPU       -> same cycle as valid_o (no early signal).
+  // fire_delayed_o: high only for the PAU delayed-fire case; lets accel_core
+  // route the writeback address through its wb_q shadow (because id_ex_q has
+  // already advanced by the time valid_o fires).
+  logic comb_fire_now;
+  assign comb_fire_now = accept_new && valid_i && is_comb_op;
+  always_comb begin
+    about_to_fire_o = 1'b0;
+    // about_to_fire_o: 1 cycle before valid_o for PAU delayed path; same
+    // cycle for comb / FPU / PAU-MAC-2nd-pass.
+    if (comb_fire_now)
+      about_to_fire_o = 1'b1;
+    if (IS_PAU && (state_q == S_BUSY) && pau_about_to_fire_sig
+        && !(USE_2PASS_MAC && opcode_q inside {OP_QACC_MADD, OP_QACC_MSUB}))
+      about_to_fire_o = 1'b1;
+    if ((state_q == S_MAC_BUSY) && arith_valid_o_int)
+      about_to_fire_o = 1'b1;
+    if (!IS_PAU && (state_q == S_BUSY) && arith_valid_o_int)
+      about_to_fire_o = 1'b1;
+  end
+
+  // fire_delayed_o: fires at the valid_o cycle for PAU (non-MAC, non-FPU)
+  // paths, where id_ex_q has already advanced. accel_core reads from wb_q.
+  // Not set for comb / FPU / MAC-2nd-pass (same-cycle fire; id_ex_q still
+  // holds the producer at phase-1 writeback).
+  assign fire_delayed_o = IS_PAU && firing_arith_result && (state_q == S_BUSY);
 
   // result_o priority:
   //   1. firing_arith_result this cycle -> arith_result

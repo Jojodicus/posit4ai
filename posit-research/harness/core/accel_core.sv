@@ -161,8 +161,11 @@ module accel_core
   always_ff @(posedge clk_bram_i or negedge rst_ni) begin
     if (!rst_ni) begin
       fwd_q <= '0;
-    end else if (phase_q && arith_valid_o && id_ex_valid_q && id_ex_q.writes_dbram) begin
-      fwd_q <= arith_result;
+    end else if (phase_q && arith_valid_o) begin
+      if (arith_fire_delayed && wb_q.writes_dbram)
+        fwd_q <= arith_result;
+      else if (!arith_fire_delayed && id_ex_valid_q && id_ex_q.writes_dbram)
+        fwd_q <= arith_result;
     end
   end
 
@@ -223,18 +226,28 @@ module accel_core
   logic [DATA_WIDTH-1:0]  arith_result;
   logic                   arith_valid_o;
   logic                   arith_ready_o;
+  logic                   arith_about_to_fire;
+  logic                   arith_fire_delayed;
 
   arith_unit u_arith (
     .clk_i,
     .rst_ni,
-    .operand_a_i ( arith_op_a   ),
-    .operand_b_i ( arith_op_b   ),
-    .opcode_i    ( arith_opcode ),
-    .valid_i     ( arith_valid_i ),
-    .result_o    ( arith_result  ),
-    .valid_o     ( arith_valid_o ),
-    .ready_o     ( arith_ready_o )
+    .operand_a_i      ( arith_op_a   ),
+    .operand_b_i      ( arith_op_b   ),
+    .opcode_i         ( arith_opcode ),
+    .valid_i          ( arith_valid_i ),
+    .result_o         ( arith_result  ),
+    .valid_o          ( arith_valid_o ),
+    .ready_o          ( arith_ready_o ),
+    .about_to_fire_o  ( arith_about_to_fire ),
+    .fire_delayed_o   ( arith_fire_delayed )
   );
+
+  // Writeback shadow: carries the PAU-delayed producer's metadata forward
+  // one clk_i cycle so that valid_o (which fires after id_ex_q has already
+  // advanced to the next op) lands on the correct address. Captured at
+  // every advance; consumed only when fire_delayed_o fires the next cycle.
+  id_ex_t wb_q;
 
   // -- Needs-writeback helper ---------------------------------------------
   function automatic logic needs_wb(opcode_t op);
@@ -256,7 +269,9 @@ module accel_core
   // not by stalling.
   logic stall;
   always_comb begin
-    stall = (seq_state_q == RUNNING_S) && id_ex_valid_q && !arith_valid_o;
+    // Advance when arith is "about to fire" this cycle (1 cycle before
+    // valid_o for PAU delayed-fire, same cycle for comb/FPU).
+    stall = (seq_state_q == RUNNING_S) && id_ex_valid_q && !arith_about_to_fire;
   end
 
 
@@ -283,11 +298,22 @@ module accel_core
           dbram_porta_addr = if_id_valid_q ? ibram_fetch_rdata[59:40] : '0;
           dbram_portb_addr = if_id_valid_q ? ibram_fetch_rdata[39:20] : '0;
         end else begin
-          // Write sub-cycle: commit EX instruction's result when arith_valid_o
-          if (id_ex_valid_q && arith_valid_o && id_ex_q.writes_dbram) begin
-            dbram_porta_addr  = id_ex_q.addr_result;
-            dbram_porta_wdata = arith_result;
-            dbram_porta_we    = 1'b1;
+          // Write sub-cycle: commit retiring op's result when arith_valid_o.
+          // Two cases:
+          //   fire_delayed  : valid_o is for an op in wb_q (id_ex_q has
+          //                   already advanced to the NEXT op).
+          //   !fire_delayed : valid_o is for the op currently in id_ex_q
+          //                   (comb/FPU, same-cycle fire).
+          if (arith_valid_o) begin
+            if (arith_fire_delayed && wb_q.writes_dbram) begin
+              dbram_porta_addr  = wb_q.addr_result;
+              dbram_porta_wdata = arith_result;
+              dbram_porta_we    = 1'b1;
+            end else if (!arith_fire_delayed && id_ex_valid_q && id_ex_q.writes_dbram) begin
+              dbram_porta_addr  = id_ex_q.addr_result;
+              dbram_porta_wdata = arith_result;
+              dbram_porta_we    = 1'b1;
+            end
           end
         end
 
@@ -325,6 +351,7 @@ module accel_core
       id_ex_valid_q <= 1'b0;
       fwd_hit_a_q   <= 1'b0;
       fwd_hit_b_q   <= 1'b0;
+      wb_q          <= '0;
     end else begin
 
       unique case (seq_state_q)
@@ -346,11 +373,16 @@ module accel_core
           if (!stall) begin
             // Pre-compute forwarding hits for the EX cycle starting next edge.
             // Compares the next-EX's addr_a/b (from ibram_fetch_rdata) against
-            // the producer's addr_result. Gated on producer actually writing.
-            fwd_hit_a_q <= arith_valid_o && id_ex_valid_q && id_ex_q.writes_dbram
+            // the producer's addr_result. Gated on the producer firing this
+            // cycle (about_to_fire) and actually writing DBRAM.
+            fwd_hit_a_q <= arith_about_to_fire && id_ex_valid_q && id_ex_q.writes_dbram
                         && (ibram_fetch_rdata[59:40] == id_ex_q.addr_result);
-            fwd_hit_b_q <= arith_valid_o && id_ex_valid_q && id_ex_q.writes_dbram
+            fwd_hit_b_q <= arith_about_to_fire && id_ex_valid_q && id_ex_q.writes_dbram
                         && (ibram_fetch_rdata[39:20] == id_ex_q.addr_result);
+
+            // wb_q shadow: always capture the pre-advance id_ex_q. Only
+            // consumed at writeback when fire_delayed_o fires the next cycle.
+            wb_q <= id_ex_q;
 
             // -- ID -> EX: decode ibram_fetch_rdata into EX stage
             if (if_id_valid_q) begin
@@ -398,6 +430,28 @@ module accel_core
       endcase
     end
   end
+
+  // -- Debug prints ----------------------------------------------------
+  // synthesis translate_off
+  int dbg_cnt;
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) dbg_cnt <= 0;
+    else begin
+      dbg_cnt <= dbg_cnt + 1;
+      if (dbg_cnt >= 125 && dbg_cnt <= 145) begin
+        $display("[DBG t=%0t c=%0d] EX: op=%0d ra=%0d rb=%0d r=%0d valid_q=%b wb_op=%0d wb_r=%0d wb_wd=%b fwd_hit_a=%b fwd_q=%h op_a_q=%h arith_res=%h arith_op_a=%h arith_op_b=%h valid_o=%b fire_del=%b about=%b stall=%b",
+          $time, dbg_cnt, id_ex_q.opcode, id_ex_q.addr_a, id_ex_q.addr_b, id_ex_q.addr_result, id_ex_valid_q,
+          wb_q.opcode, wb_q.addr_result, wb_q.writes_dbram, fwd_hit_a_q, fwd_q, op_a_q,
+          arith_result, arith_op_a, arith_op_b, arith_valid_o, arith_fire_delayed, arith_about_to_fire, stall);
+      end
+    end
+  end
+  always_ff @(posedge clk_bram_i) begin
+    if (phase_q && dbram_porta_we && $time <= 1430000) begin
+      $display("[DBG %0t] WR addr=%0d data=%h", $time, dbram_porta_addr, dbram_porta_wdata);
+    end
+  end
+  // synthesis translate_on
 
   // -- Assertions ------------------------------------------------------
   // synthesis translate_off
