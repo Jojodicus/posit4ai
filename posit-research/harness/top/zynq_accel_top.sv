@@ -1,5 +1,4 @@
-// PERCIVAL Accelerator -- full implementation top (PS7 + accel_axi + accel_core).
-// Used by ./impl.sh for full synthesis, place-and-route, and bitstream generation.
+// full implementation top (PS7 + accel_axi + accel_core).
 // Connects the Zynq PS7 block design wrapper to the AXI-Lite accelerator slave.
 
 module zynq_accel_top (

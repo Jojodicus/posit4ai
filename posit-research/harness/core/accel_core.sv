@@ -1,4 +1,4 @@
-// PERCIVAL Accelerator -- core: instruction BRAM + data BRAM + 3-stage pipeline + arith_unit.
+// core: instruction BRAM + data BRAM + 3-stage pipeline + arith_unit.
 //
 // Instruction format (64-bit fixed-width):
 //   [63:60] opcode       4 bits  (16 opcodes)

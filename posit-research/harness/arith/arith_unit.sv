@@ -1,9 +1,8 @@
-// PERCIVAL Accelerator -- arithmetic unit wrapper.
 // Instantiates either pau_top (PAU) or fpu_wrap (FPU) based on config_pkg::ACCEL_TYPE.
 // Presents a uniform (operand_a, operand_b, opcode, valid_i) -> (result, valid_o, ready_o)
 // interface to accel_core.
 //
-// Pipelined issue model:
+// Pipelined FSM issue model:
 //   S_IDLE  : ready_o=1; can accept comb op (zero-latency) or issue to PAU/FPU.
 //   S_BUSY  : op in-flight in PAU/FPU. When arith_valid_o fires:
 //             - For non-2-pass ops: assert valid_o + result_o same cycle, return to
@@ -13,9 +12,6 @@
 //   S_MAC_STEP : issue PADD/PSUB second pass.
 //   S_MAC_BUSY : wait for second pass; on arith_valid_o, fire valid_o and accept
 //                a new op same cycle.
-//
-// Eliminates the DONE-state delay of the previous FSM (saves 1 cycle per op) and
-// allows true back-to-back issue once PAU/FPU is ready again.
 
 module arith_unit
   import config_pkg::*;
@@ -346,9 +342,7 @@ module arith_unit
             valid_o  = 1'b1;
             firing_arith_result = 1'b1;
             state_d  = S_IDLE;
-            // accept_new stays 0 -- accel_core will issue next cycle (we
-            // saved one cycle vs the old DONE-state design but do not yet
-            // open the back-to-back path).
+            // accept_new stays 0, accel_core will issue next cycle
           end
         end
       end

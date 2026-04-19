@@ -1,4 +1,4 @@
-// PERCIVAL Accelerator -- data BRAM host-port arbiter.
+// data BRAM host-port arbiter.
 //
 // Arbitrates between multiple host port masters and accel_core's single
 // data BRAM host port (port A).

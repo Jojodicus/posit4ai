@@ -1,6 +1,4 @@
-// PERCIVAL Accelerator -- single configuration file.
 // Edit ONLY this file to change the accelerator's hardware parameters.
-// After editing, run ./clean.sh then ./build.sh or ./impl.sh.
 
 package config_pkg;
 
@@ -48,8 +46,8 @@ package config_pkg;
   // "EXACT"   - exact division (all ACCEL_TYPEs).
   // "APPROX"  - log-domain approximate divide (PAU-32/64 only).
   //             FLO_PAU and FPU: not available; treated as "EXACT".
-  // "DISABLED" - OP_DIV returns NaR/NaN immediately; no PositDiv hardware
-  //             synthesized.  Use when division is absent from the workload
+  // "DISABLED" - OP_DIV returns NaR/NaN immediately; no hardware
+  //             synthesized. Use when division is absent from the workload
   //             to remove the critical-path combinatorial divide block.
   // ============================================================
   parameter string DIV_MODE = "EXACT";
@@ -60,24 +58,24 @@ package config_pkg;
   //             FLO_PAU always returns NaR (no FloPoCo SQRT core available).
   // "APPROX"  - log-domain approximate sqrt (PAU-32/64 only).
   //             FLO_PAU and FPU: not available; treated as "EXACT".
-  // "DISABLED" - OP_SQRT returns NaR/NaN immediately; no PositSqrt hardware
-  //             synthesized.  FLO_PAU: already has no SQRT hardware; no-op.
+  // "DISABLED" - OP_SQRT returns NaR/NaN immediately; no hardware
+  //             synthesized. FLO_PAU: already has no SQRT hardware; no-op.
   // ============================================================
   parameter string SQRT_MODE = "EXACT";
 
   // ============================================================
   // Feature support matrix
   //
-  //  Feature               | PAU-8/16 | PAU-32/64 | FLO_PAU 8/16/32 | FPU-32/64
-  //  ----------------------+----------+-----------+-----------------+----------
-  //  QUIRE_MODE="QUIRE"    |    Y     |     Y     |        Y        | N(=ACCUM)
-  //  QUIRE_MODE="ACCUMULATOR"    Y    |     Y     |        Y        |    Y
-  //  QUIRE_MODE="DISABLED" |    Y     |     Y     |        Y        |    Y
-  //  MUL_MODE="APPROX"     |    Y     |     Y     |        Y        |    N
-  //  DIV_MODE="APPROX"     |    N     |     Y     |        N        |    N
-  //  DIV_MODE="DISABLED"   |    Y     |     Y     |        Y        |  Y(bypass)
-  //  SQRT_MODE="APPROX"    |    N     |     Y     |        N        |    N
-  //  SQRT_MODE="DISABLED"  |    Y     |     Y     |   Y(already NaR)|  Y(bypass)
+  //  Feature                  | PAU-8/16 | PAU-32/64 | FLO_PAU 8/16/32 | FPU-32/64
+  //  -------------------------+----------+-----------+-----------------+----------
+  //  QUIRE_MODE="QUIRE"       |    Y     |     Y     |        Y        | -(=ACCUM)
+  //  QUIRE_MODE="ACCUMULATOR" |    Y     |     Y     |        Y        |    Y
+  //  QUIRE_MODE="DISABLED"    |    Y     |     Y     |        Y        |    Y
+  //  MUL_MODE="APPROX"        |    Y     |     Y     |        Y        |    -
+  //  DIV_MODE="APPROX"        |    -     |     Y     |        -        |    -
+  //  DIV_MODE="DISABLED"      |    Y     |     Y     |        Y        | Y(bypass)
+  //  SQRT_MODE="APPROX"       |    -     |     Y     |        -        |    -
+  //  SQRT_MODE="DISABLED"     |    Y     |     Y     |   Y(already NaR)| Y(bypass)
   // ============================================================
 
   // ============================================================
@@ -91,9 +89,8 @@ package config_pkg;
 
   // ============================================================
   // Fixed by VHDL generation (not configurable at build time):
-  //   - Posit exponent bits (es): 2 for 32-bit, 2 for 64-bit
-  //   - Quire width: 16 * DATA_WIDTH (512 bits for 32-bit, 1024 for 64-bit)
-  // To change these, regenerate the VHDL cores via FloPoCo.
+  //   - Posit exponent bits (es): 2
+  //   - Quire width: 16 * DATA_WIDTH
   // ============================================================
 
 endpackage

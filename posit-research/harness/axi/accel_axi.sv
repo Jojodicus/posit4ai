@@ -1,4 +1,4 @@
-// PERCIVAL Accelerator -- AXI-Lite slave.
+// AXI-Lite slave.
 //
 // AXI-Lite register map (base: 0x43C00000):
 //   0x00  CTRL       [0]=START, [1]=RESET  (write 1; self-clearing)

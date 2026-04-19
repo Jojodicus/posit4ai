@@ -1,4 +1,3 @@
-// PERCIVAL Accelerator -- unified opcode set.
 // Identical opcodes used for both PAU and FPU modes.
 // arith_unit.sv translates these to the underlying arithmetic unit's native ops.
 
@@ -19,8 +18,6 @@ package opcodes_pkg;
   localparam opcode_t OP_RELU  = 4'h9;  // result = max(0,a) (addr_b unused)
 
   // Quire / accumulator operations (no writeback to data BRAM except QACC_READ)
-  // PAU: exact quire accumulator (16*DATA_WIDTH bits)
-  // FPU: single DATA_WIDTH-bit accumulator register (less precise)
   localparam opcode_t OP_QACC_CLEAR = 4'hA;  // quire/acc = 0           (all addrs unused)
   localparam opcode_t OP_QACC_ADD   = 4'hB;  // quire/acc += a          (addr_b unused)
   localparam opcode_t OP_QACC_MADD  = 4'hC;  // quire/acc += a * b

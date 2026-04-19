@@ -1,5 +1,4 @@
-// PERCIVAL Accelerator -- synthesis-only top module (no PS7, no AXI).
-// Used by ./build.sh for fast timing/utilization checks and Fmax binary search.
+// synthesis-only top module (no PS7, no AXI).
 // All inputs are registered to prevent Vivado from optimising away the logic.
 
 module accel_harness

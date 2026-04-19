@@ -1,4 +1,4 @@
-// PERCIVAL Accelerator -- 64-bit AXI4 burst slave for data BRAM (HP0 path).
+// 64-bit AXI4 burst slave for data BRAM (HP0 path).
 //
 // Maps the entire data BRAM as a flat, word-addressable memory window.
 // The host (PS7 CPU via S_AXI_HP0) performs AXI4 INCR burst memcpy to load
