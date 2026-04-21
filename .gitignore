@@ -16,3 +16,6 @@ PAWN/**/*.str
 PAWN/**/.Xil/
 PAWN/xvlog.pb
 PAWN/vivado
+
+# libpawn
+libpawn/build
