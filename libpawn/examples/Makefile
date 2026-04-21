@@ -1,10 +1,16 @@
 CXX = g++
-CXXFLAGS = -std=c++17 -O2 -lto -I../include -L../build -Wl,-rpath,../build
+CXXFLAGS = -std=c++17 -O3 -flto -march=native -mtune=native -funroll-loops -fomit-frame-pointer -pipe
+INCLUDE = -I../include
 
-all: basic_usage.elf
+LIBS = ../build/libpawn_static.a -lpthread -lstdc++ -lm
+
+SOURCES = $(wildcard *.cpp)
+ELFS = $(SOURCES:.cpp=.elf)
+
+all: $(ELFS)
 
 %.elf: %.cpp
-	$(CXX) $(CXXFLAGS) -o $@ $< -lpawn
+	$(CXX) $(CXXFLAGS) $(INCLUDE) -o $@ $< $(LIBS)
 
 clean:
 	rm -f *.elf

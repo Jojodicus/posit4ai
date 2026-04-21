@@ -12,6 +12,22 @@ endif()
 file(GLOB_RECURSE PAWN_SOURCES "src/*.cpp" "src/**/*.cpp")
 
 add_library(pawn SHARED ${PAWN_SOURCES})
+set_target_properties(pawn PROPERTIES
+    OUTPUT_NAME "pawn"
+    VERSION ${PROJECT_VERSION}
+    SOVERSION 0
+)
+
+add_library(pawn_static STATIC ${PAWN_SOURCES})
+set_target_properties(pawn_static PROPERTIES
+    OUTPUT_NAME "pawn_static"
+    VERSION ${PROJECT_VERSION}
+    SOVERSION 0
+)
+
+target_include_directories(pawn_static PUBLIC include/)
+target_include_directories(pawn_static PUBLIC ${UNIVERSAL_INCLUDE_DIR})
+
 target_include_directories(pawn PUBLIC include/)
 target_include_directories(pawn PUBLIC ${UNIVERSAL_INCLUDE_DIR})
 
