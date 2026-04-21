@@ -1,0 +1,22 @@
+cmake_minimum_required(VERSION 3.16)
+project(libpawn VERSION 0.1.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+set(UNIVERSAL_INCLUDE_DIR ../spike-xposit/universal/include)
+if(NOT EXISTS ${UNIVERSAL_INCLUDE_DIR})
+    set(UNIVERSAL_INCLUDE_DIR ../spike/universal/include)
+endif()
+
+file(GLOB_RECURSE PAWN_SOURCES "src/*.cpp" "src/**/*.cpp")
+
+add_library(pawn SHARED ${PAWN_SOURCES})
+target_include_directories(pawn PUBLIC include/)
+target_include_directories(pawn PUBLIC ${UNIVERSAL_INCLUDE_DIR})
+
+add_library(pawn_alias INTERFACE)
+target_link_libraries(pawn_alias INTERFACE pawn)
+
+enable_testing()
+add_subdirectory(test)

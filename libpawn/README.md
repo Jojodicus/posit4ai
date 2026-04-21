@@ -1,17 +1,9 @@
 # LibPawn
 
-usage idea:
+Portable arithmetic (Universal, XPosit, PAWN).
 
-`Target` class, subclasses:
-- `Pawn` - FPGA accelerator - give config during object creation
-- `Xposit` - For Spike simulator
-- `Soft` - Universal, native floats - give type and bit width
-
-`Target` defines some arithmetic:
-- add, sub, mul, div
-- fma?
-- neg, abs
-- sqrt
-- relu
-
-for Pawn: option to queue up operations, build a kernel, save to disk
+```bash
+cmake -B build
+cmake --build build
+./build/test/test_pawn
+```
