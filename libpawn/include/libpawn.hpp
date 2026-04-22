@@ -60,43 +60,108 @@ namespace p
 
     class UniversalTarget : public Target
     {
+    protected:
         void *quire;
+        UniversalTarget(uint32_t dataWidth);
 
     public:
-        UniversalTarget(int dataWidth, Datatype dataType = POSIT);
+        virtual ~UniversalTarget() = default;
+    };
 
+    class FloatTarget : public Target
+    {
+    protected:
+        void *acc;
+        FloatTarget(uint32_t dataWidth);
 
-        virtual Number toNumber(float f) = 0;
-        virtual Number toNumber(double d) = 0;
-        virtual Number toNumber(int32_t i) = 0;
-        virtual Number toNumber(uint32_t i) = 0;
-        virtual Number toNumber(int64_t i) = 0;
-        virtual Number toNumber(uint64_t i) = 0;
-        virtual float toFloat(Number n) = 0;
-        virtual double toDouble(Number n) = 0;
-        virtual int32_t toInt32(Number n) = 0;
-        virtual uint32_t toUint32(Number n) = 0;
-        virtual int64_t toInt64(Number n) = 0;
-        virtual uint64_t toUint64(Number n) = 0;
-        virtual std::string toString(Number n) = 0;
+    public:
+        virtual ~FloatTarget() = default;
+    };
 
-        virtual Number add(Number a, Number b) = 0;
-        virtual Number sub(Number a, Number b) = 0;
-        virtual Number mul(Number a, Number b) = 0;
-        virtual Number div(Number a, Number b) = 0;
-        virtual Number neg(Number a) = 0;
-        virtual Number abs(Number a) = 0;
-        virtual Number sqrt(Number a) = 0;
-        virtual Number relu(Number a) = 0;
+    class Posit8Target final : public UniversalTarget
+    {
+    public:
+        Posit8Target();
+    };
+    class Posit16Target final : public UniversalTarget
+    {
+    public:
+        Posit16Target();
+    };
+    class Posit32Target final : public UniversalTarget
+    {
+    public:
+        Posit32Target();
+    };
+    class Posit64Target final : public UniversalTarget
+    {
+    public:
+        Posit64Target();
+    };
 
+    class Float32Target final : public FloatTarget
+    {
+    public:
+        Float32Target();
+        Number toNumber(float f) override;
+        Number toNumber(double d) override;
+        Number toNumber(int32_t i) override;
+        Number toNumber(uint32_t i) override;
+        Number toNumber(int64_t i) override;
+        Number toNumber(uint64_t i) override;
+        float toFloat(Number n) override;
+        double toDouble(Number n) override;
+        int32_t toInt32(Number n) override;
+        uint32_t toUint32(Number n) override;
+        int64_t toInt64(Number n) override;
+        uint64_t toUint64(Number n) override;
+        std::string toString(Number n) override;
+        Number add(Number a, Number b) override;
+        Number sub(Number a, Number b) override;
+        Number mul(Number a, Number b) override;
+        Number div(Number a, Number b) override;
+        Number neg(Number a) override;
+        Number abs(Number a) override;
+        Number sqrt(Number a) override;
+        Number relu(Number a) override;
         void qaClear() override;
-        virtual void qaAdd(Number a) = 0;
-        virtual void qaFma(Number a, Number b) = 0;
-        virtual void qaFms(Number a, Number b) = 0;
-        virtual void qaNeg() = 0;
-        virtual Number qaRead() = 0;
-
-        ~UniversalTarget() override;
+        void qaAdd(Number a) override;
+        void qaFma(Number a, Number b) override;
+        void qaFms(Number a, Number b) override;
+        void qaNeg() override;
+        Number qaRead() override;
+    };
+    class Float64Target final : public FloatTarget
+    {
+    public:
+        Float64Target();
+        Number toNumber(float f) override;
+        Number toNumber(double d) override;
+        Number toNumber(int32_t i) override;
+        Number toNumber(uint32_t i) override;
+        Number toNumber(int64_t i) override;
+        Number toNumber(uint64_t i) override;
+        float toFloat(Number n) override;
+        double toDouble(Number n) override;
+        int32_t toInt32(Number n) override;
+        uint32_t toUint32(Number n) override;
+        int64_t toInt64(Number n) override;
+        uint64_t toUint64(Number n) override;
+        std::string toString(Number n) override;
+        Number add(Number a, Number b) override;
+        Number sub(Number a, Number b) override;
+        Number mul(Number a, Number b) override;
+        Number div(Number a, Number b) override;
+        Number neg(Number a) override;
+        Number abs(Number a) override;
+        Number sqrt(Number a) override;
+        Number relu(Number a) override;
+        void qaClear() override;
+        void qaAdd(Number a) override;
+        void qaFma(Number a, Number b) override;
+        void qaFms(Number a, Number b) override;
+        void qaNeg() override;
+        Number qaRead() override;
     };
 
     class XpositTarget : public Target
