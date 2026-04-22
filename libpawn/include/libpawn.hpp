@@ -65,7 +65,7 @@ namespace p
         UniversalTarget(uint32_t dataWidth);
 
     public:
-        virtual ~UniversalTarget() = default;
+        virtual ~UniversalTarget();
     };
 
     class FloatTarget : public Target
@@ -75,7 +75,7 @@ namespace p
         FloatTarget(uint32_t dataWidth);
 
     public:
-        virtual ~FloatTarget() = default;
+        virtual ~FloatTarget();
     };
 
     class Posit8Target final : public UniversalTarget

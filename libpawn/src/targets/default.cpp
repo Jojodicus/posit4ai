@@ -7,3 +7,6 @@ p::UniversalTarget::UniversalTarget(uint32_t dataWidth)
 
 p::FloatTarget::FloatTarget(uint32_t dataWidth)
     : p::Target(dataWidth, FLOAT), acc(nullptr) {}
+
+p::UniversalTarget::~UniversalTarget() { delete quire; }
+p::FloatTarget::~FloatTarget() { delete acc; }
