@@ -7,18 +7,15 @@ For documentation and usage, see the comments in the include-header or `examples
 ## Building the Library
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-# run tests
-./build/test/test_pawn
+./build.sh
+# ./build/libpawn.so
+# ./build/libpawn_static.a
 ```
 
-## Memory Checking
+## Testing and Memory Checking
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-g -O0 -fsanitize=address -fno-omit-frame-pointer" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address"
-cmake --build build
-./build/test/test_pawn
+./test.sh
 ```
 
 ## Build and run Examples
@@ -30,13 +27,6 @@ make
 ```
 
 ## Writing Your Own Programs
-
-Build library first:
-
-```bash
-cmake -B build
-cmake --build build
-```
 
 ### Static Linking (Recommended)
 
