@@ -7,9 +7,17 @@ For documentation and usage, see the comments in the include-header or `examples
 ## Building the Library
 
 ```bash
-cmake -B build
+cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 # run tests
+./build/test/test_pawn
+```
+
+## Memory Checking
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-g -O0 -fsanitize=address -fno-omit-frame-pointer" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address"
+cmake --build build
 ./build/test/test_pawn
 ```
 
