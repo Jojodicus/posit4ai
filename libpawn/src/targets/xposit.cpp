@@ -5,7 +5,7 @@
 
 #ifdef __riscv_xposit
 #include "xposit_asm.h"
-#include <sw/universal/number/posit/posit.hpp>
+#include <universal/number/posit/posit.hpp>
 
 namespace p
 {
