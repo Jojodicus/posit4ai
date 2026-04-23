@@ -82,21 +82,129 @@ namespace p
     {
     public:
         Posit8Target();
+        Number toNumber(float f) override;
+        Number toNumber(double d) override;
+        Number toNumber(int32_t i) override;
+        Number toNumber(uint32_t i) override;
+        Number toNumber(int64_t i) override;
+        Number toNumber(uint64_t i) override;
+        float toFloat(Number n) override;
+        double toDouble(Number n) override;
+        int32_t toInt32(Number n) override;
+        uint32_t toUint32(Number n) override;
+        int64_t toInt64(Number n) override;
+        uint64_t toUint64(Number n) override;
+        std::string toString(Number n) override;
+        Number add(Number a, Number b) override;
+        Number sub(Number a, Number b) override;
+        Number mul(Number a, Number b) override;
+        Number div(Number a, Number b) override;
+        Number neg(Number a) override;
+        Number abs(Number a) override;
+        Number sqrt(Number a) override;
+        Number relu(Number a) override;
+        void qaClear() override;
+        void qaAdd(Number a) override;
+        void qaFma(Number a, Number b) override;
+        void qaFms(Number a, Number b) override;
+        void qaNeg() override;
+        Number qaRead() override;
     };
     class Posit16Target final : public UniversalTarget
     {
     public:
         Posit16Target();
+        Number toNumber(float f) override;
+        Number toNumber(double d) override;
+        Number toNumber(int32_t i) override;
+        Number toNumber(uint32_t i) override;
+        Number toNumber(int64_t i) override;
+        Number toNumber(uint64_t i) override;
+        float toFloat(Number n) override;
+        double toDouble(Number n) override;
+        int32_t toInt32(Number n) override;
+        uint32_t toUint32(Number n) override;
+        int64_t toInt64(Number n) override;
+        uint64_t toUint64(Number n) override;
+        std::string toString(Number n) override;
+        Number add(Number a, Number b) override;
+        Number sub(Number a, Number b) override;
+        Number mul(Number a, Number b) override;
+        Number div(Number a, Number b) override;
+        Number neg(Number a) override;
+        Number abs(Number a) override;
+        Number sqrt(Number a) override;
+        Number relu(Number a) override;
+        void qaClear() override;
+        void qaAdd(Number a) override;
+        void qaFma(Number a, Number b) override;
+        void qaFms(Number a, Number b) override;
+        void qaNeg() override;
+        Number qaRead() override;
     };
     class Posit32Target final : public UniversalTarget
     {
     public:
         Posit32Target();
+        Number toNumber(float f) override;
+        Number toNumber(double d) override;
+        Number toNumber(int32_t i) override;
+        Number toNumber(uint32_t i) override;
+        Number toNumber(int64_t i) override;
+        Number toNumber(uint64_t i) override;
+        float toFloat(Number n) override;
+        double toDouble(Number n) override;
+        int32_t toInt32(Number n) override;
+        uint32_t toUint32(Number n) override;
+        int64_t toInt64(Number n) override;
+        uint64_t toUint64(Number n) override;
+        std::string toString(Number n) override;
+        Number add(Number a, Number b) override;
+        Number sub(Number a, Number b) override;
+        Number mul(Number a, Number b) override;
+        Number div(Number a, Number b) override;
+        Number neg(Number a) override;
+        Number abs(Number a) override;
+        Number sqrt(Number a) override;
+        Number relu(Number a) override;
+        void qaClear() override;
+        void qaAdd(Number a) override;
+        void qaFma(Number a, Number b) override;
+        void qaFms(Number a, Number b) override;
+        void qaNeg() override;
+        Number qaRead() override;
     };
     class Posit64Target final : public UniversalTarget
     {
     public:
         Posit64Target();
+        Number toNumber(float f) override;
+        Number toNumber(double d) override;
+        Number toNumber(int32_t i) override;
+        Number toNumber(uint32_t i) override;
+        Number toNumber(int64_t i) override;
+        Number toNumber(uint64_t i) override;
+        float toFloat(Number n) override;
+        double toDouble(Number n) override;
+        int32_t toInt32(Number n) override;
+        uint32_t toUint32(Number n) override;
+        int64_t toInt64(Number n) override;
+        uint64_t toUint64(Number n) override;
+        std::string toString(Number n) override;
+        Number add(Number a, Number b) override;
+        Number sub(Number a, Number b) override;
+        Number mul(Number a, Number b) override;
+        Number div(Number a, Number b) override;
+        Number neg(Number a) override;
+        Number abs(Number a) override;
+        Number sqrt(Number a) override;
+        Number relu(Number a) override;
+        void qaClear() override;
+        void qaAdd(Number a) override;
+        void qaFma(Number a, Number b) override;
+        void qaFms(Number a, Number b) override;
+        void qaNeg() override;
+        Number qaRead() override;
     };
 
     class Float32Target final : public FloatTarget
