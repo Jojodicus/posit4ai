@@ -40,6 +40,7 @@ echo "=== Building xposit asm wrapper (with xposit LLVM) ==="
 ${XPOSIT_CLANG} ${XPOSIT_CFLAGS} \
     -target riscv64-unknown-elf \
     --sysroot="${XPOSIT_GCC_DIR}" \
+    -I"${SCRIPT_DIR}/include" \
     -c "${SCRIPT_DIR}/src/xposit_asm.c" \
     -o "${BUILD_DIR}/xposit_asm.o"
 
