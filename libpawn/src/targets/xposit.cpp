@@ -1,19 +1,25 @@
 #include "libpawn.hpp"
 #include "xposit_asm.h"
 
+#include <sw/universal/number/posit/posit.hpp>
+#include <bit>
 #include <sstream>
 #include <string>
 
 namespace p
 {
+    using Xposit64 = sw::universal::posit<64, 2>;
+
     XpositTarget::XpositTarget() : Target(64, POSIT) {}
 
     Number XpositTarget::toNumber(float f) {
-        return Number{*reinterpret_cast<uint64_t*>(&f)};
+        Xposit64 p = f;
+        return Number{p.bits().to_ull()};
     }
 
     Number XpositTarget::toNumber(double d) {
-        return Number{*reinterpret_cast<uint64_t*>(&d)};
+        Xposit64 p = d;
+        return Number{p.bits().to_ull()};
     }
 
     Number XpositTarget::toNumber(int32_t i) {
@@ -33,11 +39,13 @@ namespace p
     }
 
     float XpositTarget::toFloat(Number n) {
-        return *reinterpret_cast<float*>(&n.bits);
+        Xposit64 p(n.bits);
+        return p.operator float();
     }
 
     double XpositTarget::toDouble(Number n) {
-        return *reinterpret_cast<double*>(&n.bits);
+        Xposit64 p(n.bits);
+        return p.operator double();
     }
 
     int32_t XpositTarget::toInt32(Number n) {

@@ -55,6 +55,9 @@ for src in "${SCRIPT_DIR}"/src/targets/*.cpp \
         ${RISCV_GXX} ${CXXFLAGS} \
             -I"${SCRIPT_DIR}/include" \
             -I"${UNIVERSAL_INCLUDE}" \
+            -I"${UNIVERSAL_INCLUDE}/sw" \
+            -I"${REPO_ROOT}/spike-xposit/universal/include" \
+            -I"${REPO_ROOT}/spike-xposit/universal/include/sw" \
             -std=c++20 \
             -c "$src" \
             -o "${BUILD_DIR}/$(basename "$src" .cpp).o"
