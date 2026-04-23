@@ -5,3 +5,7 @@
 #include "targets/float64_target_test.hpp"
 #include "targets/float32_accumulator_test.hpp"
 #include "targets/float64_accumulator_test.hpp"
+#include "targets/bfloat16_target_test.hpp"
+#include "targets/bfloat16_accumulator_test.hpp"
+#include "targets/tfloat32_target_test.hpp"
+#include "targets/tfloat32_accumulator_test.hpp"

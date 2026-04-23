@@ -5,7 +5,7 @@
 
 p::Float32Target::Float32Target() : FloatTarget(32)
 {
-    acc = new float;
+    acc = new float(0.0f);
 }
 
 p::Number p::Float32Target::toNumber(float f)
