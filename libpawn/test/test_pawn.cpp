@@ -17,3 +17,8 @@
 #include "targets/takum32_accumulator_test.hpp"
 #include "targets/takum48_target_test.hpp"
 #include "targets/takum48_accumulator_test.hpp"
+
+#ifdef __riscv_xposit
+#include "targets/xposit_target_test.hpp"
+#include "targets/xposit_accumulator_test.hpp"
+#endif

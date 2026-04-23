@@ -53,6 +53,7 @@ for src in "${SCRIPT_DIR}"/src/targets/*.cpp \
     if [ -f "$src" ]; then
         echo "Compiling: $(basename "$src")"
         ${RISCV_GXX} ${CXXFLAGS} \
+            -D__riscv_xposit \
             -I"${SCRIPT_DIR}/include" \
             -I"${UNIVERSAL_INCLUDE}" \
             -I"${UNIVERSAL_INCLUDE}/sw" \
@@ -76,6 +77,7 @@ ${RISCV_GXX} ${CXXFLAGS} \
 
 echo "=== Building test ==="
 ${RISCV_GXX} ${CXXFLAGS} \
+    -D__riscv_xposit \
     -I"${SCRIPT_DIR}/include" \
     -I"${UNIVERSAL_INCLUDE}" \
     -I"${CATCH2_DIR}" \
