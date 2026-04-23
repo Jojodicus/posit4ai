@@ -13,6 +13,6 @@
 [submodule "spike-xposit"]
 	path = spike-xposit
 	url = https://github.com/jojodicus/spike-xposit
-[submodule "libpawn/src/targets/takum/takum"]
-	path = libpawn/src/targets/takum/takum
+[submodule "takum"]
+	path = takum
 	url = https://github.com/Jojodicus/takum
