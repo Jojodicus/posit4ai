@@ -164,10 +164,10 @@ namespace p
         Number qaRead() override;
     };
 
-    class XpositTarget : public Target
+    class XpositTarget final : public Target
     {
     public:
-        XpositTarget(int dataWidth);
+        XpositTarget();
     };
 
     class PawnTarget : public Target

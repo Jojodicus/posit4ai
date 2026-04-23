@@ -21,7 +21,7 @@ paru -S base-devel cmake # or pacman, yay, pamac, ...
 ```
 2. Install [RISC-V GNU Compiler Toolchain](https://github.com/riscv-collab/riscv-gnu-toolchain/) for raw ELFs from AUR (or do so manually, see toolchain docs):
 ```sh
-paru -S riscv-gnu-toolchain-bin
+paru -S riscv-gnu-toolchain-bin riscv64-elf-newlib
 ```
 3. Clone this repo:
 ```sh
