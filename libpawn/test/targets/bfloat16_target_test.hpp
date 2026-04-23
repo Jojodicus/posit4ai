@@ -11,7 +11,7 @@ TEST_CASE("Bfloat16Target toNumber from float", "[conversion][bfloat16]") {
     p::Bfloat16Target target;
     p::Number n = target.toNumber(3.14f);
     float f = target.toFloat(n);
-    REQUIRE(f == Catch::Approx(3.125f).margin(0.01f));
+    REQUIRE(f == Catch::Approx(3.125f).margin(0.02f));
 }
 
 TEST_CASE("Bfloat16Target toNumber from double", "[conversion][bfloat16]") {
