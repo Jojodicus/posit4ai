@@ -10,16 +10,24 @@ namespace p
 {
     using Xposit64 = sw::universal::posit<64, 2>;
 
+    static inline uint64_t p64_to_u64(const Xposit64& p) {
+        return p.bits().to_ull();
+    }
+
+    static inline Xposit64 u64_to_p64(uint64_t bits) {
+        Xposit64 p;
+        p.setbits(bits);
+        return p;
+    }
+
     XpositTarget::XpositTarget() : Target(64, POSIT) {}
 
     Number XpositTarget::toNumber(float f) {
-        Xposit64 p = f;
-        return Number{p.bits().to_ull()};
+        return Number{p64_to_u64(Xposit64(f))};
     }
 
     Number XpositTarget::toNumber(double d) {
-        Xposit64 p = d;
-        return Number{p.bits().to_ull()};
+        return Number{p64_to_u64(Xposit64(d))};
     }
 
     Number XpositTarget::toNumber(int32_t i) {
@@ -39,13 +47,11 @@ namespace p
     }
 
     float XpositTarget::toFloat(Number n) {
-        Xposit64 p(n.bits);
-        return p.operator float();
+        return u64_to_p64(n.bits).operator float();
     }
 
     double XpositTarget::toDouble(Number n) {
-        Xposit64 p(n.bits);
-        return p.operator double();
+        return u64_to_p64(n.bits).operator double();
     }
 
     int32_t XpositTarget::toInt32(Number n) {
