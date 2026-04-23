@@ -3,20 +3,21 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-export RISCV="/opt/riscv64-gnu-toolchain-elf-bin"
-export XPOSIT_INSTALL_DIR="/home/jojo/Desktop/Uni/M4.Sem/ma/posit4ai/xposit-tools"
-export PATH="${XPOSIT_INSTALL_DIR}/bin:${PATH}"
-export XPOSIT_GCC_DIR="${RISCV}/riscv64-unknown-elf"
-export XPOSIT_TARGET="riscv64-unknown-elf"
+if [ -z $RISCV ]
+then
+    echo Loading preparepath.sh environment...
+    cd $REPO_ROOT
+    . preparepath.sh
+    cd $SCRIPT_DIR
+fi
 
-XPOSIT_CLANG="${XPOSIT_INSTALL_DIR}/bin/clang"
-XPOSIT_CLANGXX="${XPOSIT_INSTALL_DIR}/bin/clang++"
-RISCV_GCC="${RISCV}/bin/riscv64-unknown-elf-gcc"
-RISCV_GXX="${RISCV}/bin/riscv64-unknown-elf-g++"
-RISCV_AR="${RISCV}/bin/riscv64-unknown-elf-ar"
+XPOSIT_CLANG="clang"
+RISCV_GCC="riscv64-unknown-elf-gcc"
+RISCV_GXX="riscv64-unknown-elf-g++"
+RISCV_AR="riscv64-unknown-elf-ar"
 RISCV_SYSROOT="${RISCV}/riscv64-unknown-elf"
 RISCV_LIB="${RISCV_SYSROOT}/lib"
-SPIKE="${XPOSIT_INSTALL_DIR}/bin/spike"
+SPIKE="spike"
 PK="${REPO_ROOT}/pk"
 
 CXXFLAGS="-march=rv64gc -mabi=lp64d -Wall -DCATCH_CONFIG_NO_POSIX_SIGNALS"
@@ -39,7 +40,7 @@ fi
 echo "=== Building xposit asm wrapper (with xposit LLVM) ==="
 ${XPOSIT_CLANG} ${XPOSIT_CFLAGS} \
     -target riscv64-unknown-elf \
-    --sysroot="${XPOSIT_GCC_DIR}" \
+    --sysroot="${RISCV_SYSROOT}" \
     -I"${SCRIPT_DIR}/include" \
     -c "${SCRIPT_DIR}/src/xposit_asm.c" \
     -o "${BUILD_DIR}/xposit_asm.o"
