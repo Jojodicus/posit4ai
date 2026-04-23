@@ -47,22 +47,17 @@ ${XPOSIT_CLANG} ${XPOSIT_CFLAGS} \
 
 echo "=== Building pawn library ==="
 
-for src in "${SCRIPT_DIR}"/src/targets/*.cpp \
-          "${SCRIPT_DIR}"/src/targets/float/*.cpp \
-          "${SCRIPT_DIR}"/src/targets/takum/*.cpp \
-          "${SCRIPT_DIR}"/src/arith/*.cpp; do
-    if [ -f "$src" ]; then
-        echo "Compiling: $(basename "$src")"
-        ${RISCV_GXX} ${CXXFLAGS} \
-            -D__riscv_xposit \
-            -I"${SCRIPT_DIR}/include" \
-            -I"${UNIVERSAL_INCLUDE}" \
-            -I"${UNIVERSAL_INCLUDE}/sw" \
-            -I"${REPO_ROOT}/spike-xposit/universal/include/sw" \
-            -std=c++20 \
-            -c "$src" \
-            -o "${BUILD_DIR}/$(basename "$src" .cpp).o"
-    fi
+find "${SCRIPT_DIR}/src" -name '*.cpp' -type f | while read -r src; do
+    echo "Compiling: $(basename "$src")"
+    ${RISCV_GXX} ${CXXFLAGS} \
+        -D__riscv_xposit \
+        -I"${SCRIPT_DIR}/include" \
+        -I"${UNIVERSAL_INCLUDE}" \
+        -I"${UNIVERSAL_INCLUDE}/sw" \
+        -I"${REPO_ROOT}/spike-xposit/universal/include/sw" \
+        -std=c++20 \
+        -c "$src" \
+        -o "${BUILD_DIR}/$(basename "$src" .cpp).o"
 done
 
 echo "=== Creating static library ==="
