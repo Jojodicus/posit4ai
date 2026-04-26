@@ -1,40 +1,28 @@
 /*
- * benchmark.c -- PAWN throughput benchmark
+ * benchmark.c -- PAWN throughput benchmark (posit32 / DATA_WIDTH=32)
  *
- * Measures cycles-per-operation by timing a long sequence of a single opcode.
- * Reports raw elapsed time and effective cycles/op at the configured clock.
+ * Times N independent ADD operations (no RAW hazards -> steady-state throughput).
+ * Reports elapsed time and cycles/op at CLOCK_FREQ_MHZ (edit to match ./impl.sh).
  *
- * Usage:
- *   ./benchmark [N]   (N = number of ADD ops, default 1000)
+ * Usage: ./benchmark [N]   (default N=1000)
  *
- * DBRAM layout:
- *   [0]        operand a  (posit 1.0)
- *   [1]        operand b  (posit 1.0)
- *   [2..N+1]   results (one per ADD; all independent, no RAW hazard)
- *
- * Steady-state throughput applies (no RAW -> no forwarding stalls).
+ * DBRAM layout:  [0] operand a (1.0)   [1] operand b (1.0)   [2..N+1] results
  */
 
 #include "../pawn.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
-/* Must match the CLOCK_FREQ_MHZ used at ./impl.sh time */
-#ifndef CLOCK_FREQ_MHZ
-#define CLOCK_FREQ_MHZ 30
-#endif
+#define CLOCK_FREQ_MHZ 30   /* must match the frequency used in ./impl.sh */
 
-static int load_and_run(pawn_dev_t *dev, const uint64_t *prog, int N,
-                         long long *ns_out)
+static int run(pawn_dev_t *dev, const uint64_t *prog, int N, long long *ns_out)
 {
     pawn_reset(dev);
 
-    uint32_t vals[2] = { 0x40000000, 0x40000000 }; /* posit<32,2> 1.0 */
-    pawn_dbram_write(dev, 0, vals, 2);
+    uint32_t vals[2] = { 0x40000000, 0x40000000 }; /* posit32 1.0 */
+    pawn_dbram_write32(dev, 0, vals, 2);
 
-    if (pawn_load_program(dev, prog, N + 1) != 0)
-        return -1;
+    if (pawn_load_program(dev, prog, N + 1) != 0) return -1;
 
     long long ns = pawn_run_blocking(dev, 5000);
     if (ns < 0) return -1;
@@ -45,14 +33,13 @@ static int load_and_run(pawn_dev_t *dev, const uint64_t *prog, int N,
 int main(int argc, char *argv[])
 {
     int N = 1000;
-    if (argc > 1)
-        N = atoi(argv[1]);
+    if (argc > 1) N = atoi(argv[1]);
     if (N < 1 || N > (1 << 15) - 3) {
         fprintf(stderr, "N must be in [1, %d]\n", (1 << 15) - 3);
         return 1;
     }
 
-    uint64_t *prog = (uint64_t *)malloc((N + 1) * sizeof(uint64_t));
+    uint64_t *prog = malloc((N + 1) * sizeof(uint64_t));
     if (!prog) { perror("malloc"); return 1; }
 
     for (int i = 0; i < N; i++)
@@ -64,28 +51,16 @@ int main(int argc, char *argv[])
 
     long long ns = 0;
 
-    /* warm-up run (MMCM/AXI bus may have cold-start overhead) */
-    if (load_and_run(&dev, prog, N, &ns) != 0) {
-        pawn_close(&dev); free(prog); return 1;
-    }
-
-    /* measured run */
-    if (load_and_run(&dev, prog, N, &ns) != 0) {
-        pawn_close(&dev); free(prog); return 1;
-    }
+    /* warm-up */
+    if (run(&dev, prog, N, &ns) != 0) { pawn_close(&dev); free(prog); return 1; }
+    /* measured */
+    if (run(&dev, prog, N, &ns) != 0) { pawn_close(&dev); free(prog); return 1; }
 
     free(prog);
 
-    double clk_period_ns = 1000.0 / CLOCK_FREQ_MHZ;
-    double cycles        = (double)ns / clk_period_ns;
-    double cycles_per_op = cycles / N;
-    double ops_per_sec   = (double)N / ((double)ns * 1e-9);
-
-    printf("Ops:          %d ADD\n", N);
-    printf("Elapsed:      %.3f us\n", ns / 1000.0);
-    printf("Ops/sec:      %.3e\n", ops_per_sec);
-    printf("Cycles total: %.0f  (at %d MHz assumed)\n", cycles, CLOCK_FREQ_MHZ);
-    printf("Cycles/op:    %.2f\n", cycles_per_op);
+    double cycles_per_op = (double)ns / (1000.0 / CLOCK_FREQ_MHZ) / N;
+    printf("N=%d  elapsed=%.3f us  cycles/op=%.2f  (at %d MHz)\n",
+           N, ns / 1000.0, cycles_per_op, CLOCK_FREQ_MHZ);
 
     pawn_close(&dev);
     return 0;

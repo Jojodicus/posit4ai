@@ -72,7 +72,7 @@ TODO
 
 ## Running on the Zedboard (PetaLinux)
 
-### 1. Build the bitstream
+### Build the bitstream
 
 ```bash
 vim harness/config_pkg.sv   # choose ACCEL_TYPE, DATA_WIDTH, etc.
@@ -81,7 +81,7 @@ vim harness/config_pkg.sv   # choose ACCEL_TYPE, DATA_WIDTH, etc.
 # -> vivado_proj/posit_research.runs/impl_1/zynq_accel_top.bit
 ```
 
-### 2. Cross-compile the userspace programs
+### Cross-compile the userspace programs
 
 Install the ARM toolchain on your host:
 
@@ -96,14 +96,14 @@ Build:
 
 ```bash
 cd sw
-make CROSS=arm-linux-gnueabihf- CLOCK_FREQ_MHZ=30
+make CROSS=arm-linux-gnueabihf- PAWN_DATA_WIDTH=32 CLOCK_FREQ_MHZ=30
 # -> examples/hello_posit  examples/benchmark
 ```
 
-`CLOCK_FREQ_MHZ` must match the frequency used in `./impl.sh` (needed only by
-`benchmark.c` to convert elapsed time to cycle counts).
+Both `PAWN_DATA_WIDTH` and `CLOCK_FREQ_MHZ` must match what is set in
+`harness/config_pkg.sv` and used in `./impl.sh`.
 
-### 3. Copy files to the board
+### Copy files to the board
 
 Set your board's IP (check the PetaLinux boot log or your DHCP leases):
 
@@ -113,7 +113,7 @@ Set your board's IP (check the PetaLinux boot log or your DHCP leases):
 
 This copies the bitstream and both example binaries to `~/pawn/` on the board.
 
-### 4. Program the bitstream
+### Program the bitstream
 
 SSH to the board (`./scripts/board_run.sh 192.168.1.100 root`) and run:
 
@@ -124,7 +124,7 @@ dd if=/home/root/pawn/zynq_accel_top.bit of=/dev/xdevcfg
 
 The DONE LED on the Zedboard lights up when configuration succeeds.
 
-### 5. Run the examples
+### Run the examples
 
 ```bash
 /home/root/pawn/examples/hello_posit
@@ -135,7 +135,7 @@ Both programs open `/dev/mem` directly (root required by default).
 `hello_posit` computes 4 posit additions and prints the raw hex results.
 `benchmark` times N independent ADD operations and reports cycles/op.
 
-### 7. Profiling
+### Profiling
 
 **Elapsed time** is returned by `pawn_run_blocking` in nanoseconds
 (`CLOCK_MONOTONIC`). Convert to cycles: `cycles = ns / (1000.0 / FREQ_MHZ)`.
