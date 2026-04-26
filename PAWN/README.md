@@ -96,12 +96,9 @@ Build:
 
 ```bash
 cd sw
-make CROSS=arm-linux-gnueabihf- PAWN_DATA_WIDTH=32 CLOCK_FREQ_MHZ=30
+make CROSS=arm-linux-gnueabihf-
 # -> examples/hello_posit  examples/benchmark
 ```
-
-Both `PAWN_DATA_WIDTH` and `CLOCK_FREQ_MHZ` must match what is set in
-`harness/config_pkg.sv` and used in `./impl.sh`.
 
 ### Copy files to the board
 
@@ -146,6 +143,5 @@ Both programs open `/dev/mem` directly (root required by default).
 perf stat ./examples/benchmark 4096
 ```
 
-For finer-grained profiling of the host-side overhead (mmap vs. AXI latency):
-wrap individual `pawn_dbram_write` / `pawn_load_program` calls with
-`clock_gettime(CLOCK_MONOTONIC, ...)` pairs in your own program.
+For finer-grained host-side profiling wrap individual `pawn_dbram_write32` /
+`pawn_load_program` calls with `clock_gettime(CLOCK_MONOTONIC, ...)` pairs.
