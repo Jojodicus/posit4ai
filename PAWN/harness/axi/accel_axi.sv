@@ -105,15 +105,22 @@ module accel_axi
   //   DBRAM trigger = write to 0x18 (32-bit) or 0x1C (64-bit) -> from wr_data_q
   assign ibram_wdata_o = ibram_we_o ? {wr_data_q[31:0], reg_ibram_data_lo}
                                     : {reg_ibram_data_hi, reg_ibram_data_lo};
+  // For DATA_WIDTH <= 32: posit encoding lives in the HIGH DATA_WIDTH bits of
+  // the 32-bit AXI word so that a posit32 value (uint32_t) works unchanged
+  // across bitstream widths.  For DATA_WIDTH=64 the full 64 bits are used.
   assign dbram_wdata_o = dbram_we_o
-      ? ((DATA_WIDTH == 64) ? {wr_data_q[DATA_WIDTH-33:0], reg_dbram_data}
-                            : wr_data_q[DATA_WIDTH-1:0])
-      : ((DATA_WIDTH == 64) ? {reg_dbram_data_hi[DATA_WIDTH-33:0], reg_dbram_data}
-                            : reg_dbram_data[DATA_WIDTH-1:0]);
+      ? ((DATA_WIDTH == 64) ? {wr_data_q[31:0], reg_dbram_data}
+                            : wr_data_q[31 -: DATA_WIDTH])
+      : ((DATA_WIDTH == 64) ? {reg_dbram_data_hi[31:0], reg_dbram_data}
+                            : reg_dbram_data[31 -: DATA_WIDTH]);
 
-  // BRAM read data (64-bit zero-extended for read-path mux)
+  // BRAM read data: shift posit value into the high DATA_WIDTH bits of the
+  // 32-bit read word so the host receives the same bit pattern it wrote.
+  localparam int BRAM_RD_SHIFT = (DATA_WIDTH < 64) ? (32 - DATA_WIDTH) : 0;
   logic [63:0] dbram_rdata_64;
-  assign dbram_rdata_64 = 64'(dbram_rdata_i);
+  assign dbram_rdata_64 = (DATA_WIDTH == 64)
+      ? 64'(dbram_rdata_i)
+      : {32'b0, 32'(dbram_rdata_i) << BRAM_RD_SHIFT};
 
   // -- AXI write channel -------------------------------------------
   always_comb begin

@@ -79,14 +79,28 @@ module accel_axi_burst
 );
 
   localparam int BAW = $clog2(DATA_DEPTH);
+  // Shift amount to move the posit encoding between bus [31:0] high bits and BRAM [DATA_WIDTH-1:0].
+  // DATA_WIDTH=8: 24, DATA_WIDTH=16: 16, DATA_WIDTH=32: 0.  Unused for DATA_WIDTH=64.
+  localparam int BRAM_SHIFT = (DATA_WIDTH < 64) ? (32 - DATA_WIDTH) : 0;
 
   // -- Address -> BRAM index ------------------------------------
-  // Inline function: extract BRAM base index from an AXI byte address.
   function automatic logic [BAW-1:0] bram_index(logic [AXI_ADDR_WIDTH-1:0] a);
     if (DATA_WIDTH == 64)
       return a[BAW+2:3];   // 8-byte words
     else
       return a[BAW+1:2];   // 4-byte words
+  endfunction
+
+  // -- High-bits extract for write: posit lives in [31:32-DATA_WIDTH] of bus word.
+  function automatic logic [DATA_WIDTH-1:0] extract_wdata(logic [63:0] wdata);
+    if (DATA_WIDTH == 64) return wdata;
+    else                  return wdata[31 -: DATA_WIDTH];
+  endfunction
+
+  // -- High-bits pack for read: shift BRAM value into [31:32-DATA_WIDTH] of rdata.
+  function automatic logic [63:0] pack_rdata(logic [DATA_WIDTH-1:0] rdata);
+    if (DATA_WIDTH == 64) return rdata;
+    else                  return {32'b0, 32'(rdata) << BRAM_SHIFT};
   endfunction
 
   // -- Write FSM (W_IDLE -> W_BURST -> W_RESP) --------------------
@@ -193,7 +207,7 @@ module accel_axi_burst
     s_axi_rid     = rd_id_q;
     s_axi_rresp   = rd_illegal_q ? 2'b10 : 2'b00;
     s_axi_rlast   = (rd_beat_q == rd_arlen_q);
-    s_axi_rdata   = 64'(b_rdata);
+    s_axi_rdata   = pack_rdata(b_rdata);
     rd_bram_addr  = rd_base_q + BAW'(rd_beat_q);
 
     unique case (rd_state_q)
@@ -252,7 +266,7 @@ module accel_axi_burst
       // Write path: drive beat address; WE is gated by !running_i so that
       // beats accepted during an active run are silently dropped (SLVERR returned).
       b_addr  = wr_base_q + BAW'(wr_beat_q);
-      b_wdata = s_axi_wdata[DATA_WIDTH-1:0];
+      b_wdata = extract_wdata(s_axi_wdata);
       b_we    = wstrb_write(s_axi_wstrb) && !wr_illegal_q && !running_i;
     end else begin
       // Read path: drive the pre-computed read address

@@ -81,28 +81,7 @@ int pawn_load_program(pawn_dev_t *dev, const uint64_t *instrs, size_t count)
     return 0;
 }
 
-/* ---- DBRAM bulk write via burst slave ---- */
-/*
- * RTL: b_wdata = s_axi_wdata[DATA_WIDTH-1:0]
- * The burst slave takes the low DATA_WIDTH bits of each 32-bit AXI beat.
- * Host values use the upper-bits convention, so shift right before writing.
- */
-
-void pawn_dbram_write8(pawn_dev_t *dev, uint32_t base, const uint32_t *data,
-                       size_t count)
-{
-    volatile uint32_t *dst = dev->burst + base;
-    for (size_t i = 0; i < count; i++)
-        dst[i] = data[i] >> 24;   /* posit8  in [31:24] -> bus [7:0]  */
-}
-
-void pawn_dbram_write16(pawn_dev_t *dev, uint32_t base, const uint32_t *data,
-                        size_t count)
-{
-    volatile uint32_t *dst = dev->burst + base;
-    for (size_t i = 0; i < count; i++)
-        dst[i] = data[i] >> 16;   /* posit16 in [31:16] -> bus [15:0] */
-}
+/* ---- DBRAM bulk via burst slave ---- */
 
 void pawn_dbram_write32(pawn_dev_t *dev, uint32_t base, const uint32_t *data,
                         size_t count)
@@ -116,38 +95,15 @@ void pawn_dbram_write64(pawn_dev_t *dev, uint32_t base, const uint64_t *data,
                         size_t count)
 {
     /*
-     * Burst slave for DATA_WIDTH=64: bram_index = addr[BAW+2:3], so BRAM[i]
-     * spans byte addresses [i*8 .. i*8+7].  Two 32-bit GP1 beats hit the same
-     * BRAM index and together deliver the full 64-bit word (lo first, hi second).
+     * DATA_WIDTH=64: bram_index = addr[BAW+2:3], so BRAM[i] spans [i*8 .. i*8+7].
+     * Two 32-bit GP1 beats at burst[base*2 + i*2] and burst[base*2 + i*2 + 1]
+     * both resolve to BRAM[base+i] and deliver lo then hi.
      */
     volatile uint32_t *dst = dev->burst + base * 2;
     for (size_t i = 0; i < count; i++) {
-        dst[i * 2]     = (uint32_t)(data[i]);        /* low  32 bits */
-        dst[i * 2 + 1] = (uint32_t)(data[i] >> 32);  /* high 32 bits */
+        dst[i * 2]     = (uint32_t)(data[i]);
+        dst[i * 2 + 1] = (uint32_t)(data[i] >> 32);
     }
-}
-
-/* ---- DBRAM bulk read via burst slave ---- */
-/*
- * RTL: s_axi_rdata = 64'(b_rdata)  (zero-extended)
- * Reading a 32-bit word from burst gives the BRAM value in bits [DATA_WIDTH-1:0].
- * Shift left to restore the upper-bits host convention.
- */
-
-void pawn_dbram_read8(pawn_dev_t *dev, uint32_t base, uint32_t *data,
-                      size_t count)
-{
-    volatile uint32_t *src = dev->burst + base;
-    for (size_t i = 0; i < count; i++)
-        data[i] = src[i] << 24;   /* bus [7:0]  -> host [31:24] */
-}
-
-void pawn_dbram_read16(pawn_dev_t *dev, uint32_t base, uint32_t *data,
-                       size_t count)
-{
-    volatile uint32_t *src = dev->burst + base;
-    for (size_t i = 0; i < count; i++)
-        data[i] = src[i] << 16;   /* bus [15:0] -> host [31:16] */
 }
 
 void pawn_dbram_read32(pawn_dev_t *dev, uint32_t base, uint32_t *data,
@@ -167,34 +123,6 @@ void pawn_dbram_read64(pawn_dev_t *dev, uint32_t base, uint64_t *data,
 }
 
 /* ---- DBRAM single-word PIO via AXI-Lite ---- */
-/*
- * RTL write path: dbram_wdata_o = wr_data_q[DATA_WIDTH-1:0]
- * Always set DBRAM_ADDR explicitly; don't rely on auto-increment.
- */
-
-void pawn_dbram_poke8(pawn_dev_t *dev, uint32_t idx, uint32_t val)
-{
-    reg_write(dev->lite, PAWN_REG_DBRAM_ADDR, idx);
-    reg_write(dev->lite, PAWN_REG_DBRAM_DATA, val >> 24);
-}
-
-uint32_t pawn_dbram_peek8(pawn_dev_t *dev, uint32_t idx)
-{
-    reg_write(dev->lite, PAWN_REG_DBRAM_ADDR, idx);
-    return reg_read(dev->lite, PAWN_REG_DBRAM_DATA) << 24;
-}
-
-void pawn_dbram_poke16(pawn_dev_t *dev, uint32_t idx, uint32_t val)
-{
-    reg_write(dev->lite, PAWN_REG_DBRAM_ADDR, idx);
-    reg_write(dev->lite, PAWN_REG_DBRAM_DATA, val >> 16);
-}
-
-uint32_t pawn_dbram_peek16(pawn_dev_t *dev, uint32_t idx)
-{
-    reg_write(dev->lite, PAWN_REG_DBRAM_ADDR, idx);
-    return reg_read(dev->lite, PAWN_REG_DBRAM_DATA) << 16;
-}
 
 void pawn_dbram_poke32(pawn_dev_t *dev, uint32_t idx, uint32_t val)
 {

@@ -19,7 +19,7 @@ static int run(pawn_dev_t *dev, const uint64_t *prog, int N, long long *ns_out)
 {
     pawn_reset(dev);
 
-    uint32_t vals[2] = { 0x40000000, 0x40000000 }; /* posit32 1.0 */
+    uint32_t vals[2] = { 0x40000000, 0x40000000 }; /* posit 1.0 (all widths) */
     pawn_dbram_write32(dev, 0, vals, 2);
 
     if (pawn_load_program(dev, prog, N + 1) != 0) return -1;
