@@ -203,7 +203,9 @@ foreach pkg {opcodes_pkg.sv cva6_config_pkg.sv riscv_pkg_mini.sv ariane_pkg_mini
     catch { set_property used_in_synthesis  true [get_files */$pkg] }
 }
 
-# -- Clocking Wizard IP ---------------------------------------------
+# -- Clocking Wizard IPs --------------------------------------------
+# clk_wiz_0: used by accel_harness (build flow). 100 MHz board clock ->
+#   CLKOUT1=target (clk_core), CLKOUT2=2x (clk_bram).
 create_ip -name clk_wiz -vendor xilinx.com -library ip -version 6.0 -module_name clk_wiz_0
 set_property -dict [list \
     CONFIG.PRIM_IN_FREQ {100.000} \

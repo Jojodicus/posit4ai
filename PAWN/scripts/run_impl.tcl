@@ -21,7 +21,7 @@ set clock_period_ns [expr {1000.0 / $clock_freq_mhz}]
 puts "=========================================="
 puts "Full Implementation Flow"
 puts "Target: zynq_accel_top (PS7 + accel_axi)"
-puts "Clock: ${clock_freq_mhz} MHz (${clock_period_ns} ns period)"
+puts "Clock: ${clock_freq_mhz} MHz (clk_wiz_0 CLKOUT1) + 2x BRAM (CLKOUT2)"
 puts "=========================================="
 
 # Open or create project
@@ -39,27 +39,33 @@ if {[file exists ${proj_dir}/${proj_name}.xpr]} {
 # Set top-level to BD wrapper for implementation
 set_property top zynq_accel_top [current_fileset]
 
-# Detect whether the existing BD's FCLK0 frequency matches the requested one.
-# PCW_FPGA0_PERIPHERAL_FREQMHZ is the canonical source for PS7 FCLK_CLK0; if it
-# differs from the request, rebuild the BD (create_bd.tcl is idempotent).
+# BD is frequency-independent (PL_CLK comes from clk_wiz_0 outside the BD).
+# Rebuild only if the BD doesn't exist yet.
 set need_bd_rebuild 1
-set ps7_cells [get_bd_cells -quiet -hierarchical -filter {VLNV =~ "*processing_system7*"}]
-if {[llength $ps7_cells] > 0} {
-    set cur_freq [get_property CONFIG.PCW_FPGA0_PERIPHERAL_FREQMHZ [lindex $ps7_cells 0]]
-    if {[string equal $cur_freq "$clock_freq_mhz"] ||
-        [expr {abs($cur_freq - $clock_freq_mhz) < 0.001}]} {
-        set need_bd_rebuild 0
-    }
+set existing_bd [get_files -quiet "zynq_ps.bd"]
+if {$existing_bd ne ""} {
+    set need_bd_rebuild 0
 }
 
 if {$need_bd_rebuild} {
-    puts "Rebuilding block design for FCLK_CLK0 = ${clock_freq_mhz} MHz..."
-    set env(CLOCK_FREQ_MHZ) $clock_freq_mhz
+    puts "Building block design (frequency-independent; PL clock from clk_wiz_0)..."
     source -notrace [file join $root_dir scripts create_bd.tcl]
     set_property top zynq_accel_top [current_fileset]
 } else {
-    puts "Existing BD already configured for ${clock_freq_mhz} MHz -- no rebuild needed."
+    puts "Existing BD found -- no rebuild needed."
 }
+
+# Configure clk_wiz_0: 100 MHz crystal -> CLKOUT1=core freq, CLKOUT2=2x (BRAM).
+# Same configuration as run_build.tcl; both tops share the one clk_wiz_0 IP.
+set bram_freq_mhz [expr {$clock_freq_mhz * 2}]
+puts "Updating clk_wiz_0: 100 MHz (in) / ${clock_freq_mhz} MHz (core) / ${bram_freq_mhz} MHz (BRAM)..."
+set_property -dict [list \
+    CONFIG.PRIM_IN_FREQ {100.000} \
+    CONFIG.CLKOUT1_REQUESTED_OUT_FREQ "$clock_freq_mhz" \
+    CONFIG.CLKOUT2_USED {true} \
+    CONFIG.CLKOUT2_REQUESTED_OUT_FREQ "$bram_freq_mhz" \
+] [get_ips clk_wiz_0]
+generate_target all [get_ips clk_wiz_0]
 
 update_compile_order -fileset sources_1
 

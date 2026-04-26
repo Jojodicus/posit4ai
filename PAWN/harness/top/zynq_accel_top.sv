@@ -1,7 +1,11 @@
 // full implementation top (PS7 + accel_axi + accel_core).
-// Connects the Zynq PS7 block design wrapper to the AXI-Lite accelerator slave.
+// Clocking: 100 MHz crystal (GCLK/Y9) -> clk_wiz_0 -> clk_core (CLOCK_FREQ_MHZ)
+//                                                    -> clk_bram (2x clk_core).
+// clk_core feeds both M_AXI_GP0/GP1_ACLK (via PL_CLK BD port) and the accelerator,
+// so the AXI master and slave share a single clock domain -- no CDC on the AXI bus.
 
 module zynq_accel_top (
+  input  logic        GCLK,          // 100 MHz board crystal (Zedboard Y9)
   // Zedboard DDR and fixed I/O (passed through to PS7 block design)
   // Port names use standard Zynq XDC names; mapped to zynq_ps_wrapper's _0_ variants below.
   inout  logic [14:0] DDR_addr,
@@ -29,8 +33,23 @@ module zynq_accel_top (
 
   import config_pkg::*;
 
+  // -- Clocking: one MMCM for both core and BRAM -----------------------
+  // CLKOUT1 = CLOCK_FREQ_MHZ (core, AXI slave, AXI master via PL_CLK BD port)
+  // CLKOUT2 = 2x CLOCK_FREQ_MHZ (DBRAM port-B, alpha-blending / XAPP706)
+  // USE_SAFE_CLOCK_STARTUP holds outputs low until locked; PS7 boot time >>
+  // MMCM lock time so no explicit reset gating on locked is needed.
+  logic clk_core, clk_bram;
+
+  clk_wiz_0 u_clk_wiz (
+    .clk_in1  ( GCLK      ),
+    .reset    ( 1'b0      ),
+    .clk_out1 ( clk_core  ),
+    .clk_out2 ( clk_bram  ),
+    .locked   (           )
+  );
+
   // -- Block design: PS7 + proc_sys_reset + axi_protocol_converter ---
-  logic        FCLK_CLK0;           // 100 MHz from PS7
+  // PL_CLK (= clk_core) drives M_AXI_GP0/GP1_ACLK and rst_ps7 inside the BD.
   logic        peripheral_aresetn;  // synchronised active-low reset from proc_sys_reset
 
   // AXI-Lite master from PS7 (via AXI protocol converter)
@@ -125,7 +144,9 @@ module zynq_accel_top (
     .FIXED_IO_0_ps_clk    ( FIXED_IO_ps_clk      ),
     .FIXED_IO_0_ps_porb   ( FIXED_IO_ps_porb     ),
     .FIXED_IO_0_ps_srstb  ( FIXED_IO_ps_srstb    ),
-    .FCLK_CLK0            ( FCLK_CLK0            ),
+    // PL_CLK: drives M_AXI_GP0/GP1_ACLK and rst_ps7 inside the BD.
+    // Must match clk_i of accel_axi and accel_axi_burst (no CDC on AXI bus).
+    .PL_CLK               ( clk_core             ),
     .peripheral_aresetn   ( peripheral_aresetn   ),
     // AXI-Lite master -- prot signals unused by accel_axi
     .M_AXI_LITE_awaddr    ( M_AXI_LITE_awaddr    ),
@@ -228,7 +249,7 @@ module zynq_accel_top (
 
   // -- AXI-Lite accelerator slave ---------------------------------------
   accel_axi u_accel_axi (
-    .clk_i             ( FCLK_CLK0            ),
+    .clk_i             ( clk_core             ),
     .rst_ni            ( peripheral_aresetn   ),
     .s_axi_awaddr      ( M_AXI_LITE_awaddr    ),
     .s_axi_awvalid     ( M_AXI_LITE_awvalid   ),
@@ -271,7 +292,7 @@ module zynq_accel_top (
   //   a SmartConnect width-upsizer would be needed for full 64-bit throughput (future work).
   // IDs: GP1 uses 12-bit IDs; accel_axi_burst AXI_ID_WIDTH=4 -> lower 4 bits used.
   accel_axi_burst u_burst (
-    .clk_i             ( FCLK_CLK0                    ),
+    .clk_i             ( clk_core                     ),
     .rst_ni            ( peripheral_aresetn            ),
     .running_i         ( accel_running                 ),
     // AW channel
@@ -337,11 +358,9 @@ module zynq_accel_top (
   );
 
   // -- Accelerator core --------------------------------------------
-  // TODO: clk_bram_i should be 2x FCLK_CLK0 (add second clk_wiz for full Step B speed).
-  // Tied to FCLK_CLK0 for now -- design still functionally correct, throughput at 1/2 rate.
   accel_core u_core (
-    .clk_i         ( FCLK_CLK0        ),
-    .clk_bram_i    ( FCLK_CLK0        ),
+    .clk_i         ( clk_core         ),
+    .clk_bram_i    ( clk_bram         ),
     .rst_ni        ( accel_rst_n      ),
     .start_i       ( accel_start      ),
     .done_o        ( accel_done       ),

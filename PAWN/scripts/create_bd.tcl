@@ -6,14 +6,9 @@
 
 set root_dir [file normalize [file join [file dirname [info script]] ..]]
 
-if {[info exists env(CLOCK_FREQ_MHZ)]} {
-    set clock_freq_mhz $env(CLOCK_FREQ_MHZ)
-} else {
-    set clock_freq_mhz 100
-}
-
 puts "=========================================="
-puts "Creating Zynq PS Block Design (FCLK0 = ${clock_freq_mhz} MHz)"
+puts "Creating Zynq PS Block Design"
+puts "(PL fabric clock comes from clk_wiz_0 via PL_CLK port; FCLK not used for PL)"
 puts "=========================================="
 
 # Remove existing block design if present
@@ -63,7 +58,6 @@ if {$board_set} {
 # Configure PS7 for Zedboard
 set_property -dict [list \
     CONFIG.PCW_USE_M_AXI_GP0 {1} \
-    CONFIG.PCW_FPGA0_PERIPHERAL_FREQMHZ "$clock_freq_mhz" \
     CONFIG.PCW_CRYSTAL_PERIPHERAL_FREQMHZ {33.333333} \
     CONFIG.PCW_PRESET_BANK0_VOLTAGE {LVCMOS 3.3V} \
     CONFIG.PCW_PRESET_BANK1_VOLTAGE {LVCMOS 1.8V} \
@@ -99,7 +93,10 @@ set_property -dict [list \
 ] [get_bd_cells axi_pc]
 
 # --- Connect Clock Network ---
-connect_bd_net [get_bd_pins ps7/FCLK_CLK0] \
+# PL_CLK is driven by clk_wiz_0 CLKOUT1 in zynq_accel_top (outside the BD).
+# M_AXI_GP0/GP1_ACLK and the AXI slave (accel_axi) all use PL_CLK -- no CDC.
+create_bd_port -dir I -type clk PL_CLK
+connect_bd_net [get_bd_ports PL_CLK] \
     [get_bd_pins ps7/M_AXI_GP0_ACLK] \
     [get_bd_pins rst_ps7/slowest_sync_clk] \
     [get_bd_pins axi_pc/aclk]
@@ -116,10 +113,6 @@ connect_bd_intf_net [get_bd_intf_pins ps7/M_AXI_GP0] \
     [get_bd_intf_pins axi_pc/S_AXI]
 
 # --- Export External Ports ---
-# Clock output (FCLK_CLK0)
-create_bd_port -dir O -type clk FCLK_CLK0
-connect_bd_net [get_bd_pins ps7/FCLK_CLK0] [get_bd_ports FCLK_CLK0]
-
 # Synchronized reset output (active low)
 create_bd_port -dir O -type rst peripheral_aresetn
 connect_bd_net [get_bd_pins rst_ps7/peripheral_aresetn] [get_bd_ports peripheral_aresetn]
@@ -142,9 +135,9 @@ set_property -dict [list \
     CONFIG.MI_PROTOCOL {AXI4} \
 ] [get_bd_cells axi_pc_gp1]
 
-# GP1 and its protocol converter share FCLK_CLK0
-connect_bd_net [get_bd_pins ps7/FCLK_CLK0] [get_bd_pins ps7/M_AXI_GP1_ACLK]
-connect_bd_net [get_bd_pins ps7/FCLK_CLK0] [get_bd_pins axi_pc_gp1/aclk]
+# GP1 and its protocol converter share PL_CLK (same as GP0 and accel_axi)
+connect_bd_net [get_bd_ports PL_CLK] [get_bd_pins ps7/M_AXI_GP1_ACLK]
+connect_bd_net [get_bd_ports PL_CLK] [get_bd_pins axi_pc_gp1/aclk]
 connect_bd_net [get_bd_pins rst_ps7/peripheral_aresetn] [get_bd_pins axi_pc_gp1/aresetn]
 
 # GP1 -> axi_pc_gp1 -> exported M_AXI_BURST (burst-capable AXI4, 32-bit data, base 0x8000_0000)
@@ -171,7 +164,7 @@ assign_bd_address \
 
 # Associate the exported AXI interface ports with the exported clock so that
 # BD validation can verify clock/data coherency.
-set_property CONFIG.ASSOCIATED_BUSIF {M_AXI_LITE:M_AXI_BURST} [get_bd_ports FCLK_CLK0]
+set_property CONFIG.ASSOCIATED_BUSIF {M_AXI_LITE:M_AXI_BURST} [get_bd_ports PL_CLK]
 
 # --- Validate Block Design ---
 validate_bd_design
@@ -200,10 +193,10 @@ puts ""
 puts "=========================================="
 puts "Block Design Created Successfully"
 puts "=========================================="
-puts "  PS7 FCLK_CLK0:     ${clock_freq_mhz} MHz"
+puts "  PL_CLK:            input from clk_wiz_0 CLKOUT1 (drives AXI master + slave)"
 puts "  GP0 slave base:    0x43C00000  (control + IBRAM, AXI4-Lite)"
 puts "  GP1 burst base:    0x80000000  (DBRAM bulk load, AXI4 burst)"
 puts "  BD Wrapper:        zynq_ps_wrapper"
-puts "  Exported ports:    FCLK_CLK0, peripheral_aresetn, M_AXI_LITE_*, M_AXI_BURST_*"
+puts "  Exported ports:    PL_CLK (in), peripheral_aresetn (out), M_AXI_LITE_*, M_AXI_BURST_*"
 puts "  Top-level wrapper: zynq_accel_top (connects BD + accel_axi + accel_axi_burst)"
 puts "=========================================="

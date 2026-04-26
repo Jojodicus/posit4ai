@@ -10,10 +10,15 @@
 ##   - No PL-side I/O pins (all communication via PS7 M_AXI_GP0)
 ##   - DDR and FIXED_IO constraints handled by PS7 IP
 
+## GCLK pin (zynq_accel_top impl flow only; harmless warning in accel_harness synth)
+## Zedboard 100 MHz oscillator -> clk_wiz_0 MMCM -> clk_core + clk_bram (2x).
+set_property PACKAGE_PIN Y9        [get_ports {GCLK}]
+set_property IOSTANDARD  LVCMOS33  [get_ports {GCLK}]
+create_clock -period 10.0 -name GCLK [get_ports {GCLK}]
+
 ## Clock Domain Crossing
-## The impl flow (zynq_accel_top) uses a single clock domain (FCLK_CLK0).
-## The build flow (accel_harness) has clk_wiz_0 which may run at a different
-## frequency; its constraints are handled in run_build.tcl.
+## Both flows use clk_wiz_0: 100 MHz crystal -> CLKOUT1 (core+AXI) + CLKOUT2 (2x BRAM).
+## In zynq_accel_top: M_AXI_GP0/GP1_ACLK = CLKOUT1 = accel_axi clk_i -> no CDC on AXI bus.
 
 ## Additional Timing Exceptions
 
