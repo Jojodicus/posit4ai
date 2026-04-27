@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 199309L
 #include "pawn.h"
 
 #include <fcntl.h>

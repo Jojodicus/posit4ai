@@ -11,7 +11,7 @@ CC    := $(CROSS)gcc
 CFLAGS := -O2 -Wall -Wextra -std=c11
 
 DRIVER_OBJ   := pawn.o
-EXAMPLES     := hello_posit benchmark
+EXAMPLES     := hello_posit.elf benchmark.elf
 EXAMPLE_BINS := $(addprefix examples/, $(EXAMPLES))
 
 .PHONY: all clean
@@ -21,7 +21,7 @@ all: $(EXAMPLE_BINS)
 $(DRIVER_OBJ): pawn.c pawn.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-examples/%: examples/%.c $(DRIVER_OBJ) pawn.h
+examples/%.elf: examples/%.c $(DRIVER_OBJ) pawn.h
 	$(CC) $(CFLAGS) -o $@ $< $(DRIVER_OBJ)
 
 clean:
