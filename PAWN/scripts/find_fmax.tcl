@@ -51,6 +51,12 @@ proc run_impl_at {freq_mhz root_dir} {
 
     update_compile_order -fileset sources_1
 
+    # Force clk_wiz_0 to re-synthesize; without this Vivado reuses the stale
+    # 100 MHz DCP and STA always reports the same WNS regardless of frequency.
+    reset_run clk_wiz_0_synth_1
+    launch_runs clk_wiz_0_synth_1 -jobs 8
+    wait_on_run clk_wiz_0_synth_1
+
     reset_run synth_1
     launch_runs synth_1 -jobs 8
     wait_on_run synth_1

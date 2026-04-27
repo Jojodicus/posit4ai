@@ -22,12 +22,11 @@ create_clock -period 10.0 -name GCLK [get_ports {GCLK}]
 
 ## Additional Timing Exceptions
 
-## Step B: DBRAM -> arith_unit multicycle path constraint
-## data_mem_reg* is clocked at clk_bram (2x clk_i). The path from the BRAM
-## output registers (op_a_q / op_b_q, captured at clk_bram phase 1) to arith_unit
-## inputs has a full clk_i period to settle (7.5 ns at 100 MHz arith / 200 MHz BRAM).
-## Without this constraint Vivado applies a 5 ns (clk_bram) setup budget.
-set_multicycle_path -setup 2 -from [get_cells {u_core/data_mem_reg*}] \
-    -to [get_cells -filter {IS_SEQUENTIAL} {u_core/u_arith/*}]
-set_multicycle_path -hold 1 -from [get_cells {u_core/data_mem_reg*}] \
-    -to [get_cells -filter {IS_SEQUENTIAL} {u_core/u_arith/*}]
+## DBRAM operand CDC: op_a_q/op_b_q/fwd_q are clk_bram FFs (phase 1, T/2 before
+## the next clk_i edge). Their T/2 window is too narrow for the 29 ns PAU path.
+## op_a_wr_q/op_b_wr_q/fwd_wr_q (accel_core.sv) are clk_i FFs that re-sample
+## these on the rising clk_i edge that starts each EX cycle. By that edge,
+## op_a_q already holds the current instruction's operand (BRAM read completed
+## at clk_bram phase 1 of the preceding ID cycle). So op_a_wr_q.Q is immediately
+## valid with no pipeline latency added. The op_{a,b}_wr_q -> u_arith/* paths
+## are clk_i -> clk_i with a full T budget and need no timing exception.

@@ -209,6 +209,27 @@ module accel_core
   logic [DATA_WIDTH-1:0] fwd_q;
   logic                  fwd_hit_a_q, fwd_hit_b_q;
 
+  // Sync registers: re-sample clk_bram-domain FFs into clk_i domain.
+  // op_a_q/op_b_q/fwd_q are launched by clk_bram phase 1 (T/2 before the next
+  // clk_i edge). That T/2 window is smaller than the 29 ns PAU combinational path
+  // at 30 MHz (T/2 = 16.7 ns). Capturing into clk_i FFs gives a full T window:
+  // launched at edge N, captured at edge N+1. op_a_q already holds the current
+  // instruction's operand before edge N (BRAM read completes at phase 1 of the
+  // preceding ID cycle), so op_a_wr_q.Q at cycle N = correct operand with no
+  // additional pipeline latency.
+  logic [DATA_WIDTH-1:0] op_a_wr_q, op_b_wr_q, fwd_wr_q;
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      op_a_wr_q <= '0;
+      op_b_wr_q <= '0;
+      fwd_wr_q  <= '0;
+    end else begin
+      op_a_wr_q <= op_a_q;
+      op_b_wr_q <= op_b_q;
+      fwd_wr_q  <= fwd_q;
+    end
+  end
+
   // -- PC ----------------------------------------------------------------
   logic [$clog2(INSTR_DEPTH)-1:0] pc_q;
 
@@ -267,8 +288,8 @@ module accel_core
     dbram_porta_we    = 1'b0;
     dbram_portb_addr  = '0;
     arith_valid_i     = 1'b0;
-    arith_op_a        = op_a_q;
-    arith_op_b        = op_b_q;
+    arith_op_a        = op_a_wr_q;
+    arith_op_b        = op_b_wr_q;
     arith_opcode      = id_ex_q.opcode;
 
     unique case (seq_state_q)
@@ -298,8 +319,8 @@ module accel_core
         //       DBRAM read (which would be stale by exactly one cycle).
         if (id_ex_valid_q && arith_ready_o) begin
           arith_valid_i = 1'b1;
-          arith_op_a    = fwd_hit_a_q ? fwd_q : op_a_q;
-          arith_op_b    = fwd_hit_b_q ? fwd_q : op_b_q;
+          arith_op_a    = fwd_hit_a_q ? fwd_wr_q : op_a_wr_q;
+          arith_op_b    = fwd_hit_b_q ? fwd_wr_q : op_b_wr_q;
           arith_opcode  = id_ex_q.opcode;
         end
       end
