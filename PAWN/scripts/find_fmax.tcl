@@ -115,6 +115,7 @@ proc log {msg} {
     global log_fh
     puts $msg
     puts $log_fh $msg
+    flush $log_fh
 }
 
 puts $log_fh "find_fmax run -- [clock format [clock seconds]]"
