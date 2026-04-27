@@ -170,35 +170,8 @@ if {$final_whs < 0} {
 }
 
 puts "\n=========================================="
-puts "Generating Bitstream..."
-puts "=========================================="
-
-# Generate bitstream
-launch_runs impl_1 -to_step write_bitstream -jobs 8
-wait_on_run impl_1
-
-set bitstream_file [file normalize $root_dir/vivado_proj/posit_research.runs/impl_1/zynq_accel_top.bit]
-if {[file exists $bitstream_file]} {
-    puts "\nBitstream generated successfully!"
-    puts "Location: $bitstream_file"
-} else {
-    puts "\nERROR: Bitstream generation failed!"
-    exit 1
-}
-
-puts "\n=========================================="
 puts "Implementation Complete!"
 puts "=========================================="
 puts "Reports available in: $root_dir/reports/"
-puts "Bitstream: $bitstream_file"
-puts ""
-puts "AXI Slave Register Map (base: 0x43C00000):"
-puts "  0x00: CTRL         \[0\]=START, \[1\]=RESET"
-puts "  0x04: STATUS        \[0\]=DONE,  \[1\]=RUNNING"
-puts "  0x08: IBRAM_ADDR    instruction BRAM word index"
-puts "  0x0C: IBRAM_DATA_LO instruction bits \[31:0\]"
-puts "  0x10: IBRAM_DATA_HI instruction bits \[63:32\] (write triggers BRAM write)"
-puts "  0x14: DBRAM_ADDR    data BRAM word index"
-puts "  0x18: DBRAM_DATA    data BRAM word (32-bit)"
-puts "  0x1C: DBRAM_DATA_HI data BRAM high word (DATA_WIDTH=64 only)"
+puts "To generate the bitstream run:  ./bit.sh ${clock_freq_mhz}"
 puts "=========================================="
