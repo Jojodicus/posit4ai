@@ -100,28 +100,101 @@ module accel_core
   // These are sampled by arith_unit at clk_i ^ of the EX cycle (after phase 1 of ID).
   logic [DATA_WIDTH-1:0] op_a_q, op_b_q;
 
-  // -- IBRAM -- true dual-port BRAM -------------------------------------
-  // Memory array: sync only (no async reset) so Vivado infers BRAM.
+  // -- IBRAM -- true dual-port BRAM, clocked at clk_bram (2x) ---------------
+  // Matches the DBRAM double-pump pattern (XAPP706 alpha-blending):
+  //   phase 0 (read sub-cycle): sample instr_mem for both ports
+  //   phase 1 (write sub-cycle): commit host write; advance IF/ID register
   //
-  // Port A -- host read/write (ibram_addr_i), clk_i
-  // Port B -- IF-stage fetch  (pc_q, read-only), clk_i
+  // Port A -- host read/write (ibram_addr_i / ibram_we_i)
+  //   A phase-0 WE arrival is latched into ibram_host_*_q and executed at
+  //   phase 1. A phase-1 arrival writes directly. Both paths produce one write
+  //   per clk_i cycle regardless of AXI-burst clock phase.
+  // Port B -- IF-stage fetch (pc_q, read-only)
+  //   ibram_fetch_rdata is the IF/ID pipeline register. It advances at phase 1
+  //   when !stall so that it is stable (clk_bram phase-1 FF -> clk_i FF) with
+  //   T/2 setup window to the downstream clk_i decode FFs. No extra clk_i
+  //   re-sync stage is added -- that would cost one IF cycle of latency.
 
-  logic [63:0] ibram_fetch_rdata;  // port B registered output (serves as IF/ID reg)
+  logic [63:0]                    ibram_porta_rdata_q;
+  logic [$clog2(INSTR_DEPTH)-1:0] ibram_porta_addr;
+  logic [63:0]                    ibram_porta_wdata;
+  logic                           ibram_porta_we;
 
-  // Port A -- host access
-  always_ff @(posedge clk_i) begin
-    if (ibram_we_i && !running_o)
-      instr_mem[ibram_addr_i] <= ibram_wdata_i;
-    ibram_rdata_o <= instr_mem[ibram_addr_i];
+  logic [$clog2(INSTR_DEPTH)-1:0] ibram_host_addr_q;
+  logic [63:0]                    ibram_host_wdata_q;
+  logic                           ibram_host_we_q;
+
+  logic [63:0] ibram_fetch_rdata;
+  logic [63:0] ibram_portb_rdata_q;
+
+  // Port A address/data/we mux: unified signal so the BRAM block sees one address
+  // (required for Vivado to infer block RAM -- split address per sub-cycle breaks inference).
+  //   phase 0: read  -> ibram_addr_i
+  //   phase 1: write -> latched addr (if pending) or direct addr (if direct phase-1 WE)
+  always_comb begin
+    if (phase_q) begin
+      if (ibram_host_we_q) begin
+        ibram_porta_addr  = ibram_host_addr_q;
+        ibram_porta_wdata = ibram_host_wdata_q;
+        ibram_porta_we    = 1'b1;
+      end else begin
+        ibram_porta_addr  = ibram_addr_i;
+        ibram_porta_wdata = ibram_wdata_i;
+        ibram_porta_we    = ibram_we_i && !running_o;
+      end
+    end else begin
+      ibram_porta_addr  = ibram_addr_i;
+      ibram_porta_wdata = ibram_wdata_i;
+      ibram_porta_we    = 1'b0;
+    end
   end
 
-  // Port B -- sequencer instruction fetch (read-only, sync, with read-enable)
-  // Gate on !stall so ibram_fetch_rdata holds its value while the pipeline is
-  // frozen (pc_q was already advanced past the IF-stage instruction).
-  // When not in RUNNING_S, stall=0 so reads proceed freely (don't-care data).
-  always_ff @(posedge clk_i) begin
-    if (!stall)
-      ibram_fetch_rdata <= instr_mem[pc_q];
+  // Port A: host read + write (BRAM-friendly: single address, no async reset on array)
+  always_ff @(posedge clk_bram_i) begin
+    if (!phase_q)
+      ibram_porta_rdata_q <= instr_mem[ibram_porta_addr];
+    else if (ibram_porta_we)
+      instr_mem[ibram_porta_addr] <= ibram_porta_wdata;
+  end
+
+  // Port A write latch: capture phase-0 WE arrivals for execution at phase 1
+  always_ff @(posedge clk_bram_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      ibram_host_addr_q  <= '0;
+      ibram_host_wdata_q <= '0;
+      ibram_host_we_q    <= 1'b0;
+    end else if (!phase_q) begin
+      ibram_host_addr_q  <= ibram_addr_i;
+      ibram_host_wdata_q <= ibram_wdata_i;
+      ibram_host_we_q    <= ibram_we_i && !running_o;
+    end else begin
+      ibram_host_we_q <= 1'b0;
+    end
+  end
+
+  assign ibram_rdata_o = ibram_porta_rdata_q;
+
+  // Port B: IF fetch (BRAM-friendly block -- no async reset on array)
+  // Read at phase 1 (T/4 BEFORE clk_i): pc_q still holds pre-increment value,
+  // matching the old clk_i sync-read behavior. Phase 0 fires AFTER clk_i, where
+  // pc_q already has the new value -- reading there would fetch one instruction
+  // ahead and shift all EX result addresses by one slot.
+  always_ff @(posedge clk_bram_i) begin
+    if (phase_q)
+      ibram_portb_rdata_q <= instr_mem[pc_q];
+  end
+
+  // IF/ID pipeline register -- clk_i domain (same edge semantics as old clk_i BRAM read).
+  // portb_rdata_q is captured at phase 1 (T/4 BEFORE clk_i), so it is stable with T/4
+  // setup margin at the clk_i edge. Using clk_i here is critical: at the edge where
+  // id_ex_valid_q first becomes 1 (stall about to assert), stall is still 0 in the
+  // sequencer's NBA-sampled view (pre-edge id_ex_valid_q = 0), so ibram_fetch_rdata
+  // captures the correct next instruction before the stall gate closes.
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni)
+      ibram_fetch_rdata <= '0;
+    else if (!stall)
+      ibram_fetch_rdata <= ibram_portb_rdata_q;
   end
 
   // Operand capture gate: phase 0 (first in each cycle) reads at ibram_fetch_rdata addr
@@ -184,6 +257,28 @@ module accel_core
 
   // Host data BRAM read via port A registered output
   assign dbram_rdata_o = dbram_porta_rdata;
+
+  // -- DBRAM host write latch -----------------------------------------------
+  // When host port signals come from a clk_bram-domain AXI slave the WE pulse
+  // is 1 clk_bram cycle wide and may land at phase 0 (before the write sub-cycle).
+  // Latch at phase 0; execute at phase 1 via the always_comb default: branch.
+  logic [$clog2(DATA_DEPTH)-1:0] dbram_host_addr_q;
+  logic [DATA_WIDTH-1:0]         dbram_host_wdata_q;
+  logic                          dbram_host_we_q;
+
+  always_ff @(posedge clk_bram_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      dbram_host_addr_q  <= '0;
+      dbram_host_wdata_q <= '0;
+      dbram_host_we_q    <= 1'b0;
+    end else if (!phase_q) begin
+      dbram_host_addr_q  <= dbram_addr_i;
+      dbram_host_wdata_q <= dbram_wdata_i;
+      dbram_host_we_q    <= dbram_we_i && !running_o;
+    end else begin
+      dbram_host_we_q <= 1'b0;
+    end
+  end
 
   // -- Pipeline registers ------------------------------------------------
   logic        if_id_valid_q;  // ibram_fetch_rdata holds a valid instruction
@@ -325,12 +420,22 @@ module accel_core
         end
       end
 
-      // Host access when stopped (IDLE_S or HALT_S)
+      // Host access when stopped (IDLE_S or HALT_S).
+      // Use write latch: phase-0 WE arrivals are in dbram_host_*_q by phase 1.
+      // Direct phase-1 WE arrivals fall through to the else branch.
       default: begin
         dbram_porta_addr  = dbram_addr_i;
         dbram_porta_wdata = dbram_wdata_i;
-        // Gate host writes to phase 1 so they land correctly in the 2x clock domain
-        dbram_porta_we    = dbram_we_i && !running_o && phase_q;
+        dbram_porta_we    = 1'b0;
+        if (phase_q) begin
+          if (dbram_host_we_q) begin
+            dbram_porta_addr  = dbram_host_addr_q;
+            dbram_porta_wdata = dbram_host_wdata_q;
+            dbram_porta_we    = 1'b1;
+          end else begin
+            dbram_porta_we = dbram_we_i && !running_o;
+          end
+        end
       end
 
     endcase

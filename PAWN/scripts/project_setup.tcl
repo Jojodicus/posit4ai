@@ -139,6 +139,7 @@ add_files -norecurse $root_dir/harness/core/accel_core.sv
 add_files -norecurse $root_dir/harness/axi/accel_axi.sv
 add_files -norecurse $root_dir/harness/axi/accel_dbram_arb.sv
 add_files -norecurse $root_dir/harness/axi/accel_axi_burst.sv
+add_files -norecurse $root_dir/harness/axi/accel_ibram_burst.sv
 add_files -norecurse $root_dir/harness/top/accel_harness.sv
 add_files -norecurse $root_dir/harness/top/zynq_accel_top.sv
 

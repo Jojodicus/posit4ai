@@ -27,7 +27,8 @@
 
 /* ---- Physical addresses ---- */
 #define PAWN_BASE_LITE   0x43C00000UL
-#define PAWN_BASE_BURST  0x80000000UL
+#define PAWN_BASE_BURST  0x80000000UL  /* GP1 bit 20 = 0: DBRAM burst           */
+#define PAWN_BASE_IBURST 0x80100000UL  /* GP1 bit 20 = 1: IBRAM burst (32-bit)  */
 #define PAWN_MAP_SIZE    0x10000UL
 
 /* ---- AXI-Lite register offsets ---- */
@@ -69,7 +70,8 @@
 /* ---- Device handle ---- */
 typedef struct {
     volatile uint32_t *lite;
-    volatile uint32_t *burst;
+    volatile uint32_t *burst;   /* DBRAM burst (GP1 bit20=0) */
+    volatile uint32_t *iburst;  /* IBRAM burst (GP1 bit20=1) */
     int                devmem_fd;
 } pawn_dev_t;
 
@@ -77,8 +79,13 @@ int  pawn_open (pawn_dev_t *dev);
 void pawn_close(pawn_dev_t *dev);
 void pawn_reset(pawn_dev_t *dev);
 
-/* Load 'count' instructions into IBRAM (last must be HALT). Returns 0 / -1. */
+/* Load 'count' instructions into IBRAM via AXI-Lite PIO (last must be HALT). */
 int pawn_load_program(pawn_dev_t *dev, const uint64_t *instrs, size_t count);
+
+/* Load 'count' instructions into IBRAM via AXI4 burst (faster for large programs).
+ * Uses the 32-bit IBRAM burst slave at PAWN_BASE_IBURST: two 32-bit beats per
+ * 64-bit instruction word (lo then hi).  Accelerator must not be running. */
+int pawn_load_program_burst(pawn_dev_t *dev, const uint64_t *instrs, size_t count);
 
 /* Bulk DBRAM via burst slave. Use write32/read32 for DATA_WIDTH 8/16/32. */
 void pawn_dbram_write32(pawn_dev_t *dev, uint32_t base, const uint32_t *data, size_t count);

@@ -46,15 +46,27 @@ int pawn_open(pawn_dev_t *dev)
         close(dev->devmem_fd);
         return -1;
     }
+    dev->iburst = (volatile uint32_t *)mmap(NULL, PAWN_MAP_SIZE,
+                                            PROT_READ | PROT_WRITE, MAP_SHARED,
+                                            dev->devmem_fd, PAWN_BASE_IBURST);
+    if (dev->iburst == MAP_FAILED) {
+        perror("pawn_open: mmap iburst");
+        munmap((void *)dev->burst, PAWN_MAP_SIZE);
+        munmap((void *)dev->lite,  PAWN_MAP_SIZE);
+        close(dev->devmem_fd);
+        return -1;
+    }
     return 0;
 }
 
 void pawn_close(pawn_dev_t *dev)
 {
-    if (dev->burst && dev->burst != MAP_FAILED)
-        munmap((void *)dev->burst, PAWN_MAP_SIZE);
-    if (dev->lite  && dev->lite  != MAP_FAILED)
-        munmap((void *)dev->lite,  PAWN_MAP_SIZE);
+    if (dev->iburst && dev->iburst != MAP_FAILED)
+        munmap((void *)dev->iburst, PAWN_MAP_SIZE);
+    if (dev->burst  && dev->burst  != MAP_FAILED)
+        munmap((void *)dev->burst,  PAWN_MAP_SIZE);
+    if (dev->lite   && dev->lite   != MAP_FAILED)
+        munmap((void *)dev->lite,   PAWN_MAP_SIZE);
     if (dev->devmem_fd >= 0)
         close(dev->devmem_fd);
     memset(dev, 0, sizeof(*dev));
@@ -78,6 +90,25 @@ int pawn_load_program(pawn_dev_t *dev, const uint64_t *instrs, size_t count)
     for (size_t i = 0; i < count; i++) {
         reg_write(dev->lite, PAWN_REG_IBRAM_DATA_LO, (uint32_t)(instrs[i]));
         reg_write(dev->lite, PAWN_REG_IBRAM_DATA_HI, (uint32_t)(instrs[i] >> 32));
+    }
+    return 0;
+}
+
+int pawn_load_program_burst(pawn_dev_t *dev, const uint64_t *instrs, size_t count)
+{
+    if (count > IBRAM_DEPTH) {
+        fprintf(stderr, "pawn_load_program_burst: count %zu > %u\n", count, IBRAM_DEPTH);
+        return -1;
+    }
+    /*
+     * IBRAM burst slave: 32-bit AXI4 bus, byte address = word_index * 8.
+     * Two 32-bit writes per 64-bit instruction: iburst[i*2]=lo, iburst[i*2+1]=hi.
+     * The hardware assembles {hi, lo} and commits to IBRAM on the hi beat.
+     */
+    volatile uint32_t *dst = dev->iburst;
+    for (size_t i = 0; i < count; i++) {
+        dst[i * 2]     = (uint32_t)(instrs[i]);
+        dst[i * 2 + 1] = (uint32_t)(instrs[i] >> 32);
     }
     return 0;
 }

@@ -1,13 +1,22 @@
 // full implementation top (PS7 + accel_axi + accel_core).
 // Clocking: 100 MHz crystal (GCLK/Y9) -> clk_wiz_0 -> clk_core (CLOCK_FREQ_MHZ)
 //                                                    -> clk_bram (2x clk_core).
-// clk_core feeds both M_AXI_GP0/GP1_ACLK (via PL_CLK BD port) and the accelerator,
-// so the AXI master and slave share a single clock domain -- no CDC on the AXI bus.
+// clk_bram drives M_AXI_GP0/GP1_ACLK (via PL_CLK BD port), accel_axi,
+// accel_axi_burst, and accel_ibram_burst, doubling AXI throughput vs clk_core.
+// accel_core runs at clk_core (datapath + sequencer) and clk_bram (BRAMs).
+//
+// CDC paths:
+//   accel_core.running_o / done_o  (clk_core -> clk_bram): 2-FF synchronizers
+//   accel_axi.start_o              (clk_bram -> clk_core): toggle + 3-FF sync
+//   accel_axi.rst_no               (clk_bram -> clk_core): async-assert reset sync
+//
+// GP1 AXI4 address demux (AWADDR/ARADDR bit 20):
+//   bit 20 = 0 -> DBRAM burst (accel_axi_burst)
+//   bit 20 = 1 -> IBRAM burst (accel_ibram_burst)
+// Both slaves share the single GP1 bus; only one transaction active at a time.
 
 module zynq_accel_top (
-  input  logic        GCLK,          // 100 MHz board crystal (Zedboard Y9)
-  // Zedboard DDR and fixed I/O (passed through to PS7 block design)
-  // Port names use standard Zynq XDC names; mapped to zynq_ps_wrapper's _0_ variants below.
+  input  logic        GCLK,
   inout  logic [14:0] DDR_addr,
   inout  logic [2:0]  DDR_ba,
   inout  logic        DDR_cas_n,
@@ -34,10 +43,6 @@ module zynq_accel_top (
   import config_pkg::*;
 
   // -- Clocking: one MMCM for both core and BRAM -----------------------
-  // CLKOUT1 = CLOCK_FREQ_MHZ (core, AXI slave, AXI master via PL_CLK BD port)
-  // CLKOUT2 = 2x CLOCK_FREQ_MHZ (DBRAM port-B, alpha-blending / XAPP706)
-  // USE_SAFE_CLOCK_STARTUP holds outputs low until locked; PS7 boot time >>
-  // MMCM lock time so no explicit reset gating on locked is needed.
   logic clk_core, clk_bram;
 
   clk_wiz_0 u_clk_wiz (
@@ -49,79 +54,39 @@ module zynq_accel_top (
   );
 
   // -- Block design: PS7 + proc_sys_reset + axi_protocol_converter ---
-  // PL_CLK (= clk_core) drives M_AXI_GP0/GP1_ACLK and rst_ps7 inside the BD.
-  logic        peripheral_aresetn;  // synchronised active-low reset from proc_sys_reset
+  // PL_CLK = clk_bram: M_AXI_GP0/GP1_ACLK and proc_sys_reset all run at 2x.
+  // peripheral_aresetn is the clk_bram-domain synchronised reset.
+  logic        peripheral_aresetn;
 
-  // AXI-Lite master from PS7 (via AXI protocol converter)
-  logic [31:0] M_AXI_LITE_awaddr;
-  logic        M_AXI_LITE_awvalid;
-  logic        M_AXI_LITE_awready;
-  logic [31:0] M_AXI_LITE_wdata;
+  // AXI-Lite master (GP0 via protocol converter)
+  logic [31:0] M_AXI_LITE_awaddr,  M_AXI_LITE_araddr,  M_AXI_LITE_wdata,  M_AXI_LITE_rdata;
   logic [3:0]  M_AXI_LITE_wstrb;
-  logic        M_AXI_LITE_wvalid;
-  logic        M_AXI_LITE_wready;
-  logic [1:0]  M_AXI_LITE_bresp;
-  logic        M_AXI_LITE_bvalid;
-  logic        M_AXI_LITE_bready;
-  logic [31:0] M_AXI_LITE_araddr;
-  logic        M_AXI_LITE_arvalid;
-  logic        M_AXI_LITE_arready;
-  logic [31:0] M_AXI_LITE_rdata;
-  logic [1:0]  M_AXI_LITE_rresp;
-  logic        M_AXI_LITE_rvalid;
-  logic        M_AXI_LITE_rready;
+  logic [1:0]  M_AXI_LITE_bresp,   M_AXI_LITE_rresp;
+  logic        M_AXI_LITE_awvalid, M_AXI_LITE_awready;
+  logic        M_AXI_LITE_wvalid,  M_AXI_LITE_wready;
+  logic        M_AXI_LITE_bvalid,  M_AXI_LITE_bready;
+  logic        M_AXI_LITE_arvalid, M_AXI_LITE_arready;
+  logic        M_AXI_LITE_rvalid,  M_AXI_LITE_rready;
+  logic [2:0]  M_AXI_LITE_arprot_unused, M_AXI_LITE_awprot_unused;
 
-  // arprot / awprot are outputs from the PS master; accel_axi ignores them
-  logic [2:0] M_AXI_LITE_arprot_unused;
-  logic [2:0] M_AXI_LITE_awprot_unused;
-
-  // -- AXI4 burst master (GP1 -> axi_pc_gp1, 32-bit data, 12-bit IDs) ------
-  // GP1 is the second PS7 AXI3 master (PS CPU -> PL fabric); converted to AXI4 in BD.
-  // Data width: 32-bit from GP1; accel_axi_burst's 64-bit bus carries it in [31:0].
-  // ID width: GP1 uses 12-bit IDs; accel_axi_burst AXI_ID_WIDTH=4, so [3:0] suffix used.
-  logic [11:0] M_AXI_BURST_awid;
-  logic [31:0] M_AXI_BURST_awaddr;
-  logic [7:0]  M_AXI_BURST_awlen;    // AXI4 8-bit encoding after protocol converter
-  logic [2:0]  M_AXI_BURST_awsize;
-  logic [1:0]  M_AXI_BURST_awburst;
-  logic        M_AXI_BURST_awlock;
-  logic [3:0]  M_AXI_BURST_awcache;
-  logic [2:0]  M_AXI_BURST_awprot;
-  logic [3:0]  M_AXI_BURST_awqos;
-  logic        M_AXI_BURST_awvalid;
-  logic        M_AXI_BURST_awready;
-  logic [31:0] M_AXI_BURST_wdata;
+  // AXI4 burst master (GP1 via protocol converter, 32-bit data, 12-bit IDs)
+  logic [11:0] M_AXI_BURST_awid,   M_AXI_BURST_arid,   M_AXI_BURST_bid,   M_AXI_BURST_rid;
+  logic [31:0] M_AXI_BURST_awaddr, M_AXI_BURST_araddr, M_AXI_BURST_wdata, M_AXI_BURST_rdata;
+  logic [7:0]  M_AXI_BURST_awlen,  M_AXI_BURST_arlen;
+  logic [2:0]  M_AXI_BURST_awsize, M_AXI_BURST_arsize;
+  logic [1:0]  M_AXI_BURST_awburst,M_AXI_BURST_arburst,M_AXI_BURST_bresp, M_AXI_BURST_rresp;
   logic [3:0]  M_AXI_BURST_wstrb;
-  logic        M_AXI_BURST_wlast;
-  logic        M_AXI_BURST_wvalid;
-  logic        M_AXI_BURST_wready;
-  logic [11:0] M_AXI_BURST_bid;
-  logic [1:0]  M_AXI_BURST_bresp;
-  logic        M_AXI_BURST_bvalid;
-  logic        M_AXI_BURST_bready;
-  logic [11:0] M_AXI_BURST_arid;
-  logic [31:0] M_AXI_BURST_araddr;
-  logic [7:0]  M_AXI_BURST_arlen;
-  logic [2:0]  M_AXI_BURST_arsize;
-  logic [1:0]  M_AXI_BURST_arburst;
-  logic        M_AXI_BURST_arlock;
-  logic [3:0]  M_AXI_BURST_arcache;
-  logic [2:0]  M_AXI_BURST_arprot;
-  logic [3:0]  M_AXI_BURST_arqos;
-  logic        M_AXI_BURST_arvalid;
-  logic        M_AXI_BURST_arready;
-  logic [11:0] M_AXI_BURST_rid;
-  logic [31:0] M_AXI_BURST_rdata;
-  logic [1:0]  M_AXI_BURST_rresp;
-  logic        M_AXI_BURST_rlast;
-  logic        M_AXI_BURST_rvalid;
-  logic        M_AXI_BURST_rready;
-  // Unused outputs from the AXI4 protocol converter (region, user)
-  logic [3:0]  M_AXI_BURST_awregion_unused;
-  logic [3:0]  M_AXI_BURST_arregion_unused;
+  logic        M_AXI_BURST_awlock, M_AXI_BURST_arlock;
+  logic [3:0]  M_AXI_BURST_awcache,M_AXI_BURST_arcache,M_AXI_BURST_awqos, M_AXI_BURST_arqos;
+  logic [2:0]  M_AXI_BURST_awprot, M_AXI_BURST_arprot;
+  logic        M_AXI_BURST_awvalid,M_AXI_BURST_awready;
+  logic        M_AXI_BURST_wlast,  M_AXI_BURST_wvalid, M_AXI_BURST_wready;
+  logic        M_AXI_BURST_bvalid, M_AXI_BURST_bready;
+  logic        M_AXI_BURST_arvalid,M_AXI_BURST_arready;
+  logic        M_AXI_BURST_rlast,  M_AXI_BURST_rvalid, M_AXI_BURST_rready;
+  logic [3:0]  M_AXI_BURST_awregion_unused, M_AXI_BURST_arregion_unused;
 
   zynq_ps_wrapper u_zynq_ps (
-    // DDR -- wrapper uses _0_ suffix (created via make_bd_intf_pins_external)
     .DDR_0_addr           ( DDR_addr             ),
     .DDR_0_ba             ( DDR_ba               ),
     .DDR_0_cas_n          ( DDR_cas_n            ),
@@ -137,18 +102,15 @@ module zynq_accel_top (
     .DDR_0_ras_n          ( DDR_ras_n            ),
     .DDR_0_reset_n        ( DDR_reset_n          ),
     .DDR_0_we_n           ( DDR_we_n             ),
-    // FIXED_IO -- wrapper uses _0_ suffix
     .FIXED_IO_0_mio       ( FIXED_IO_mio         ),
     .FIXED_IO_0_ddr_vrn   ( FIXED_IO_ddr_vrn     ),
     .FIXED_IO_0_ddr_vrp   ( FIXED_IO_ddr_vrp     ),
     .FIXED_IO_0_ps_clk    ( FIXED_IO_ps_clk      ),
     .FIXED_IO_0_ps_porb   ( FIXED_IO_ps_porb     ),
     .FIXED_IO_0_ps_srstb  ( FIXED_IO_ps_srstb    ),
-    // PL_CLK: drives M_AXI_GP0/GP1_ACLK and rst_ps7 inside the BD.
-    // Must match clk_i of accel_axi and accel_axi_burst (no CDC on AXI bus).
-    .PL_CLK               ( clk_core             ),
+    // PL_CLK = clk_bram: AXI slaves and proc_sys_reset run at 2x.
+    .PL_CLK               ( clk_bram             ),
     .peripheral_aresetn   ( peripheral_aresetn   ),
-    // AXI-Lite master -- prot signals unused by accel_axi
     .M_AXI_LITE_awaddr    ( M_AXI_LITE_awaddr    ),
     .M_AXI_LITE_awprot    ( M_AXI_LITE_awprot_unused ),
     .M_AXI_LITE_awvalid   ( M_AXI_LITE_awvalid   ),
@@ -168,7 +130,6 @@ module zynq_accel_top (
     .M_AXI_LITE_rresp     ( M_AXI_LITE_rresp     ),
     .M_AXI_LITE_rvalid    ( M_AXI_LITE_rvalid    ),
     .M_AXI_LITE_rready    ( M_AXI_LITE_rready    ),
-    // GP1 burst master (AXI4, 32-bit data, connected to accel_axi_burst)
     .M_AXI_BURST_awid     ( M_AXI_BURST_awid     ),
     .M_AXI_BURST_awaddr   ( M_AXI_BURST_awaddr   ),
     .M_AXI_BURST_awlen    ( M_AXI_BURST_awlen    ),
@@ -208,48 +169,270 @@ module zynq_accel_top (
     .M_AXI_BURST_rready   ( M_AXI_BURST_rready   )
   );
 
-  // -- Internal wires -----------------------------------------------
-  // accel_axi -> accel_core control
-  logic                             accel_start;
-  logic                             accel_rst_n;
-  logic                             accel_done;
-  logic                             accel_running;
+  // -----------------------------------------------------------------------
+  // Internal control signals
+  // -----------------------------------------------------------------------
 
-  // accel_axi -> arbiter (AXI-Lite DBRAM host, port A)
-  logic [$clog2(DATA_DEPTH)-1:0]    axi_dbram_addr;
-  logic [DATA_WIDTH-1:0]            axi_dbram_wdata;
-  logic                             axi_dbram_we;
-  logic [DATA_WIDTH-1:0]            axi_dbram_rdata;
+  // accel_axi control outputs (clk_bram domain)
+  logic accel_start_bram;   // start pulse from AXI-Lite slave
+  logic accel_rst_n_bram;   // software reset from AXI-Lite slave
 
-  // accel_axi -> accel_core IBRAM host
-  logic [$clog2(INSTR_DEPTH)-1:0]   ibram_addr;
-  logic [63:0]                      ibram_wdata;
-  logic                             ibram_we;
-  logic [63:0]                      ibram_rdata;
+  // accel_core status (clk_core domain)
+  logic accel_done_core, accel_running_core;
 
-  // arbiter -> accel_core DBRAM host
-  logic [$clog2(DATA_DEPTH)-1:0]    core_dbram_addr;
-  logic [DATA_WIDTH-1:0]            core_dbram_wdata;
-  logic                             core_dbram_we;
-  logic [DATA_WIDTH-1:0]            core_dbram_rdata;
+  // Synchronized status for clk_bram consumers (AXI slaves)
+  logic accel_done_bram, accel_running_bram;
 
-  // burst slave -> arbiter (port B)
-  logic                             burst_b_req;
-  logic [$clog2(DATA_DEPTH)-1:0]    burst_b_addr;
-  logic [DATA_WIDTH-1:0]            burst_b_wdata;
-  logic                             burst_b_we;
-  logic [DATA_WIDTH-1:0]            burst_b_rdata;
+  // Synchronized control for clk_core consumer (accel_core)
+  logic accel_rst_n_core, start_core;
 
-  // Width-adapter wires: accel_axi_burst (4-bit IDs, 64-bit rdata) -> M_AXI_BURST (12-bit IDs, 32-bit rdata)
-  logic [3:0]  burst_bid_4,  burst_rid_4;
-  logic [63:0] burst_rdata_64;
-  assign M_AXI_BURST_bid  = {8'b0, burst_bid_4};   // zero-extend 4->12 bit
-  assign M_AXI_BURST_rid  = {8'b0, burst_rid_4};   // zero-extend 4->12 bit
-  assign M_AXI_BURST_rdata = burst_rdata_64[31:0];  // lower 32 bits of 64-bit read data
+  // -----------------------------------------------------------------------
+  // CDC: accel_core status (clk_core -> clk_bram), 2-FF synchronizers
+  // -----------------------------------------------------------------------
+  logic [1:0] running_sync_q, done_sync_q;
+  always_ff @(posedge clk_bram or negedge peripheral_aresetn) begin
+    if (!peripheral_aresetn) begin
+      running_sync_q <= 2'b0;
+      done_sync_q    <= 2'b0;
+    end else begin
+      running_sync_q <= {running_sync_q[0], accel_running_core};
+      done_sync_q    <= {done_sync_q[0],    accel_done_core};
+    end
+  end
+  assign accel_running_bram = running_sync_q[1];
+  assign accel_done_bram    = done_sync_q[1];
 
-  // -- AXI-Lite accelerator slave ---------------------------------------
+  // -----------------------------------------------------------------------
+  // CDC: accel_rst_n_bram (clk_bram -> clk_core)
+  // Async assert (immediate low), synchronous deassert (2 clk_core cycles).
+  // -----------------------------------------------------------------------
+  logic [1:0] accel_rst_sync_q;
+  always_ff @(posedge clk_core or negedge accel_rst_n_bram) begin
+    if (!accel_rst_n_bram) accel_rst_sync_q <= 2'b00;
+    else                   accel_rst_sync_q <= {accel_rst_sync_q[0], 1'b1};
+  end
+  assign accel_rst_n_core = accel_rst_sync_q[1];
+
+  // -----------------------------------------------------------------------
+  // CDC: start_o pulse (clk_bram -> clk_core), toggle synchronizer.
+  // Toggle resets on accel_rst_n_bram to prevent spurious fires on SW reset.
+  // -----------------------------------------------------------------------
+  logic       start_toggle_q;
+  logic [2:0] start_sync_q;
+  always_ff @(posedge clk_bram or negedge accel_rst_n_bram) begin
+    if (!accel_rst_n_bram) start_toggle_q <= 1'b0;
+    else if (accel_start_bram) start_toggle_q <= ~start_toggle_q;
+  end
+  always_ff @(posedge clk_core or negedge accel_rst_n_core) begin
+    if (!accel_rst_n_core) start_sync_q <= 3'b0;
+    else                   start_sync_q <= {start_sync_q[1:0], start_toggle_q};
+  end
+  assign start_core = start_sync_q[2] ^ start_sync_q[1];
+
+  // -----------------------------------------------------------------------
+  // GP1 address demux: AWADDR/ARADDR bit 20 selects DBRAM vs IBRAM burst
+  // -----------------------------------------------------------------------
+
+  // dburst_* : signals for accel_axi_burst (DBRAM, 64-bit data port)
+  logic [3:0]  dburst_awid,   dburst_arid,   dburst_bid,   dburst_rid;
+  logic [31:0] dburst_awaddr, dburst_araddr;
+  logic [7:0]  dburst_awlen,  dburst_arlen;
+  logic [2:0]  dburst_awsize, dburst_arsize;
+  logic [1:0]  dburst_awburst,dburst_arburst;
+  logic        dburst_awvalid,dburst_awready;
+  logic [63:0] dburst_wdata;
+  logic [7:0]  dburst_wstrb;
+  logic        dburst_wlast,  dburst_wvalid, dburst_wready;
+  logic [1:0]  dburst_bresp;
+  logic        dburst_bvalid, dburst_bready;
+  logic        dburst_arvalid,dburst_arready;
+  logic [63:0] dburst_rdata;
+  logic [1:0]  dburst_rresp;
+  logic        dburst_rlast,  dburst_rvalid, dburst_rready;
+
+  // iburst_* : signals for accel_ibram_burst (IBRAM, 32-bit data port)
+  logic [3:0]  iburst_awid,   iburst_arid,   iburst_bid,   iburst_rid;
+  logic [31:0] iburst_awaddr, iburst_araddr;
+  logic [7:0]  iburst_awlen,  iburst_arlen;
+  logic [2:0]  iburst_awsize, iburst_arsize;
+  logic [1:0]  iburst_awburst,iburst_arburst;
+  logic        iburst_awvalid,iburst_awready;
+  logic        iburst_wlast,  iburst_wvalid, iburst_wready;
+  logic [1:0]  iburst_bresp;
+  logic        iburst_bvalid, iburst_bready;
+  logic        iburst_arvalid,iburst_arready;
+  logic [1:0]  iburst_rresp;
+  logic        iburst_rlast,  iburst_rvalid, iburst_rready;
+
+  // Write-path demux state (one transaction at a time on the shared GP1 bus)
+  logic gwr_active_q, gwr_sel_q;  // sel: 0=dburst, 1=iburst
+
+  always_ff @(posedge clk_bram or negedge peripheral_aresetn) begin
+    if (!peripheral_aresetn) begin
+      gwr_active_q <= 1'b0;
+      gwr_sel_q    <= 1'b0;
+    end else if (!gwr_active_q) begin
+      // Latch sel on AW handshake
+      if (M_AXI_BURST_awvalid &&
+          (!M_AXI_BURST_awaddr[20] ? dburst_awready : iburst_awready)) begin
+        gwr_sel_q    <= M_AXI_BURST_awaddr[20];
+        gwr_active_q <= 1'b1;
+      end
+    end else begin
+      if (M_AXI_BURST_bvalid && M_AXI_BURST_bready)
+        gwr_active_q <= 1'b0;
+    end
+  end
+
+  // AW channel mux
+  always_comb begin
+    dburst_awid     = M_AXI_BURST_awid[3:0];
+    dburst_awaddr   = M_AXI_BURST_awaddr;
+    dburst_awlen    = M_AXI_BURST_awlen;
+    dburst_awsize   = M_AXI_BURST_awsize;
+    dburst_awburst  = M_AXI_BURST_awburst;
+    dburst_awvalid  = 1'b0;
+    iburst_awid     = M_AXI_BURST_awid[3:0];
+    iburst_awaddr   = M_AXI_BURST_awaddr;
+    iburst_awlen    = M_AXI_BURST_awlen;
+    iburst_awsize   = M_AXI_BURST_awsize;
+    iburst_awburst  = M_AXI_BURST_awburst;
+    iburst_awvalid  = 1'b0;
+    M_AXI_BURST_awready = 1'b0;
+    if (!gwr_active_q) begin
+      if (!M_AXI_BURST_awaddr[20]) begin
+        dburst_awvalid      = M_AXI_BURST_awvalid;
+        M_AXI_BURST_awready = dburst_awready;
+      end else begin
+        iburst_awvalid      = M_AXI_BURST_awvalid;
+        M_AXI_BURST_awready = iburst_awready;
+      end
+    end
+  end
+
+  // W channel: route to active slave (zero-extend 32->64 for dburst)
+  assign dburst_wvalid = (!gwr_sel_q && gwr_active_q) ? M_AXI_BURST_wvalid : 1'b0;
+  assign iburst_wvalid = ( gwr_sel_q && gwr_active_q) ? M_AXI_BURST_wvalid : 1'b0;
+  assign M_AXI_BURST_wready = gwr_active_q
+                              ? (!gwr_sel_q ? dburst_wready : iburst_wready)
+                              : 1'b0;
+  assign dburst_wdata  = {32'b0, M_AXI_BURST_wdata};
+  assign dburst_wstrb  = {4'b0,  M_AXI_BURST_wstrb};
+  assign dburst_wlast  = M_AXI_BURST_wlast;
+  assign iburst_wlast  = M_AXI_BURST_wlast;
+
+  // B channel: mux response back from active slave
+  assign M_AXI_BURST_bvalid = !gwr_sel_q ? dburst_bvalid : iburst_bvalid;
+  assign M_AXI_BURST_bresp  = !gwr_sel_q ? dburst_bresp  : iburst_bresp;
+  assign M_AXI_BURST_bid    = {8'b0, (!gwr_sel_q ? dburst_bid : iburst_bid)};
+  assign dburst_bready      = !gwr_sel_q ? M_AXI_BURST_bready : 1'b0;
+  assign iburst_bready      =  gwr_sel_q ? M_AXI_BURST_bready : 1'b0;
+
+  // Read-path demux state
+  logic grd_active_q, grd_sel_q;
+
+  always_ff @(posedge clk_bram or negedge peripheral_aresetn) begin
+    if (!peripheral_aresetn) begin
+      grd_active_q <= 1'b0;
+      grd_sel_q    <= 1'b0;
+    end else if (!grd_active_q) begin
+      if (M_AXI_BURST_arvalid &&
+          (!M_AXI_BURST_araddr[20] ? dburst_arready : iburst_arready)) begin
+        grd_sel_q    <= M_AXI_BURST_araddr[20];
+        grd_active_q <= 1'b1;
+      end
+    end else begin
+      if (M_AXI_BURST_rvalid && M_AXI_BURST_rready && M_AXI_BURST_rlast)
+        grd_active_q <= 1'b0;
+    end
+  end
+
+  // AR channel mux
+  always_comb begin
+    dburst_arid     = M_AXI_BURST_arid[3:0];
+    dburst_araddr   = M_AXI_BURST_araddr;
+    dburst_arlen    = M_AXI_BURST_arlen;
+    dburst_arsize   = M_AXI_BURST_arsize;
+    dburst_arburst  = M_AXI_BURST_arburst;
+    dburst_arvalid  = 1'b0;
+    iburst_arid     = M_AXI_BURST_arid[3:0];
+    iburst_araddr   = M_AXI_BURST_araddr;
+    iburst_arlen    = M_AXI_BURST_arlen;
+    iburst_arsize   = M_AXI_BURST_arsize;
+    iburst_arburst  = M_AXI_BURST_arburst;
+    iburst_arvalid  = 1'b0;
+    M_AXI_BURST_arready = 1'b0;
+    if (!grd_active_q) begin
+      if (!M_AXI_BURST_araddr[20]) begin
+        dburst_arvalid      = M_AXI_BURST_arvalid;
+        M_AXI_BURST_arready = dburst_arready;
+      end else begin
+        iburst_arvalid      = M_AXI_BURST_arvalid;
+        M_AXI_BURST_arready = iburst_arready;
+      end
+    end
+  end
+
+  // R channel: mux read data back; iburst always returns SLVERR with 0 data
+  assign M_AXI_BURST_rvalid = !grd_sel_q ? dburst_rvalid : iburst_rvalid;
+  assign M_AXI_BURST_rlast  = !grd_sel_q ? dburst_rlast  : iburst_rlast;
+  assign M_AXI_BURST_rresp  = !grd_sel_q ? dburst_rresp  : iburst_rresp;
+  assign M_AXI_BURST_rid    = {8'b0, (!grd_sel_q ? dburst_rid : iburst_rid)};
+  assign M_AXI_BURST_rdata  = !grd_sel_q ? dburst_rdata[31:0] : 32'b0;
+  assign dburst_rready      = !grd_sel_q ? M_AXI_BURST_rready : 1'b0;
+  assign iburst_rready      =  grd_sel_q ? M_AXI_BURST_rready : 1'b0;
+
+  // -----------------------------------------------------------------------
+  // Internal wires
+  // -----------------------------------------------------------------------
+
+  // accel_axi -> IBRAM host port (clk_bram domain)
+  logic [$clog2(INSTR_DEPTH)-1:0]  ibram_addr;
+  logic [63:0]                     ibram_wdata;
+  logic                            ibram_we;
+  logic [63:0]                     ibram_rdata;
+
+  // accel_ibram_burst -> IBRAM host port (clk_bram domain)
+  logic                            iburst_b_req;
+  logic [$clog2(INSTR_DEPTH)-1:0]  iburst_b_addr;
+  logic [63:0]                     iburst_b_wdata;
+  logic                            iburst_b_we;
+
+  // IBRAM host port arbiter (inline): iburst has priority when b_req=1
+  logic [$clog2(INSTR_DEPTH)-1:0]  core_ibram_addr;
+  logic [63:0]                     core_ibram_wdata;
+  logic                            core_ibram_we;
+  logic [63:0]                     core_ibram_rdata;
+
+  assign core_ibram_addr  = iburst_b_req ? iburst_b_addr  : ibram_addr;
+  assign core_ibram_wdata = iburst_b_req ? iburst_b_wdata : ibram_wdata;
+  assign core_ibram_we    = iburst_b_req ? iburst_b_we    : ibram_we;
+  assign ibram_rdata      = core_ibram_rdata;
+
+  // accel_axi -> DBRAM arbiter port A (clk_bram domain)
+  logic [$clog2(DATA_DEPTH)-1:0]   axi_dbram_addr;
+  logic [DATA_WIDTH-1:0]           axi_dbram_wdata;
+  logic                            axi_dbram_we;
+  logic [DATA_WIDTH-1:0]           axi_dbram_rdata;
+
+  // accel_axi_burst -> DBRAM arbiter port B (clk_bram domain)
+  logic                            dburst_b_req;
+  logic [$clog2(DATA_DEPTH)-1:0]   dburst_b_addr;
+  logic [DATA_WIDTH-1:0]           dburst_b_wdata;
+  logic                            dburst_b_we;
+  logic [DATA_WIDTH-1:0]           dburst_b_rdata;
+
+  // arbiter -> accel_core DBRAM host port (clk_bram domain)
+  logic [$clog2(DATA_DEPTH)-1:0]   core_dbram_addr;
+  logic [DATA_WIDTH-1:0]           core_dbram_wdata;
+  logic                            core_dbram_we;
+  logic [DATA_WIDTH-1:0]           core_dbram_rdata;
+
+  // -----------------------------------------------------------------------
+  // AXI-Lite accelerator slave (clk_bram)
+  // -----------------------------------------------------------------------
   accel_axi u_accel_axi (
-    .clk_i             ( clk_core             ),
+    .clk_i             ( clk_bram             ),
     .rst_ni            ( peripheral_aresetn   ),
     .s_axi_awaddr      ( M_AXI_LITE_awaddr    ),
     .s_axi_awvalid     ( M_AXI_LITE_awvalid   ),
@@ -268,111 +451,142 @@ module zynq_accel_top (
     .s_axi_rresp       ( M_AXI_LITE_rresp     ),
     .s_axi_rvalid      ( M_AXI_LITE_rvalid    ),
     .s_axi_rready      ( M_AXI_LITE_rready    ),
-    // control
-    .start_o           ( accel_start          ),
-    .rst_no            ( accel_rst_n          ),
-    .done_i            ( accel_done           ),
-    .running_i         ( accel_running        ),
-    // IBRAM host
+    .start_o           ( accel_start_bram     ),
+    .rst_no            ( accel_rst_n_bram     ),
+    .done_i            ( accel_done_bram      ),
+    .running_i         ( accel_running_bram   ),
     .ibram_addr_o      ( ibram_addr           ),
     .ibram_wdata_o     ( ibram_wdata          ),
     .ibram_we_o        ( ibram_we             ),
     .ibram_rdata_i     ( ibram_rdata          ),
-    // DBRAM host -> arbiter port A
     .dbram_addr_o      ( axi_dbram_addr       ),
     .dbram_wdata_o     ( axi_dbram_wdata      ),
     .dbram_we_o        ( axi_dbram_we         ),
     .dbram_rdata_i     ( axi_dbram_rdata      )
   );
 
-  // -- GP1 burst slave (AXI4, 32-bit data bus from PS7 M_AXI_GP1 via axi_pc_gp1) -
-  // GP1 is a 32-bit AXI bus; accel_axi_burst has a 64-bit data port.
-  // For DATA_WIDTH=32 builds: wdata[31:0] carries the BRAM word; wstrb[7:4]=0 masks upper half.
-  // For DATA_WIDTH=64 builds: only lower 32 bits of each BRAM word are filled per AXI beat;
-  //   a SmartConnect width-upsizer would be needed for full 64-bit throughput (future work).
-  // IDs: GP1 uses 12-bit IDs; accel_axi_burst AXI_ID_WIDTH=4 -> lower 4 bits used.
-  accel_axi_burst u_burst (
-    .clk_i             ( clk_core                     ),
-    .rst_ni            ( peripheral_aresetn            ),
-    .running_i         ( accel_running                 ),
-    // AW channel
-    .s_axi_awid        ( M_AXI_BURST_awid[3:0]        ),
-    .s_axi_awaddr      ( M_AXI_BURST_awaddr            ),
-    .s_axi_awlen       ( M_AXI_BURST_awlen             ),
-    .s_axi_awsize      ( M_AXI_BURST_awsize            ),
-    .s_axi_awburst     ( M_AXI_BURST_awburst           ),
-    .s_axi_awvalid     ( M_AXI_BURST_awvalid           ),
-    .s_axi_awready     ( M_AXI_BURST_awready           ),
-    // W channel -- 32-bit GP1 data zero-extended to 64-bit burst port
-    .s_axi_wdata       ( {32'b0, M_AXI_BURST_wdata}   ),
-    .s_axi_wstrb       ( {4'b0,  M_AXI_BURST_wstrb}   ),
-    .s_axi_wlast       ( M_AXI_BURST_wlast             ),
-    .s_axi_wvalid      ( M_AXI_BURST_wvalid            ),
-    .s_axi_wready      ( M_AXI_BURST_wready            ),
-    // B channel
-    .s_axi_bid         ( burst_bid_4                   ),  // 4-bit -> assigned to M_AXI_BURST_bid
-    .s_axi_bresp       ( M_AXI_BURST_bresp             ),
-    .s_axi_bvalid      ( M_AXI_BURST_bvalid            ),
-    .s_axi_bready      ( M_AXI_BURST_bready            ),
-    // AR channel
-    .s_axi_arid        ( M_AXI_BURST_arid[3:0]        ),
-    .s_axi_araddr      ( M_AXI_BURST_araddr            ),
-    .s_axi_arlen       ( M_AXI_BURST_arlen             ),
-    .s_axi_arsize      ( M_AXI_BURST_arsize            ),
-    .s_axi_arburst     ( M_AXI_BURST_arburst           ),
-    .s_axi_arvalid     ( M_AXI_BURST_arvalid           ),
-    .s_axi_arready     ( M_AXI_BURST_arready           ),
-    // R channel -- 64-bit burst data; lower 32 bits assigned to M_AXI_BURST_rdata
-    .s_axi_rid         ( burst_rid_4                   ),  // 4-bit -> assigned to M_AXI_BURST_rid
-    .s_axi_rdata       ( burst_rdata_64                ),  // 64-bit; [31:0] -> M_AXI_BURST_rdata
-    .s_axi_rresp       ( M_AXI_BURST_rresp             ),
-    .s_axi_rlast       ( M_AXI_BURST_rlast             ),
-    .s_axi_rvalid      ( M_AXI_BURST_rvalid            ),
-    .s_axi_rready      ( M_AXI_BURST_rready            ),
-    // Port B -> arbiter
-    .b_req             ( burst_b_req                   ),
-    .b_addr            ( burst_b_addr                  ),
-    .b_wdata           ( burst_b_wdata                 ),
-    .b_we              ( burst_b_we                    ),
-    .b_rdata           ( burst_b_rdata                 )
+  // -----------------------------------------------------------------------
+  // GP1 DBRAM burst slave (clk_bram)
+  // -----------------------------------------------------------------------
+  accel_axi_burst u_dburst (
+    .clk_i             ( clk_bram             ),
+    .rst_ni            ( peripheral_aresetn   ),
+    .running_i         ( accel_running_bram   ),
+    .s_axi_awid        ( dburst_awid          ),
+    .s_axi_awaddr      ( dburst_awaddr        ),
+    .s_axi_awlen       ( dburst_awlen         ),
+    .s_axi_awsize      ( dburst_awsize        ),
+    .s_axi_awburst     ( dburst_awburst       ),
+    .s_axi_awvalid     ( dburst_awvalid       ),
+    .s_axi_awready     ( dburst_awready       ),
+    .s_axi_wdata       ( dburst_wdata         ),
+    .s_axi_wstrb       ( dburst_wstrb         ),
+    .s_axi_wlast       ( dburst_wlast         ),
+    .s_axi_wvalid      ( dburst_wvalid        ),
+    .s_axi_wready      ( dburst_wready        ),
+    .s_axi_bid         ( dburst_bid           ),
+    .s_axi_bresp       ( dburst_bresp         ),
+    .s_axi_bvalid      ( dburst_bvalid        ),
+    .s_axi_bready      ( dburst_bready        ),
+    .s_axi_arid        ( dburst_arid          ),
+    .s_axi_araddr      ( dburst_araddr        ),
+    .s_axi_arlen       ( dburst_arlen         ),
+    .s_axi_arsize      ( dburst_arsize        ),
+    .s_axi_arburst     ( dburst_arburst       ),
+    .s_axi_arvalid     ( dburst_arvalid       ),
+    .s_axi_arready     ( dburst_arready       ),
+    .s_axi_rid         ( dburst_rid           ),
+    .s_axi_rdata       ( dburst_rdata         ),
+    .s_axi_rresp       ( dburst_rresp         ),
+    .s_axi_rlast       ( dburst_rlast         ),
+    .s_axi_rvalid      ( dburst_rvalid        ),
+    .s_axi_rready      ( dburst_rready        ),
+    .b_req             ( dburst_b_req         ),
+    .b_addr            ( dburst_b_addr        ),
+    .b_wdata           ( dburst_b_wdata       ),
+    .b_we              ( dburst_b_we          ),
+    .b_rdata           ( dburst_b_rdata       )
   );
 
-  // -- DBRAM host-port arbiter --------------------------------------
+  // -----------------------------------------------------------------------
+  // GP1 IBRAM burst slave (clk_bram, write-only)
+  // -----------------------------------------------------------------------
+  accel_ibram_burst u_iburst (
+    .clk_i             ( clk_bram             ),
+    .rst_ni            ( peripheral_aresetn   ),
+    .running_i         ( accel_running_bram   ),
+    .s_axi_awid        ( iburst_awid          ),
+    .s_axi_awaddr      ( iburst_awaddr        ),
+    .s_axi_awlen       ( iburst_awlen         ),
+    .s_axi_awsize      ( iburst_awsize        ),
+    .s_axi_awburst     ( iburst_awburst       ),
+    .s_axi_awvalid     ( iburst_awvalid       ),
+    .s_axi_awready     ( iburst_awready       ),
+    .s_axi_wdata       ( M_AXI_BURST_wdata    ),
+    .s_axi_wstrb       ( M_AXI_BURST_wstrb    ),
+    .s_axi_wlast       ( iburst_wlast         ),
+    .s_axi_wvalid      ( iburst_wvalid        ),
+    .s_axi_wready      ( iburst_wready        ),
+    .s_axi_bid         ( iburst_bid           ),
+    .s_axi_bresp       ( iburst_bresp         ),
+    .s_axi_bvalid      ( iburst_bvalid        ),
+    .s_axi_bready      ( iburst_bready        ),
+    .s_axi_arid        ( iburst_arid          ),
+    .s_axi_araddr      ( iburst_araddr        ),
+    .s_axi_arlen       ( iburst_arlen         ),
+    .s_axi_arsize      ( iburst_arsize        ),
+    .s_axi_arburst     ( iburst_arburst       ),
+    .s_axi_arvalid     ( iburst_arvalid       ),
+    .s_axi_arready     ( iburst_arready       ),
+    .s_axi_rid         ( iburst_rid           ),
+    .s_axi_rresp       ( iburst_rresp         ),
+    .s_axi_rlast       ( iburst_rlast         ),
+    .s_axi_rvalid      ( iburst_rvalid        ),
+    .s_axi_rready      ( iburst_rready        ),
+    .b_req             ( iburst_b_req         ),
+    .ibram_addr_o      ( iburst_b_addr        ),
+    .ibram_wdata_o     ( iburst_b_wdata       ),
+    .ibram_we_o        ( iburst_b_we          ),
+    .ibram_rdata_i     ( core_ibram_rdata     )
+  );
+
+  // -----------------------------------------------------------------------
+  // DBRAM host-port arbiter
+  // -----------------------------------------------------------------------
   accel_dbram_arb u_arb (
-    // Port A: AXI-Lite host
     .a_addr            ( axi_dbram_addr       ),
     .a_wdata           ( axi_dbram_wdata      ),
     .a_we              ( axi_dbram_we         ),
     .a_rdata           ( axi_dbram_rdata      ),
-    // Port B: HP0 burst slave
-    .b_req             ( burst_b_req          ),
-    .b_addr            ( burst_b_addr         ),
-    .b_wdata           ( burst_b_wdata        ),
-    .b_we              ( burst_b_we           ),
-    .b_rdata           ( burst_b_rdata        ),
-    // accel_core DBRAM host port
+    .b_req             ( dburst_b_req         ),
+    .b_addr            ( dburst_b_addr        ),
+    .b_wdata           ( dburst_b_wdata       ),
+    .b_we              ( dburst_b_we          ),
+    .b_rdata           ( dburst_b_rdata       ),
     .dbram_addr_o      ( core_dbram_addr      ),
     .dbram_wdata_o     ( core_dbram_wdata     ),
     .dbram_we_o        ( core_dbram_we        ),
     .dbram_rdata_i     ( core_dbram_rdata     )
   );
 
-  // -- Accelerator core --------------------------------------------
+  // -----------------------------------------------------------------------
+  // Accelerator core
+  // -----------------------------------------------------------------------
   accel_core u_core (
-    .clk_i         ( clk_core         ),
-    .clk_bram_i    ( clk_bram         ),
-    .rst_ni        ( accel_rst_n      ),
-    .start_i       ( accel_start      ),
-    .done_o        ( accel_done       ),
-    .running_o     ( accel_running    ),
-    .ibram_addr_i  ( ibram_addr       ),
-    .ibram_wdata_i ( ibram_wdata      ),
-    .ibram_we_i    ( ibram_we         ),
-    .ibram_rdata_o ( ibram_rdata      ),
-    .dbram_addr_i  ( core_dbram_addr  ),
-    .dbram_wdata_i ( core_dbram_wdata ),
-    .dbram_we_i    ( core_dbram_we    ),
-    .dbram_rdata_o ( core_dbram_rdata )
+    .clk_i         ( clk_core          ),
+    .clk_bram_i    ( clk_bram          ),
+    .rst_ni        ( accel_rst_n_core  ),
+    .start_i       ( start_core        ),
+    .done_o        ( accel_done_core   ),
+    .running_o     ( accel_running_core),
+    .ibram_addr_i  ( core_ibram_addr   ),
+    .ibram_wdata_i ( core_ibram_wdata  ),
+    .ibram_we_i    ( core_ibram_we     ),
+    .ibram_rdata_o ( core_ibram_rdata  ),
+    .dbram_addr_i  ( core_dbram_addr   ),
+    .dbram_wdata_i ( core_dbram_wdata  ),
+    .dbram_we_i    ( core_dbram_we     ),
+    .dbram_rdata_o ( core_dbram_rdata  )
   );
 
 endmodule

@@ -17,8 +17,11 @@ set_property IOSTANDARD  LVCMOS33  [get_ports {GCLK}]
 create_clock -period 10.0 -name GCLK [get_ports {GCLK}]
 
 ## Clock Domain Crossing
-## Both flows use clk_wiz_0: 100 MHz crystal -> CLKOUT1 (core+AXI) + CLKOUT2 (2x BRAM).
-## In zynq_accel_top: M_AXI_GP0/GP1_ACLK = CLKOUT1 = accel_axi clk_i -> no CDC on AXI bus.
+## Both flows use clk_wiz_0: 100 MHz crystal -> CLKOUT1 (clk_core) + CLKOUT2 (2x, clk_bram).
+## In zynq_accel_top: PL_CLK = CLKOUT2 = clk_bram. M_AXI_GP0/GP1_ACLK = clk_bram (2x).
+## accel_axi/accel_axi_burst/accel_ibram_burst run at clk_bram; accel_core at clk_core/clk_bram.
+## CDC synchronizers in zynq_accel_top: 2-FF (running/done clk_core->clk_bram),
+## reset-sync (accel_rst_n_bram->clk_core), toggle-sync (start clk_bram->clk_core).
 
 ## Additional Timing Exceptions
 

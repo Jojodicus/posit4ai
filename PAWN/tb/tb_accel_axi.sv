@@ -78,6 +78,46 @@ module tb_accel_axi
   logic                            ibram_we;
   logic [63:0]                     ibram_rdata;
 
+  // ---- accel_ibram_burst AXI4 signals (32-bit data bus) ------------------------------------------------------------------
+  logic [3:0]  iburst_awid;
+  logic [31:0] iburst_awaddr;
+  logic [7:0]  iburst_awlen;
+  logic [2:0]  iburst_awsize;
+  logic [1:0]  iburst_awburst;
+  logic        iburst_awvalid, iburst_awready;
+  logic [31:0] iburst_wdata;
+  logic [3:0]  iburst_wstrb;
+  logic        iburst_wlast;
+  logic        iburst_wvalid, iburst_wready;
+  logic [3:0]  iburst_bid;
+  logic [1:0]  iburst_bresp;
+  logic        iburst_bvalid, iburst_bready;
+  logic [3:0]  iburst_arid;
+  logic [31:0] iburst_araddr;
+  logic [7:0]  iburst_arlen;
+  logic [2:0]  iburst_arsize;
+  logic [1:0]  iburst_arburst;
+  logic        iburst_arvalid, iburst_arready;
+  logic [3:0]  iburst_rid;
+  logic [1:0]  iburst_rresp;
+  logic        iburst_rlast;
+  logic        iburst_rvalid, iburst_rready;
+
+  // ---- accel_ibram_burst -> IBRAM host port arbiter -----------------------------------------------------------------------
+  logic                          iburst_b_req;
+  logic [$clog2(INSTR_DEPTH)-1:0] iburst_ibram_addr;
+  logic [63:0]                   iburst_ibram_wdata;
+  logic                          iburst_ibram_we;
+
+  // ---- IBRAM host port arbiter output -> accel_core (ibram_burst wins when b_req) ----------------------------------------
+  logic [$clog2(INSTR_DEPTH)-1:0] core_ibram_addr;
+  logic [63:0]                    core_ibram_wdata;
+  logic                           core_ibram_we;
+
+  assign core_ibram_addr  = iburst_b_req ? iburst_ibram_addr : ibram_addr;
+  assign core_ibram_wdata = iburst_b_req ? iburst_ibram_wdata : ibram_wdata;
+  assign core_ibram_we    = iburst_b_req ? iburst_ibram_we : ibram_we;
+
   // ---- arbiter -> accel_core DBRAM host ------------------------------------------------------------------------------------
   logic [$clog2(DATA_DEPTH)-1:0]   core_dbram_addr;
   logic [DATA_WIDTH-1:0]           core_dbram_wdata;
@@ -201,22 +241,50 @@ module tb_accel_axi
     .dbram_rdata_i   ( core_dbram_rdata )
   );
 
+  // ---- IBRAM burst slave ------------------------------------------------------------------------------------------------------------------
+  accel_ibram_burst u_iburst (
+    .clk_i           ( clk               ),
+    .rst_ni          ( accel_rst_n       ),
+    .running_i       ( accel_running     ),
+    .s_axi_awid      ( iburst_awid       ), .s_axi_awaddr  ( iburst_awaddr  ),
+    .s_axi_awlen     ( iburst_awlen      ), .s_axi_awsize  ( iburst_awsize  ),
+    .s_axi_awburst   ( iburst_awburst    ), .s_axi_awvalid ( iburst_awvalid ),
+    .s_axi_awready   ( iburst_awready    ),
+    .s_axi_wdata     ( iburst_wdata      ), .s_axi_wstrb   ( iburst_wstrb   ),
+    .s_axi_wlast     ( iburst_wlast      ), .s_axi_wvalid  ( iburst_wvalid  ),
+    .s_axi_wready    ( iburst_wready     ),
+    .s_axi_bid       ( iburst_bid        ), .s_axi_bresp   ( iburst_bresp   ),
+    .s_axi_bvalid    ( iburst_bvalid     ), .s_axi_bready  ( iburst_bready  ),
+    .s_axi_arid      ( iburst_arid       ), .s_axi_araddr  ( iburst_araddr  ),
+    .s_axi_arlen     ( iburst_arlen      ), .s_axi_arsize  ( iburst_arsize  ),
+    .s_axi_arburst   ( iburst_arburst    ), .s_axi_arvalid ( iburst_arvalid ),
+    .s_axi_arready   ( iburst_arready    ),
+    .s_axi_rid       ( iburst_rid        ), .s_axi_rresp   ( iburst_rresp   ),
+    .s_axi_rlast     ( iburst_rlast      ), .s_axi_rvalid  ( iburst_rvalid  ),
+    .s_axi_rready    ( iburst_rready     ),
+    .b_req           ( iburst_b_req      ),
+    .ibram_addr_o    ( iburst_ibram_addr ),
+    .ibram_wdata_o   ( iburst_ibram_wdata),
+    .ibram_we_o      ( iburst_ibram_we   ),
+    .ibram_rdata_i   ( ibram_rdata       )
+  );
+
   // ---- Accelerator core --------------------------------------------------------------------------------------------------------------------
   accel_core u_core (
-    .clk_i         ( clk              ),
-    .clk_bram_i    ( clk_bram         ),
-    .rst_ni        ( accel_rst_n      ),
-    .start_i       ( accel_start      ),
-    .done_o        ( accel_done       ),
-    .running_o     ( accel_running    ),
-    .ibram_addr_i  ( ibram_addr       ),
-    .ibram_wdata_i ( ibram_wdata      ),
-    .ibram_we_i    ( ibram_we         ),
-    .ibram_rdata_o ( ibram_rdata      ),
-    .dbram_addr_i  ( core_dbram_addr  ),
-    .dbram_wdata_i ( core_dbram_wdata ),
-    .dbram_we_i    ( core_dbram_we    ),
-    .dbram_rdata_o ( core_dbram_rdata )
+    .clk_i         ( clk               ),
+    .clk_bram_i    ( clk_bram          ),
+    .rst_ni        ( accel_rst_n       ),
+    .start_i       ( accel_start       ),
+    .done_o        ( accel_done        ),
+    .running_o     ( accel_running     ),
+    .ibram_addr_i  ( core_ibram_addr   ),
+    .ibram_wdata_i ( core_ibram_wdata  ),
+    .ibram_we_i    ( core_ibram_we     ),
+    .ibram_rdata_o ( ibram_rdata       ),
+    .dbram_addr_i  ( core_dbram_addr   ),
+    .dbram_wdata_i ( core_dbram_wdata  ),
+    .dbram_we_i    ( core_dbram_we     ),
+    .dbram_rdata_o ( core_dbram_rdata  )
   );
 
   // ---- Primitive AXI helpers --------------------------------------------------------------------------------------------------------
@@ -262,6 +330,56 @@ module tb_accel_axi
     axi_write(32'h08, idx);             // IBRAM_ADDR
     axi_write(32'h0C, instr[31:0]);     // IBRAM_DATA_LO
     axi_write(32'h10, instr[63:32]);    // IBRAM_DATA_HI -> triggers BRAM write
+  endtask
+
+  // Write N 64-bit instructions to IBRAM starting at word index start_idx
+  // via accel_ibram_burst (32-bit AXI4 bus, 2 beats per instruction word).
+  // Beat 2i   = instr[i][31:0]  (lo half)
+  // Beat 2i+1 = instr[i][63:32] (hi half, triggers IBRAM write)
+  task automatic write_instr_burst(
+    input int          start_idx,
+    input int          n,
+    input logic [63:0] instrs[]
+  );
+    int beats;
+    beats = n * 2;
+    @(posedge clk); #1;
+    iburst_awid    = 4'h0;
+    iburst_awaddr  = 32'(start_idx * 8);  // byte address, 8-byte aligned
+    iburst_awlen   = 8'(beats - 1);
+    iburst_awsize  = 3'h2;                // 4 bytes per beat
+    iburst_awburst = 2'b01;               // INCR
+    iburst_awvalid = 1'b1;
+    iburst_bready  = 1'b1;
+    wait(iburst_awready);
+    @(posedge clk); #1;
+    iburst_awvalid = 1'b0;
+
+    for (int i = 0; i < n; i++) begin
+      // lo beat
+      @(posedge clk); #1;
+      iburst_wdata  = instrs[i][31:0];
+      iburst_wstrb  = 4'hF;
+      iburst_wlast  = (i == n - 1) && 1'b0;  // not last (hi beat comes after)
+      iburst_wvalid = 1'b1;
+      wait(iburst_wready);
+      @(posedge clk); #1;
+      iburst_wvalid = 1'b0;
+      // hi beat
+      @(posedge clk); #1;
+      iburst_wdata  = instrs[i][63:32];
+      iburst_wstrb  = 4'hF;
+      iburst_wlast  = (i == n - 1);
+      iburst_wvalid = 1'b1;
+      wait(iburst_wready);
+      @(posedge clk); #1;
+      iburst_wvalid = 1'b0;
+      iburst_wlast  = 1'b0;
+    end
+
+    wait(iburst_bvalid);
+    @(posedge clk); #1;
+    iburst_bready = 1'b0;
   endtask
 
   // Write one DATA_WIDTH-bit value to the data BRAM.
@@ -535,6 +653,14 @@ module tb_accel_axi
     burst_wdata = 0; burst_wstrb = 0; burst_wlast = 0;
     burst_arid = 0; burst_araddr = 0; burst_arlen = 0;
     burst_arsize = 0; burst_arburst = 0;
+    // ibram burst slave init
+    iburst_awvalid = 0; iburst_wvalid = 0; iburst_bready = 0;
+    iburst_arvalid = 0; iburst_rready = 0;
+    iburst_awid = 0; iburst_awaddr = 0; iburst_awlen = 0;
+    iburst_awsize = 0; iburst_awburst = 0;
+    iburst_wdata = 0; iburst_wstrb = 0; iburst_wlast = 0;
+    iburst_arid = 0; iburst_araddr = 0; iburst_arlen = 0;
+    iburst_arsize = 0; iburst_arburst = 0;
 
     @(posedge rst_n);
     repeat(3) @(posedge clk);
@@ -779,6 +905,41 @@ module tb_accel_axi
         $display("  PASS  burst_gated: sentinel preserved while RUNNING");
         pass_count++;
       end
+    end
+
+    // ---- IBRAM burst load then run kernel ----------------------------------------------------------------------------
+    // Loads 3 instructions via accel_ibram_burst (32-bit AXI4 burst, 2 beats/word).
+    // Uses d[0..2] = 1.0, 2.0, 4.0 already in DBRAM. Results land in d[110..111].
+    $display("-- IBRAM burst load then run kernel --");
+    begin : ibram_burst_kernel
+      automatic logic [63:0] ib_instrs [3];
+      automatic int ok = 1;
+
+      ib_instrs[0] = make_instr(OP_ADD,  20'd0, 20'd1, 20'd110); // 1+2=3
+      ib_instrs[1] = make_instr(OP_DIV,  20'd2, 20'd1, 20'd111); // 4/2=2 (stall)
+      ib_instrs[2] = make_instr(OP_HALT, 20'd0, 20'd0, 20'd0);
+
+      write_instr_burst(0, 3, ib_instrs);
+      repeat(2) @(posedge clk);
+      run_and_wait("ibram_burst_kernel");
+      repeat(3) @(posedge clk);
+
+      begin
+        logic [63:0] got;
+        read_data(110, got);
+        if (got[DATA_WIDTH-1:0] !== V_3[DATA_WIDTH-1:0]) begin
+          $display("  FAIL  ibram_burst ADD 1+2=3 [110]  got 0x%0X  exp 0x%0X",
+                   got[DATA_WIDTH-1:0], V_3[DATA_WIDTH-1:0]);
+          fail_count++; ok = 0;
+        end else pass_count++;
+        read_data(111, got);
+        if (got[DATA_WIDTH-1:0] !== V_2[DATA_WIDTH-1:0]) begin
+          $display("  FAIL  ibram_burst DIV 4/2=2 [111]  got 0x%0X  exp 0x%0X",
+                   got[DATA_WIDTH-1:0], V_2[DATA_WIDTH-1:0]);
+          fail_count++; ok = 0;
+        end else pass_count++;
+      end
+      if (ok) $display("  PASS  ibram_burst: instructions loaded via burst, ADD+DIV correct");
     end
 
     // ---- Opcode coverage: missing opcodes via AXI path ------------------------------------------------
