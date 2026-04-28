@@ -99,8 +99,8 @@ if {$need_impl} {
 
     file mkdir [file normalize $root_dir/reports]
 
-    set_property -name {STEPS.SYNTH_DESIGN.ARGS.RETIMING}          \
-                 -value true  -objects [get_runs synth_1]
+set_property -name {STEPS.SYNTH_DESIGN.ARGS.GLOBAL_RETIMING} \
+                 -value on -objects [get_runs synth_1]
     set_property -name {STEPS.SYNTH_DESIGN.ARGS.FLATTEN_HIERARCHY} \
                  -value full  -objects [get_runs synth_1]
 
