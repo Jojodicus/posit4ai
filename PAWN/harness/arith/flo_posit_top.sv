@@ -41,7 +41,7 @@ module flo_posit_top import ariane_pkg::*; (
   logic                     pau_valid_d;
   logic [3:0]               latency_d, latency_q;
   logic [3:0]               count;
-  logic                     hold_inputs, use_hold;
+  logic                     hold_inputs, use_hold, restart_count;
 
   riscv::xlen_t operand_a_d, operand_a_q, operand_a;
   riscv::xlen_t operand_b_d, operand_b_q, operand_b;
@@ -409,12 +409,13 @@ module flo_posit_top import ariane_pkg::*; (
 
   // ---- Latency FSM (all ops = 1 cycle, same structure as pau_top.sv) --------------------------
   always_comb begin
-    pau_ready_o  = 1'b0;
-    hold_inputs  = 1'b0;
-    use_hold     = 1'b0;
-    pau_valid_d  = 1'b0;
-    state_d      = state_q;
-    trans_id_d   = trans_id_q;
+    pau_ready_o   = 1'b0;
+    hold_inputs   = 1'b0;
+    use_hold      = 1'b0;
+    pau_valid_d   = 1'b0;
+    restart_count = 1'b0;
+    state_d       = state_q;
+    trans_id_d    = trans_id_q;
 
     unique case (state_q)
       READY: begin
@@ -436,7 +437,14 @@ module flo_posit_top import ariane_pkg::*; (
         if (count == latency_q) begin
           pau_ready_o = 1'b1;
           pau_valid_d = 1'b1;
-          state_d     = READY;
+          // Accept next op immediately without returning to READY.
+          if (pau_valid_i) begin
+            hold_inputs   = 1'b1;
+            restart_count = 1'b1;
+            state_d       = STALL;
+          end else begin
+            state_d       = READY;
+          end
         end
       end
       default: ;
@@ -488,9 +496,12 @@ module flo_posit_top import ariane_pkg::*; (
     end
   end
 
+  // restart_count: count starts at 1 so restart latency equals READY->STALL latency.
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni || state_d == READY)
       count <= '0;
+    else if (restart_count)
+      count <= 1;
     else
       count <= count + 1;
   end

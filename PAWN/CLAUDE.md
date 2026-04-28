@@ -124,26 +124,31 @@ depends on the op class:
 | Op class                                   | L (arith cy) | Steady-state |
 |--------------------------------------------|--------------|--------------|
 | Comb (MOV, NEG, ABS, RELU, disabled ops)   | 0            | 1 cy/op      |
-| PAU pipelined (PADD/PSUB/PMUL, QMADD ...)  | >= 1         | L + 2 cy/op  |
-| PAU DIV / SQRT                             | 10 / 13      | ~12 / ~15    |
-| FPU (fpnew FMA, DIV, SQRT)                 | variable     | L + 2 cy/op  |
+| PAU pipelined (PADD/PSUB/PMUL, QMADD ...)  | >= 1         | L + 1 cy/op  |
+| PAU DIV / SQRT                             | 11 / 14      | ~12 / ~15    |
+| FPU (fpnew FMA, DIV, SQRT)                 | variable     | L + 1 cy/op  |
 
-The `+2` on non-comb ops is structural: (1) `pau_top` / `flo_posit_top`
-always go through a STALL state before asserting `pau_valid_o`, and
-(2) `arith_unit` does not set `accept_new=1` in the same cycle that
-`arith_valid_o` fires, so there is an extra idle cycle between back-to-back
-non-comb ops. The comment in `arith_unit.sv` S_BUSY flags this as a known
-inefficiency. Closing it requires teaching `pau_top`/`flo_posit_top` to
-latch a new op in the STALL-exit cycle (currently they ignore
-`pau_valid_i` while `state_q == STALL`). Deferred.
+The `+1` gap between consecutive non-comb ops is structural and not
+reducible: when `arith_valid_o` fires at cycle N, `id_ex_q` still holds the
+current instruction. It only advances to the next instruction at the N
+clock edge. Setting `accept_new=1` at N would cause accel_core to
+re-issue the just-completed op (id_ex_q not yet updated). Eliminating the
+gap would require look-ahead into `ibram_fetch_rdata` to pre-issue before
+the stall clears -- a major pipeline restructure.
 
-Comb ops already meet the 1 cy/op goal because they bypass the PAU/FPU
-pipeline entirely -- `arith_valid_o` fires the same cycle as
-`arith_valid_i`, so `stall` never asserts.
+Comb ops reach 1 cy/op because they bypass the PAU/FPU pipeline entirely --
+`arith_valid_o` fires the same cycle as `arith_valid_i`, so `stall` never
+asserts.
+
+`pau_top` and `flo_posit_top` now support STALL-exit restart: when
+`arith_valid_o` fires and a new `pau_valid_i` arrives simultaneously, the
+PAU captures the new op in the same cycle (count restarted at 1, not 0).
+This is used by `arith_unit` for the 2-pass MAC second pass, collapsing
+the old S_MAC_STEP cycle into the PMUL completion cycle.
 
 ### Arith-unit PAU latencies (cycles, `pau_valid_i` to `pau_valid_o`)
 
-POSLEN=32 and POSLEN=64 current RTL (no add/mul/mac retiming FFs):
+POSLEN=32 and POSLEN=64 current RTL:
 
 | Op          | Latency |
 |-------------|---------|
@@ -158,6 +163,16 @@ POSLEN=32 and POSLEN=64 current RTL (no add/mul/mac retiming FFs):
 `pau_valid_d -> pau_valid_o` one cycle after the STALL-exit.)
 
 FloPoCo (`flo_posit_top`, all widths): every op 2 cycles.
+
+### 2-pass MAC (PAU-32/64 ACCUMULATOR mode)
+
+QMADD/QMSUB issues PMUL then PADD/PSUB via `arith_unit`. With the
+STALL-exit restart: when PMUL fires, the PADD is issued in the same cycle
+using `arith_result` (PMUL output FF) directly as operand. The old
+`S_MAC_STEP` idle cycle is eliminated.
+
+Total cycles per QMADD/QMSUB: `L_pmul + L_padd + 1` (pipeline advance) =
+2 + 2 + 1 = 5 cy/op (was 6 before S_MAC_STEP removal).
 
 ## Configuration
 

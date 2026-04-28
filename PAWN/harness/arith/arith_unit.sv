@@ -51,14 +51,13 @@ module arith_unit
   // FLO_PAU_NO_QUIRE handles QMADD/QMSUB in flopau (single op).
   localparam bit USE_2PASS_MAC = PAU_NO_QUIRE && !FLO_PAU_NO_QUIRE;
 
-  typedef enum logic [1:0] { S_IDLE, S_BUSY, S_MAC_STEP, S_MAC_BUSY } state_t;
+  typedef enum logic [1:0] { S_IDLE, S_BUSY, S_MAC_BUSY, S_UNUSED } state_t;
   state_t state_q, state_d;
 
   opcode_t                opcode_q, opcode_d;
 
   logic [DATA_WIDTH-1:0]  result_q,    result_d;
   logic [DATA_WIDTH-1:0]  acc_q,       acc_d;
-  logic [DATA_WIDTH-1:0]  mul_result_q, mul_result_d;
 
   // -- PAU / FPU interfaces -----------------------------------------------
   fu_data_t         pau_fu_data;
@@ -188,21 +187,31 @@ module arith_unit
   logic [DATA_WIDTH-1:0] pau_op_a, pau_op_b;
   fu_op                  pau_fu_op;
 
+  // mac2_bypass: fired when the 2-pass MAC first pass (PMUL) completes and we
+  // immediately issue the second pass (PADD/PSUB) to PAU in the same cycle,
+  // using arith_result (the PMUL output FF) directly as an operand.
+  // pau_top accepts this via the STALL-exit restart path.
+  logic mac2_bypass;
+  assign mac2_bypass = USE_2PASS_MAC
+                    && (state_q == S_BUSY)
+                    && arith_valid_o_int
+                    && (opcode_q inside {OP_QACC_MADD, OP_QACC_MSUB});
+
   always_comb begin
     pau_op_a  = operand_a_i;
     pau_op_b  = operand_b_i;
     pau_fu_op = PADD;
 
-    if (state_q == S_MAC_STEP) begin
-      // Second pass of QMADD/QMSUB (no-quire PAU-32/64). Operands come from
-      // the registered acc and the just-captured mul result.
+    if (mac2_bypass) begin
+      // Second pass: PADD(mul_result, acc) or PSUB(acc, mul_result).
+      // arith_result is the registered PMUL output from pau_top -- stable this cycle.
       if (opcode_q == OP_QACC_MSUB) begin
         pau_fu_op = PSUB;
         pau_op_a  = acc_q;
-        pau_op_b  = mul_result_q;
+        pau_op_b  = arith_result;
       end else begin
         pau_fu_op = PADD;
-        pau_op_a  = mul_result_q;
+        pau_op_a  = arith_result;
         pau_op_b  = acc_q;
       end
     end else begin
@@ -307,7 +316,7 @@ module arith_unit
   // -- Control --------------------------------------------------------
   // accept_new: ready to consume a fresh op this cycle.
   //   - S_IDLE: always.
-  //   - S_BUSY: when arith_valid_o fires AND the result is final (not 2-pass first half).
+  //   - S_BUSY: when arith_valid_o fires (non-2pass path only).
   //   - S_MAC_BUSY: when arith_valid_o fires (second pass complete).
   // valid_o: pulse when the current op finishes this cycle (comb path or arith path).
   logic accept_new;
@@ -318,7 +327,6 @@ module arith_unit
     opcode_d        = opcode_q;
     result_d        = result_q;
     acc_d           = acc_q;
-    mul_result_d    = mul_result_q;
     pau_valid_i_sig = 1'b0;
     fpu_valid_i_sig = 1'b0;
     valid_o         = 1'b0;
@@ -333,8 +341,11 @@ module arith_unit
       S_BUSY: begin
         if (arith_valid_o_int) begin
           if (USE_2PASS_MAC && opcode_q inside {OP_QACC_MADD, OP_QACC_MSUB}) begin
-            mul_result_d = arith_result;
-            state_d      = S_MAC_STEP;
+            // Issue second pass (PADD/PSUB) immediately via mac2_bypass / STALL-exit restart.
+            // Operands are driven by mac2_bypass in the pau_op mux (arith_result + acc_q).
+            pau_valid_i_sig = 1'b1;
+            opcode_d        = opcode_q;  // preserve for S_MAC_BUSY acc update
+            state_d         = S_MAC_BUSY;
           end else begin
             if (!FLO_PAU_NO_QUIRE && opcode_q inside {OP_QACC_ADD, OP_QACC_MADD, OP_QACC_MSUB})
               acc_d = arith_result;
@@ -342,15 +353,11 @@ module arith_unit
             valid_o  = 1'b1;
             firing_arith_result = 1'b1;
             state_d  = S_IDLE;
-            // accept_new stays 0, accel_core will issue next cycle
+            // The 1-cycle gap before the next op is structural: id_ex_q needs one
+            // clock edge to advance after stall clears (pipeline register advance).
+            // Setting accept_new=1 here would re-issue the current op -- incorrect.
           end
         end
-      end
-
-      S_MAC_STEP: begin
-        // Issue second PAU op (PADD/PSUB). pau_op_a/b/op already overridden above.
-        pau_valid_i_sig = 1'b1;
-        state_d         = S_MAC_BUSY;
       end
 
       S_MAC_BUSY: begin
@@ -404,17 +411,15 @@ module arith_unit
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      state_q      <= S_IDLE;
-      opcode_q     <= OP_HALT;
-      result_q     <= '0;
-      acc_q        <= '0;
-      mul_result_q <= '0;
+      state_q  <= S_IDLE;
+      opcode_q <= OP_HALT;
+      result_q <= '0;
+      acc_q    <= '0;
     end else begin
-      state_q      <= state_d;
-      opcode_q     <= opcode_d;
-      result_q     <= result_d;
-      acc_q        <= acc_d;
-      mul_result_q <= mul_result_d;
+      state_q  <= state_d;
+      opcode_q <= opcode_d;
+      result_q <= result_d;
+      acc_q    <= acc_d;
     end
   end
 
