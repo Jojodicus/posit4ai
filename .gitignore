@@ -16,6 +16,10 @@ PAWN/**/*.str
 PAWN/**/.Xil/
 PAWN/xvlog.pb
 PAWN/vivado
+PAWN/zedboard.bsp
+PAWN/zedboard.xsa
+PAWN/petalinux
+PAWN/petalinux.wic
 
 # libpawn
 libpawn/build

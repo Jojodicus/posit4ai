@@ -110,6 +110,44 @@ make CROSS=arm-linux-gnueabihf-
 # -> examples/hello_posit  examples/benchmark
 ```
 
+### Install PetaLinux
+
+This needs a beefy machine, lots of time and ~60 GB of free disk space.
+
+1. Install [PetaLinux tools](https://www.xilinx.com/member/forms/download/xef.html?filename=petalinux-v2025.2-11160223-installer.run), then `source /path/to/petalinux/settings.sh`
+2. `./petalinux.sh`
+3. `petalinux-create project -n petalinux -s zedboard.bsp`
+4. `cd petalinux`
+5. `petalinux-config`: "Image Packaging Configuration" -> set "Root filesystem type" to EXT4, uncheck "Copy final images to tftpboot"
+5. `petalinux-build`, confirm with `y` twice
+6. some modules might build with errors, a small collection of fixes:
+  ```sh
+  # bootgen
+  sed -i '1i #include <stdio.h>' build/tmp/work/x86_64-linux/bootgen-native/2025.2/git/lms-hash-sigs/hss_param.c
+  # util-linux
+  sed -i 's/{\.fd = fd,}/{.fd = fd}/g' build/tmp/work/x86_64-linux/util-linux-native/2.40.4/util-linux-2.40.4/misc-utils/lsfd.c
+  # libfdt
+  sed -i 's/char \*sep, \*endptr;/const char *sep;\nchar *endptr;/g' build/tmp/work/x86_64-linux/dtc-native/1.7.0/git/libfdt/fdt_overlay.c && sed -i 's/create_node(char \*\*blob, const char \*node_name)/create_node(char **blob, char *node_name)/g' build/tmp/work/x86_64-linux/dtc-native/1.7.0/git/fdtput.c
+  # llvm
+  rm -rf build/tmp/work/x86_64-linux/llvm-native/18.1.6/llvm-project-18.1.6.src/* && curl -L https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.4/llvm-project-22.1.4.src.tar.xz | tar -xJf - -C build/tmp/work/x86_64-linux/llvm-native/18.1.6/llvm-project-18.1.6.src --strip-components=1
+  # elfutils
+  sed -i 's/struct known_csrs \*found/const struct known_csrs \*found/g' build/tmp/work/x86_64-linux/elfutils-native/0.191/elfutils-0.191/libcpu/riscv_disasm.c && sed -i 's/uint8_t \*endp/const uint8_t \*endp/g' build/tmp/work/x86_64-linux/elfutils-native/0.191/elfutils-0.191/libdw/dwarf_getsrclines.c && sed -i 's/char \*colon/const char \*colon/g' build/tmp/work/x86_64-linux/elfutils-native/0.191/elfutils-0.191/debuginfod/debuginfod-client.c && sed -i 's/char \*filename/const char \*filename/g' build/tmp/work/x86_64-linux/elfutils-native/0.191/elfutils-0.191/src/readelf.c && sed -i 's/  unsigned char \*endp/  const unsigned char \*endp/g' build/tmp/work/x86_64-linux/elfutils-native/0.191/elfutils-0.191/src/readelf.c
+  # xlnx libfdt
+  sed -i 's/char \*sep, \*endptr;/const char *sep;\nchar *endptr;/g' build/tmp-xlnx-zedboard-cortexa9-fsbl/work/x86_64-linux/dtc-native/1.7.0/git/libfdt/fdt_overlay.c && sed -i 's/create_node(char \*\*blob, const char \*node_name)/create_node(char **blob, char *node_name)/g' build/tmp-xlnx-zedboard-cortexa9-fsbl/work/x86_64-linux/dtc-native/1.7.0/git/fdtput.c
+  # mesa
+  sed -z -i 's/typedef pthread_once_t  once_flag;\n#  define ONCE_FLAG_INIT PTHREAD_ONCE_INIT/#ifndef __once_flag_defined\ntypedef pthread_once_t  once_flag;\n#  define ONCE_FLAG_INIT PTHREAD_ONCE_INIT\n#endif/' build/tmp/work/x86_64-linux/mesa-native/24.0.7/mesa-24.0.7/src/c11/threads.h && sed -i ':a;N;$!ba;s@void\ncall_once(once_flag \*flag, void (\*func)(void))\n{\n    pthread_once(flag, func);\n}@#ifndef __once_flag_defined\nvoid\ncall_once(once_flag *flag, void (*func)(void))\n{\n    pthread_once(flag, func);\n}\n#endif@g' build/tmp/work/x86_64-linux/mesa-native/24.0.7/mesa-24.0.7/src/c11/impl/threads_posix.c && sed -i 's/unwrap(module)->setTargetTriple(TM->getTargetTriple()\.getTriple())/unwrap(module)->setTargetTriple(TM->getTargetTriple())/' build/tmp/work/x86_64-linux/mesa-native/24.0.7/mesa-24.0.7/src/amd/llvm/ac_llvm_helper.cpp
+  # virglrenderer
+  sed -z -i 's/typedef pthread_once_t  once_flag;/#ifndef __once_flag_defined\ntypedef pthread_once_t  once_flag;\n#endif/' build/tmp/work/x86_64-linux/virglrenderer-native/1.0.1/git/src/mesa/compat/c11/threads_posix.h && sed -i ':a;N;$!ba;s@static inline void\ncall_once(once_flag \*flag, void (\*func)(void))\n{\n    pthread_once(flag, func);\n}@#ifndef __once_flag_defined\nvoid\ncall_once(once_flag *flag, void (*func)(void))\n{\n    pthread_once(flag, func);\n}\n#endif@g' build/tmp/work/x86_64-linux/virglrenderer-native/1.0.1/git/src/mesa/compat/c11/threads_posix.h && sed -i 's@#define ONCE_FLAG_INIT PTHREAD_ONCE_INIT@#ifndef __once_flag_defined\n#define ONCE_FLAG_INIT PTHREAD_ONCE_INIT\n#endif@g' build/tmp/work/x86_64-linux/virglrenderer-native/1.0.1/git/src/mesa/compat/c11/threads_posix.h
+  # qemu: no robust substitution command, manually edit build/tmp/work/x86_64-linux/qemu-xilinx-system-native/8.2.7+git/build/build.ninja
+  # remove vnc-display-test from all target and build recipies
+  ```
+  run `petalinux-build` again until it passes
+7. `cp images/linux/uImage images/linux/Image`
+7. `petalinux-package --boot --fsbl --fpga --u-boot --force`
+8. `petalinux-package --wic --images-dir images/linux --bootfiles "BOOT.BIN boot.scr Image" --outdir wic_out`
+9. `wic_out/petalinux-sdimage.wic` can then be flashed to the SD card
+
+
 ### Copy files to the board
 
 Set your board's IP (check the PetaLinux boot log or your DHCP leases):
