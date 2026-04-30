@@ -39,21 +39,13 @@ if {[file exists ${proj_dir}/${proj_name}.xpr]} {
 # Set top-level to BD wrapper for implementation
 set_property top zynq_accel_top [current_fileset]
 
-# BD is frequency-independent (PL_CLK comes from clk_wiz_0 outside the BD).
-# Rebuild only if the BD doesn't exist yet.
-set need_bd_rebuild 1
-set existing_bd [get_files -quiet "zynq_ps.bd"]
-if {$existing_bd ne ""} {
-    set need_bd_rebuild 0
-}
-
-if {$need_bd_rebuild} {
-    puts "Building block design (frequency-independent; PL clock from clk_wiz_0)..."
-    source -notrace [file join $root_dir scripts create_bd.tcl]
-    set_property top zynq_accel_top [current_fileset]
-} else {
-    puts "Existing BD found -- no rebuild needed."
-}
+# Always rebuild the block design so that edits to create_bd.tcl are never
+# silently skipped when impl.sh is run without a preceding clean.sh.
+# The BD is frequency-independent and takes ~1 min to regenerate -- negligible
+# compared to the full P&R run.
+puts "Rebuilding block design (picks up any create_bd.tcl changes)..."
+source -notrace [file join $root_dir scripts create_bd.tcl]
+set_property top zynq_accel_top [current_fileset]
 
 # Configure clk_wiz_0: 100 MHz crystal -> CLKOUT1=core freq, CLKOUT2=2x (BRAM).
 # Same configuration as run_build.tcl; both tops share the one clk_wiz_0 IP.

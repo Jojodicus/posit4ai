@@ -8,7 +8,7 @@
 
 CROSS ?=
 CC    := $(CROSS)gcc
-CFLAGS := -O2 -Wall -Wextra -std=c11
+CFLAGS := -O2 -Wall -Wextra -std=c11 -static
 
 DRIVER_OBJ   := pawn.o
 EXAMPLES     := hello_posit.elf benchmark.elf

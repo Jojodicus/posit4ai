@@ -163,8 +163,14 @@ This copies the bitstream and both example binaries to `~/pawn/` on the board.
 SSH to the board (`./scripts/board_run.sh 192.168.1.100 root`) and run:
 
 ```bash
-# Zynq xdevcfg interface (available on stock PetaLinux, no extra kernel module)
-dd if=/home/root/pawn/zynq_accel_top.bit of=/dev/xdevcfg
+mkdir -p /lib/firmware
+cp /home/root/pawn/zynq_accel_top.bin /lib/firmware/
+echo zynq_accel_top.bin > /sys/class/fpga_manager/fpga0/firmware
+
+# Deassert PL resets -- fpga_manager does not do this automatically.
+devmem 0xF8000008 32 0xDF0D   # SLCR unlock
+devmem 0xF8000240 32 0x0      # FPGA_RST_CTRL: clear all PL reset bits
+devmem 0xF8000004 32 0x767B   # SLCR lock
 ```
 
 The DONE LED on the Zedboard lights up when configuration succeeds.

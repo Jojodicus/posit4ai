@@ -43,14 +43,14 @@ module zynq_accel_top (
   import config_pkg::*;
 
   // -- Clocking: one MMCM for both core and BRAM -----------------------
-  logic clk_core, clk_bram;
+  logic clk_core, clk_bram, clk_locked;
 
   clk_wiz_0 u_clk_wiz (
-    .clk_in1  ( GCLK      ),
-    .reset    ( 1'b0      ),
-    .clk_out1 ( clk_core  ),
-    .clk_out2 ( clk_bram  ),
-    .locked   (           )
+    .clk_in1  ( GCLK       ),
+    .reset    ( 1'b0       ),
+    .clk_out1 ( clk_core   ),
+    .clk_out2 ( clk_bram   ),
+    .locked   ( clk_locked )
   );
 
   // -- Block design: PS7 + proc_sys_reset + axi_protocol_converter ---
@@ -110,6 +110,9 @@ module zynq_accel_top (
     .FIXED_IO_0_ps_srstb  ( FIXED_IO_ps_srstb    ),
     // PL_CLK = clk_bram: AXI slaves and proc_sys_reset run at 2x.
     .PL_CLK               ( clk_bram             ),
+    // DCM_LOCKED must be driven; unconnected defaults to 0, permanently
+    // holding proc_sys_reset outputs asserted (AXI lockup on every access).
+    .DCM_LOCKED           ( clk_locked           ),
     .peripheral_aresetn   ( peripheral_aresetn   ),
     .M_AXI_LITE_awaddr    ( M_AXI_LITE_awaddr    ),
     .M_AXI_LITE_awprot    ( M_AXI_LITE_awprot_unused ),

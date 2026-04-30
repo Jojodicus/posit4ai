@@ -82,9 +82,6 @@ set_property -dict [list \
     CONFIG.PCW_GPIO_MIO_GPIO_IO {MIO} \
 ] [get_bd_cells ps7]
 
-# --- Add Processor System Reset ---
-create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 rst_ps7
-
 # --- Add AXI Protocol Converter (AXI3 -> AXI4-Lite) ---
 create_bd_cell -type ip -vlnv xilinx.com:ip:axi_protocol_converter:2.1 axi_pc
 set_property -dict [list \
@@ -98,24 +95,25 @@ set_property -dict [list \
 create_bd_port -dir I -type clk PL_CLK
 connect_bd_net [get_bd_ports PL_CLK] \
     [get_bd_pins ps7/M_AXI_GP0_ACLK] \
-    [get_bd_pins rst_ps7/slowest_sync_clk] \
     [get_bd_pins axi_pc/aclk]
 
-# --- Connect Reset Network ---
-connect_bd_net [get_bd_pins ps7/FCLK_RESET0_N] \
-    [get_bd_pins rst_ps7/ext_reset_in]
-
-connect_bd_net [get_bd_pins rst_ps7/interconnect_aresetn] \
-    [get_bd_pins axi_pc/aresetn]
+# DCM_LOCKED (= clk_wiz_0.locked) drives all AXI reset signals directly.
+# proc_sys_reset is not used: after fpga_manager reprogramming FCLK_RESET0_N
+# never pulses (no PS7 reset occurs), so proc_sys_reset never releases its
+# outputs, permanently stalling every AXI transaction.
+# clk_wiz_0.locked goes 0->1 on every PL reconfiguration, providing the
+# correct reset pulse without any IP dependency.
+create_bd_port -dir I DCM_LOCKED
+connect_bd_net [get_bd_ports DCM_LOCKED] [get_bd_pins axi_pc/aresetn]
 
 # --- Connect AXI Data Path ---
 connect_bd_intf_net [get_bd_intf_pins ps7/M_AXI_GP0] \
     [get_bd_intf_pins axi_pc/S_AXI]
 
 # --- Export External Ports ---
-# Synchronized reset output (active low)
+# AXI reset output (active-low, driven directly by clk_wiz_0.locked).
 create_bd_port -dir O -type rst peripheral_aresetn
-connect_bd_net [get_bd_pins rst_ps7/peripheral_aresetn] [get_bd_ports peripheral_aresetn]
+connect_bd_net [get_bd_ports DCM_LOCKED] [get_bd_ports peripheral_aresetn]
 
 # AXI-Lite master interface (to be connected to accel_axi in top wrapper)
 make_bd_intf_pins_external [get_bd_intf_pins axi_pc/M_AXI]
@@ -138,7 +136,7 @@ set_property -dict [list \
 # GP1 and its protocol converter share PL_CLK (same as GP0 and accel_axi)
 connect_bd_net [get_bd_ports PL_CLK] [get_bd_pins ps7/M_AXI_GP1_ACLK]
 connect_bd_net [get_bd_ports PL_CLK] [get_bd_pins axi_pc_gp1/aclk]
-connect_bd_net [get_bd_pins rst_ps7/peripheral_aresetn] [get_bd_pins axi_pc_gp1/aresetn]
+connect_bd_net [get_bd_ports DCM_LOCKED] [get_bd_pins axi_pc_gp1/aresetn]
 
 # GP1 -> axi_pc_gp1 -> exported M_AXI_BURST (burst-capable AXI4, 32-bit data, base 0x8000_0000)
 connect_bd_intf_net [get_bd_intf_pins ps7/M_AXI_GP1] [get_bd_intf_pins axi_pc_gp1/S_AXI]
@@ -194,9 +192,10 @@ puts "=========================================="
 puts "Block Design Created Successfully"
 puts "=========================================="
 puts "  PL_CLK:            input from clk_wiz_0 CLKOUT1 (drives AXI master + slave)"
+puts "  DCM_LOCKED:        input from clk_wiz_0.locked; drives all AXI resets directly"
 puts "  GP0 slave base:    0x43C00000  (control + IBRAM, AXI4-Lite)"
 puts "  GP1 burst base:    0x80000000  (DBRAM bulk load, AXI4 burst)"
 puts "  BD Wrapper:        zynq_ps_wrapper"
-puts "  Exported ports:    PL_CLK (in), peripheral_aresetn (out), M_AXI_LITE_*, M_AXI_BURST_*"
+puts "  Exported ports:    PL_CLK (in), DCM_LOCKED (in), peripheral_aresetn (out), M_AXI_LITE_*, M_AXI_BURST_*"
 puts "  Top-level wrapper: zynq_accel_top (connects BD + accel_axi + accel_axi_burst)"
 puts "=========================================="
