@@ -46,6 +46,7 @@ module accel_core
 
   // -- Control -----------------------------------------------------------
   input  logic start_i,
+  input  logic soft_reset_i,
   output logic done_o,
   output logic running_o,
 
@@ -318,6 +319,10 @@ module accel_core
       op_a_wr_q <= '0;
       op_b_wr_q <= '0;
       fwd_wr_q  <= '0;
+    end else if (soft_reset_i) begin
+      op_a_wr_q <= '0;
+      op_b_wr_q <= '0;
+      fwd_wr_q  <= '0;
     end else begin
       op_a_wr_q <= op_a_q;
       op_b_wr_q <= op_b_q;
@@ -444,6 +449,14 @@ module accel_core
   // -- Sequencer registers ----------------------------------------------
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
+      seq_state_q   <= IDLE_S;
+      pc_q          <= '0;
+      if_id_valid_q <= 1'b0;
+      id_ex_q       <= '0;
+      id_ex_valid_q <= 1'b0;
+      fwd_hit_a_q   <= 1'b0;
+      fwd_hit_b_q   <= 1'b0;
+    end else if (soft_reset_i) begin
       seq_state_q   <= IDLE_S;
       pc_q          <= '0;
       if_id_valid_q <= 1'b0;

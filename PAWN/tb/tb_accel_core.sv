@@ -80,6 +80,7 @@ module tb_accel_core
 
   // -- DUT -------------------------------------------------------------
   logic start, done, running;
+  logic soft_reset;
 
   logic [$clog2(INSTR_DEPTH)-1:0] ibram_addr;
   logic [63:0]                    ibram_wdata;
@@ -95,6 +96,7 @@ module tb_accel_core
     .clk_i         ( clk         ),
     .clk_bram_i    ( clk_bram    ),
     .rst_ni        ( rst_n       ),
+    .soft_reset_i  ( soft_reset  ),
     .start_i       ( start       ),
     .done_o        ( done        ),
     .running_o     ( running     ),
@@ -419,6 +421,7 @@ module tb_accel_core
     pass_count = 0;
     fail_count = 0;
     start      = 0;
+    soft_reset = 0;
     ibram_addr = 0; ibram_wdata = 0; ibram_we = 0;
     dbram_addr = 0; dbram_wdata = 0; dbram_we = 0;
 

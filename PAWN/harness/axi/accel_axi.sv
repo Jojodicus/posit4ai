@@ -54,7 +54,7 @@ module accel_axi
 
   // -- accel_core control interface ---------------------------------
   output logic start_o,    // one-cycle start pulse
-  output logic rst_no,     // combined reset (rst_ni gated with CTRL.RESET)
+  output logic sw_reset_o, // one-cycle software reset pulse
   input  logic done_i,     // from accel_core.done_o
   input  logic running_i,  // from accel_core.running_o
 
@@ -81,10 +81,6 @@ module accel_axi
 
   // Control / status
   logic                            core_reset;      // combinatorial request
-  logic                            core_reset_q;    // registered (1-cycle synchronous pulse)
-
-  // Combined reset output
-  assign rst_no = rst_ni && !core_reset_q;
 
   // BRAM address and write-data assignments (combinatorial)
   assign ibram_addr_o = reg_ibram_addr[$clog2(INSTR_DEPTH)-1:0];
@@ -130,6 +126,7 @@ module accel_axi
     s_axi_bvalid  = 1'b0;
     s_axi_bresp   = 2'b00;
     start_o       = 1'b0;
+    sw_reset_o    = 1'b0;
     core_reset    = 1'b0;
     ibram_we_o    = 1'b0;
     dbram_we_o    = 1'b0;
@@ -170,6 +167,7 @@ module accel_axi
             end
             default: ;
           endcase
+          sw_reset_o = core_reset;
           wr_state_d = WR_IDLE;
         end
       end
@@ -182,7 +180,6 @@ module accel_axi
       wr_state_q        <= WR_IDLE;
       wr_addr_q         <= '0;
       wr_data_q         <= '0;
-      core_reset_q      <= 1'b0;
       reg_ibram_addr    <= '0;
       reg_ibram_data_lo <= '0;
       reg_ibram_data_hi <= '0;
@@ -191,7 +188,6 @@ module accel_axi
       reg_dbram_data_hi <= '0;
     end else begin
       wr_state_q   <= wr_state_d;
-      core_reset_q <= core_reset;
 
       // Capture AW address
       if (wr_state_q == WR_IDLE && s_axi_awvalid)

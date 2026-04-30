@@ -8,7 +8,7 @@
 // CDC paths:
 //   accel_core.running_o / done_o  (clk_core -> clk_bram): 2-FF synchronizers
 //   accel_axi.start_o              (clk_bram -> clk_core): toggle + 3-FF sync
-//   accel_axi.rst_no               (clk_bram -> clk_core): async-assert reset sync
+//   accel_axi.sw_reset_o           (clk_bram -> clk_core): toggle + 3-FF sync
 //
 // GP1 AXI4 address demux (AWADDR/ARADDR bit 20):
 //   bit 20 = 0 -> DBRAM burst (accel_axi_burst)
@@ -191,8 +191,8 @@ module zynq_accel_top (
   // -----------------------------------------------------------------------
 
   // accel_axi control outputs (clk_bram domain)
-  logic accel_start_bram;   // start pulse from AXI-Lite slave
-  logic accel_rst_n_bram;   // software reset from AXI-Lite slave
+  logic accel_start_bram;      // start pulse from AXI-Lite slave
+  logic accel_sw_reset_bram;   // software reset pulse from AXI-Lite slave
 
   // accel_core status (clk_core domain)
   logic accel_done_core, accel_running_core;
@@ -201,7 +201,7 @@ module zynq_accel_top (
   logic accel_done_bram, accel_running_bram;
 
   // Synchronized control for clk_core consumer (accel_core)
-  logic accel_rst_n_core, start_core;
+  logic start_core, sw_reset_core;
 
   // -----------------------------------------------------------------------
   // CDC: accel_core status (clk_core -> clk_bram), 2-FF synchronizers
@@ -220,31 +220,37 @@ module zynq_accel_top (
   assign accel_done_bram    = done_sync_q[1];
 
   // -----------------------------------------------------------------------
-  // CDC: accel_rst_n_bram (clk_bram -> clk_core)
-  // Async assert (immediate low), synchronous deassert (2 clk_core cycles).
-  // -----------------------------------------------------------------------
-  logic [1:0] accel_rst_sync_q;
-  always_ff @(posedge clk_core or negedge accel_rst_n_bram) begin
-    if (!accel_rst_n_bram) accel_rst_sync_q <= 2'b00;
-    else                   accel_rst_sync_q <= {accel_rst_sync_q[0], 1'b1};
-  end
-  assign accel_rst_n_core = accel_rst_sync_q[1];
-
-  // -----------------------------------------------------------------------
   // CDC: start_o pulse (clk_bram -> clk_core), toggle synchronizer.
-  // Toggle resets on accel_rst_n_bram to prevent spurious fires on SW reset.
+  // Toggle resets on peripheral_aresetn to prevent spurious fires after POR.
   // -----------------------------------------------------------------------
   logic       start_toggle_q;
   logic [2:0] start_sync_q;
-  always_ff @(posedge clk_bram or negedge accel_rst_n_bram) begin
-    if (!accel_rst_n_bram) start_toggle_q <= 1'b0;
+  always_ff @(posedge clk_bram or negedge peripheral_aresetn) begin
+    if (!peripheral_aresetn) start_toggle_q <= 1'b0;
     else if (accel_start_bram) start_toggle_q <= ~start_toggle_q;
   end
-  always_ff @(posedge clk_core or negedge accel_rst_n_core) begin
-    if (!accel_rst_n_core) start_sync_q <= 3'b0;
+  always_ff @(posedge clk_core or negedge peripheral_aresetn) begin
+    if (!peripheral_aresetn) start_sync_q <= 3'b0;
     else                   start_sync_q <= {start_sync_q[1:0], start_toggle_q};
   end
   assign start_core = start_sync_q[2] ^ start_sync_q[1];
+
+  // -----------------------------------------------------------------------
+  // CDC: sw_reset_o pulse (clk_bram -> clk_core), toggle synchronizer.
+  // Keeps software reset local to control state, avoiding async reset pulses
+  // sourced by an in-flight AXI write transaction.
+  // -----------------------------------------------------------------------
+  logic       sw_reset_toggle_q;
+  logic [2:0] sw_reset_sync_q;
+  always_ff @(posedge clk_bram or negedge peripheral_aresetn) begin
+    if (!peripheral_aresetn) sw_reset_toggle_q <= 1'b0;
+    else if (accel_sw_reset_bram) sw_reset_toggle_q <= ~sw_reset_toggle_q;
+  end
+  always_ff @(posedge clk_core or negedge peripheral_aresetn) begin
+    if (!peripheral_aresetn) sw_reset_sync_q <= 3'b0;
+    else                     sw_reset_sync_q <= {sw_reset_sync_q[1:0], sw_reset_toggle_q};
+  end
+  assign sw_reset_core = sw_reset_sync_q[2] ^ sw_reset_sync_q[1];
 
   // -----------------------------------------------------------------------
   // GP1 address demux: AWADDR/ARADDR bit 20 selects DBRAM vs IBRAM burst
@@ -469,7 +475,7 @@ module zynq_accel_top (
     .s_axi_rvalid      ( M_AXI_LITE_rvalid    ),
     .s_axi_rready      ( M_AXI_LITE_rready    ),
     .start_o           ( accel_start_bram     ),
-    .rst_no            ( accel_rst_n_bram     ),
+    .sw_reset_o        ( accel_sw_reset_bram  ),
     .done_i            ( accel_done_bram      ),
     .running_i         ( accel_running_bram   ),
     .ibram_addr_o      ( ibram_addr           ),
@@ -592,7 +598,8 @@ module zynq_accel_top (
   accel_core u_core (
     .clk_i         ( clk_core          ),
     .clk_bram_i    ( clk_bram          ),
-    .rst_ni        ( accel_rst_n_core  ),
+    .rst_ni        ( peripheral_aresetn ),
+    .soft_reset_i  ( sw_reset_core     ),
     .start_i       ( start_core        ),
     .done_o        ( accel_done_core   ),
     .running_o     ( accel_running_core),

@@ -68,6 +68,7 @@ module accel_harness
     .clk_i         ( clk_core      ),
     .clk_bram_i    ( clk_bram      ),
     .rst_ni        ( rst_n         ),
+    .soft_reset_i  ( 1'b0          ),
     .start_i       ( start_r       ),
     .done_o        ( done_sig      ),
     .running_o     ( running_sig   ),

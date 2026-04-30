@@ -62,7 +62,9 @@ module tb_accel_axi
 
   // ---- accel_axi -> accel_core control wires --------------------------------------------------------------------------
   logic                            accel_start;
+  logic                            accel_sw_reset;
   logic                            accel_rst_n;
+  assign accel_rst_n = rst_n;
   logic                            accel_done;
   logic                            accel_running;
 
@@ -185,7 +187,7 @@ module tb_accel_axi
     .s_axi_rvalid    ( s_axi_rvalid     ),
     .s_axi_rready    ( s_axi_rready     ),
     .start_o         ( accel_start      ),
-    .rst_no          ( accel_rst_n      ),
+    .sw_reset_o      ( accel_sw_reset   ),
     .done_i          ( accel_done       ),
     .running_i       ( accel_running    ),
     .ibram_addr_o    ( ibram_addr       ),
@@ -274,6 +276,7 @@ module tb_accel_axi
     .clk_i         ( clk               ),
     .clk_bram_i    ( clk_bram          ),
     .rst_ni        ( accel_rst_n       ),
+    .soft_reset_i  ( accel_sw_reset    ),
     .start_i       ( accel_start       ),
     .done_o        ( accel_done        ),
     .running_o     ( accel_running     ),
