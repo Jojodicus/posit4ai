@@ -97,12 +97,13 @@ connect_bd_net [get_bd_ports PL_CLK] \
     [get_bd_pins ps7/M_AXI_GP0_ACLK] \
     [get_bd_pins axi_pc/aclk]
 
-# DCM_LOCKED (= clk_wiz_0.locked) drives all AXI reset signals directly.
-# proc_sys_reset is not used: after fpga_manager reprogramming FCLK_RESET0_N
-# never pulses (no PS7 reset occurs), so proc_sys_reset never releases its
-# outputs, permanently stalling every AXI transaction.
-# clk_wiz_0.locked goes 0->1 on every PL reconfiguration, providing the
-# correct reset pulse without any IP dependency.
+# DCM_LOCKED is driven by pl_reset_n from zynq_accel_top (a POR shift-register
+# output gated with clk_wiz_0.locked).  It resets axi_pc and axi_pc_gp1 inside
+# the BD.  peripheral_aresetn is NOT exported as a BD port: Vivado's
+# make_wrapper can produce an undriven net for output ports that are only wired
+# to input ports (the feedthrough pattern), leaving peripheral_aresetn stuck at
+# 0 and permanently asserting the AXI slave resets.  zynq_accel_top.sv derives
+# peripheral_aresetn directly from pl_reset_n instead.
 create_bd_port -dir I DCM_LOCKED
 connect_bd_net [get_bd_ports DCM_LOCKED] [get_bd_pins axi_pc/aresetn]
 
@@ -111,9 +112,8 @@ connect_bd_intf_net [get_bd_intf_pins ps7/M_AXI_GP0] \
     [get_bd_intf_pins axi_pc/S_AXI]
 
 # --- Export External Ports ---
-# AXI reset output (active-low, driven directly by clk_wiz_0.locked).
-create_bd_port -dir O -type rst peripheral_aresetn
-connect_bd_net [get_bd_ports DCM_LOCKED] [get_bd_ports peripheral_aresetn]
+# Note: peripheral_aresetn is NOT exported from the BD (see comment above).
+# zynq_accel_top.sv computes it directly from pl_reset_n.
 
 # AXI-Lite master interface (to be connected to accel_axi in top wrapper)
 make_bd_intf_pins_external [get_bd_intf_pins axi_pc/M_AXI]
@@ -192,10 +192,11 @@ puts "=========================================="
 puts "Block Design Created Successfully"
 puts "=========================================="
 puts "  PL_CLK:            input from clk_wiz_0 CLKOUT1 (drives AXI master + slave)"
-puts "  DCM_LOCKED:        input from clk_wiz_0.locked; drives all AXI resets directly"
+puts "  DCM_LOCKED:        input from pl_reset_n in zynq_accel_top; resets axi_pc inside BD"
 puts "  GP0 slave base:    0x43C00000  (control + IBRAM, AXI4-Lite)"
 puts "  GP1 burst base:    0x80000000  (DBRAM bulk load, AXI4 burst)"
 puts "  BD Wrapper:        zynq_ps_wrapper"
-puts "  Exported ports:    PL_CLK (in), DCM_LOCKED (in), peripheral_aresetn (out), M_AXI_LITE_*, M_AXI_BURST_*"
+puts "  Exported ports:    PL_CLK (in), DCM_LOCKED (in), M_AXI_LITE_*, M_AXI_BURST_*"
+puts "  peripheral_aresetn: derived directly in zynq_accel_top from pl_reset_n (not BD port)"
 puts "  Top-level wrapper: zynq_accel_top (connects BD + accel_axi + accel_axi_burst)"
 puts "=========================================="

@@ -53,10 +53,26 @@ module zynq_accel_top (
     .locked   ( clk_locked )
   );
 
-  // -- Block design: PS7 + proc_sys_reset + axi_protocol_converter ---
-  // PL_CLK = clk_bram: M_AXI_GP0/GP1_ACLK and proc_sys_reset all run at 2x.
-  // peripheral_aresetn is the clk_bram-domain synchronised reset.
+  // -- POR shift-register reset ----------------------------------------
+  // Holds peripheral_aresetn (and DCM_LOCKED fed into the BD) low for 8
+  // clk_bram cycles after clk_locked goes high.  With USE_SAFE_CLOCK_STARTUP,
+  // clk_bram only starts after MMCM lock, so the SR shifts 0->1 starting from
+  // cycle 0.  Without SAFE_CLOCK_STARTUP it still works: clk_locked=0 keeps
+  // the SR at 0 until lock.
+  // peripheral_aresetn is computed here, NOT exported from the BD wrapper.
+  // Exporting it as a BD feedthrough output port (O port wired to I port) can
+  // produce an undriven net in the generated wrapper, permanently asserting
+  // the AXI slave resets and deadlocking all GP0 transactions.
+  logic [7:0]  por_sr_q;
+  always_ff @(posedge clk_bram) por_sr_q <= {por_sr_q[6:0], clk_locked};
+  logic        pl_reset_n;
+  assign pl_reset_n = &por_sr_q;  // 1 after 8 consecutive clk_bram cycles with clk_locked=1
+
+  // -- Block design: PS7 + axi_protocol_converter ----------------------
+  // PL_CLK = clk_bram: M_AXI_GP0/GP1_ACLK run at 2x clk_core.
+  // peripheral_aresetn = pl_reset_n (derived above, not from BD).
   logic        peripheral_aresetn;
+  assign peripheral_aresetn = pl_reset_n;
 
   // AXI-Lite master (GP0 via protocol converter)
   logic [31:0] M_AXI_LITE_awaddr,  M_AXI_LITE_araddr,  M_AXI_LITE_wdata,  M_AXI_LITE_rdata;
@@ -108,12 +124,10 @@ module zynq_accel_top (
     .FIXED_IO_0_ps_clk    ( FIXED_IO_ps_clk      ),
     .FIXED_IO_0_ps_porb   ( FIXED_IO_ps_porb     ),
     .FIXED_IO_0_ps_srstb  ( FIXED_IO_ps_srstb    ),
-    // PL_CLK = clk_bram: AXI slaves and proc_sys_reset run at 2x.
+    // PL_CLK = clk_bram: M_AXI_GP0/GP1_ACLK run at 2x clk_core.
     .PL_CLK               ( clk_bram             ),
-    // DCM_LOCKED must be driven; unconnected defaults to 0, permanently
-    // holding proc_sys_reset outputs asserted (AXI lockup on every access).
-    .DCM_LOCKED           ( clk_locked           ),
-    .peripheral_aresetn   ( peripheral_aresetn   ),
+    // pl_reset_n: POR SR output (see above); resets axi_pc/axi_pc_gp1 inside BD.
+    .DCM_LOCKED           ( pl_reset_n           ),
     .M_AXI_LITE_awaddr    ( M_AXI_LITE_awaddr    ),
     .M_AXI_LITE_awprot    ( M_AXI_LITE_awprot_unused ),
     .M_AXI_LITE_awvalid   ( M_AXI_LITE_awvalid   ),
