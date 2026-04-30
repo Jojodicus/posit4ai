@@ -160,6 +160,9 @@ report_clock_networks -file [file normalize $root_dir/reports/clock_networks.rpt
 set final_wns [get_property SLACK [get_timing_paths]]
 set final_whs [get_property SLACK [get_timing_paths -hold]]
 
+# XSA
+write_hw_platform -fixed -force -file $root_dir/zedboard.xsa
+
 puts "\n=========================================="
 puts "Final Timing Results"
 puts "=========================================="
