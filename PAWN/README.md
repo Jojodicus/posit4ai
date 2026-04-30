@@ -142,9 +142,10 @@ This needs a beefy machine, lots of time and ~60 GB of free disk space.
   # remove vnc-display-test from all target and build recipies
   ```
   run `petalinux-build` again until it passes
-7. `petalinux-package --boot --fsbl --fpga --u-boot --force`
-8. `petalinux-package --wic --images-dir images/linux --bootfiles "BOOT.BIN boot.scr uImage" --outdir wic_out`
-9. `wic_out/petalinux-sdimage.wic` can then be flashed to the SD card
+
+8. `petalinux-package --boot --fsbl --fpga --u-boot --force`
+9. `petalinux-package --wic --images-dir images/linux --bootfiles "BOOT.BIN boot.scr uImage" --outdir wic_out`
+10. `wic_out/petalinux-sdimage.wic` can then be flashed to the SD card
 
 
 ### Copy files to the board
