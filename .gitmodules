@@ -16,6 +16,6 @@
 [submodule "takum"]
 	path = takum
 	url = https://github.com/Jojodicus/takum
-[submodule "posit-neuralnet"]
+[submodule "resnet/posit-neuralnet"]
 	path = posit-neuralnet
 	url = https://github.com/Jojodicus/posit-neuralnet
