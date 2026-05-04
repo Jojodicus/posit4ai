@@ -7,6 +7,7 @@
 #include <time.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #define IBRAM_DEPTH (1u << 15)
 
@@ -24,6 +25,15 @@ static inline void reg_write(volatile uint32_t *base, unsigned off, uint32_t v)
 
 int pawn_open(pawn_dev_t *dev)
 {
+    memset(dev, 0, sizeof(*dev));
+    dev->devmem_fd = -1;
+
+    const char *use_burst_env = getenv("PAWN_USE_BURST");
+    dev->use_burst = (use_burst_env != NULL) &&
+                     (!strcmp(use_burst_env, "1") ||
+                      !strcmp(use_burst_env, "true") ||
+                      !strcmp(use_burst_env, "TRUE"));
+
     dev->devmem_fd = open("/dev/mem", O_RDWR | O_SYNC);
     if (dev->devmem_fd < 0) {
         perror("pawn_open: /dev/mem");
@@ -76,6 +86,16 @@ void pawn_close(pawn_dev_t *dev)
 void pawn_reset(pawn_dev_t *dev)
 {
     reg_write(dev->lite, PAWN_REG_CTRL, 1u << 1);
+
+    /*
+     * RESET is pulsed in clk_bram then synchronized into clk_core.
+     * Wait until status reflects the reset state (not running, not done)
+     * so the next START is not issued while stale DONE is still visible.
+     */
+    for (unsigned i = 0; i < 1000000u; i++) {
+        if ((reg_read(dev->lite, PAWN_REG_STATUS) & (PAWN_STATUS_DONE | PAWN_STATUS_RUNNING)) == 0)
+            break;
+    }
 }
 
 /* ---- Program load ---- */
@@ -118,9 +138,16 @@ int pawn_load_program_burst(pawn_dev_t *dev, const uint64_t *instrs, size_t coun
 void pawn_dbram_write32(pawn_dev_t *dev, uint32_t base, const uint32_t *data,
                         size_t count)
 {
-    volatile uint32_t *dst = dev->burst + base;
+    if (dev->use_burst) {
+        volatile uint32_t *dst = dev->burst + base;
+        for (size_t i = 0; i < count; i++)
+            dst[i] = data[i];
+        return;
+    }
+
+    reg_write(dev->lite, PAWN_REG_DBRAM_ADDR, base);
     for (size_t i = 0; i < count; i++)
-        dst[i] = data[i];
+        reg_write(dev->lite, PAWN_REG_DBRAM_DATA, data[i]);
 }
 
 void pawn_dbram_write64(pawn_dev_t *dev, uint32_t base, const uint64_t *data,
@@ -131,27 +158,53 @@ void pawn_dbram_write64(pawn_dev_t *dev, uint32_t base, const uint64_t *data,
      * Two 32-bit GP1 beats at burst[base*2 + i*2] and burst[base*2 + i*2 + 1]
      * both resolve to BRAM[base+i] and deliver lo then hi.
      */
-    volatile uint32_t *dst = dev->burst + base * 2;
+    if (dev->use_burst) {
+        volatile uint32_t *dst = dev->burst + base * 2;
+        for (size_t i = 0; i < count; i++) {
+            dst[i * 2]     = (uint32_t)(data[i]);
+            dst[i * 2 + 1] = (uint32_t)(data[i] >> 32);
+        }
+        return;
+    }
+
+    reg_write(dev->lite, PAWN_REG_DBRAM_ADDR, base);
     for (size_t i = 0; i < count; i++) {
-        dst[i * 2]     = (uint32_t)(data[i]);
-        dst[i * 2 + 1] = (uint32_t)(data[i] >> 32);
+        reg_write(dev->lite, PAWN_REG_DBRAM_DATA,    (uint32_t)(data[i]));
+        reg_write(dev->lite, PAWN_REG_DBRAM_DATA_HI, (uint32_t)(data[i] >> 32));
     }
 }
 
 void pawn_dbram_read32(pawn_dev_t *dev, uint32_t base, uint32_t *data,
                        size_t count)
 {
-    volatile uint32_t *src = dev->burst + base;
+    if (dev->use_burst) {
+        volatile uint32_t *src = dev->burst + base;
+        for (size_t i = 0; i < count; i++)
+            data[i] = src[i];
+        return;
+    }
+
+    reg_write(dev->lite, PAWN_REG_DBRAM_ADDR, base);
     for (size_t i = 0; i < count; i++)
-        data[i] = src[i];
+        data[i] = reg_read(dev->lite, PAWN_REG_DBRAM_DATA);
 }
 
 void pawn_dbram_read64(pawn_dev_t *dev, uint32_t base, uint64_t *data,
                        size_t count)
 {
-    volatile uint32_t *src = dev->burst + base * 2;
-    for (size_t i = 0; i < count; i++)
-        data[i] = (uint64_t)src[i * 2] | ((uint64_t)src[i * 2 + 1] << 32);
+    if (dev->use_burst) {
+        volatile uint32_t *src = dev->burst + base * 2;
+        for (size_t i = 0; i < count; i++)
+            data[i] = (uint64_t)src[i * 2] | ((uint64_t)src[i * 2 + 1] << 32);
+        return;
+    }
+
+    reg_write(dev->lite, PAWN_REG_DBRAM_ADDR, base);
+    for (size_t i = 0; i < count; i++) {
+        uint32_t lo = reg_read(dev->lite, PAWN_REG_DBRAM_DATA);
+        uint32_t hi = reg_read(dev->lite, PAWN_REG_DBRAM_DATA_HI);
+        data[i] = (uint64_t)lo | ((uint64_t)hi << 32);
+    }
 }
 
 /* ---- DBRAM single-word PIO via AXI-Lite ---- */
@@ -203,9 +256,26 @@ uint32_t pawn_status(pawn_dev_t *dev)
 long long pawn_run_blocking(pawn_dev_t *dev, unsigned timeout_ms)
 {
     struct timespec t0, t1;
+    uint32_t st0 = pawn_status(dev);
+    int done_was_high = (st0 & PAWN_STATUS_DONE) != 0;
+    int observed_new_run = !done_was_high;
+
     clock_gettime(CLOCK_MONOTONIC, &t0);
+
+    /*
+     * DONE can be high before START (e.g. previous run ended in HALT_S).
+     * If so, do not accept DONE until we first observe DONE go low or RUNNING high.
+     */
     pawn_start(dev);
-    while (!pawn_done(dev)) {
+
+    while (1) {
+        uint32_t st = pawn_status(dev);
+        if ((st & PAWN_STATUS_RUNNING) || !(st & PAWN_STATUS_DONE))
+            observed_new_run = 1;
+
+        if (observed_new_run && (st & PAWN_STATUS_DONE) && !(st & PAWN_STATUS_RUNNING))
+            break;
+
         if (timeout_ms) {
             clock_gettime(CLOCK_MONOTONIC, &t1);
             long long ms = (t1.tv_sec  - t0.tv_sec)  * 1000LL

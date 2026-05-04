@@ -155,7 +155,9 @@ module accel_axi
           // Decode and dispatch the write
           case (wr_addr_q[4:0])
             5'h00: begin  // CTRL
-              if (wr_data_q[0]) start_o    = !running_i;
+              if (wr_data_q[0]) begin
+                start_o       = !running_i;
+              end
               if (wr_data_q[1]) core_reset = 1'b1;
             end
             5'h10: begin  // IBRAM_DATA_HI -- triggers BRAM write
@@ -225,6 +227,7 @@ module accel_axi
           end
           default: ;
         endcase
+
       end else if (rd_state_q == RD_DATA && s_axi_rready) begin
         if ((DATA_WIDTH <= 32 && rd_addr_q[4:0] == 5'h18) ||
             (DATA_WIDTH == 64 && rd_addr_q[4:0] == 5'h1C))

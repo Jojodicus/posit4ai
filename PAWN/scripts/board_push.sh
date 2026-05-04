@@ -42,13 +42,13 @@ else
 fi
 
 # Binaries
-for bin in hello_posit.elf benchmark.elf; do
+for bin in hello_posit.elf benchmark.elf long_run_status.elf; do
     src="${ROOT}/sw/examples/${bin}"
     if [ -f "${src}" ]; then
         scp "${src}" "${REMOTE}:${DEST}/examples/"
         echo "    ${bin}: ok"
     else
-        echo "    WARNING: ${bin} not found -- run: cd sw && make CROSS=arm-linux-gnueabihf-"
+        echo "    WARNING: ${bin} not found -- run: cd sw && make"
     fi
 done
 

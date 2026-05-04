@@ -220,37 +220,75 @@ module zynq_accel_top (
   assign accel_done_bram    = done_sync_q[1];
 
   // -----------------------------------------------------------------------
-  // CDC: start_o pulse (clk_bram -> clk_core), toggle synchronizer.
-  // Toggle resets on peripheral_aresetn to prevent spurious fires after POR.
+  // CDC: start and sw_reset requests (clk_bram -> clk_core) with ack return.
+  // KISS handshake: BRAM side holds req high until CORE side emits one pulse
+  // and flips ack toggle; BRAM side then clears req.
   // -----------------------------------------------------------------------
-  logic       start_toggle_q;
-  logic [2:0] start_sync_q;
-  always_ff @(posedge clk_bram or negedge peripheral_aresetn) begin
-    if (!peripheral_aresetn) start_toggle_q <= 1'b0;
-    else if (accel_start_bram) start_toggle_q <= ~start_toggle_q;
-  end
-  always_ff @(posedge clk_core or negedge peripheral_aresetn) begin
-    if (!peripheral_aresetn) start_sync_q <= 3'b0;
-    else                   start_sync_q <= {start_sync_q[1:0], start_toggle_q};
-  end
-  assign start_core = start_sync_q[2] ^ start_sync_q[1];
+  logic start_req_q, sw_reset_req_q;
+  logic start_ack_toggle_core_q, sw_reset_ack_toggle_core_q;
+  logic [1:0] start_req_sync_q, sw_reset_req_sync_q;
+  logic [1:0] start_ack_sync_q, sw_reset_ack_sync_q;
+  logic start_req_seen_core_q, sw_reset_req_seen_core_q;
+  logic start_ack_seen_bram_q, sw_reset_ack_seen_bram_q;
 
-  // -----------------------------------------------------------------------
-  // CDC: sw_reset_o pulse (clk_bram -> clk_core), toggle synchronizer.
-  // Keeps software reset local to control state, avoiding async reset pulses
-  // sourced by an in-flight AXI write transaction.
-  // -----------------------------------------------------------------------
-  logic       sw_reset_toggle_q;
-  logic [2:0] sw_reset_sync_q;
   always_ff @(posedge clk_bram or negedge peripheral_aresetn) begin
-    if (!peripheral_aresetn) sw_reset_toggle_q <= 1'b0;
-    else if (accel_sw_reset_bram) sw_reset_toggle_q <= ~sw_reset_toggle_q;
+    if (!peripheral_aresetn) begin
+      start_req_q            <= 1'b0;
+      sw_reset_req_q         <= 1'b0;
+      start_ack_sync_q       <= 2'b0;
+      sw_reset_ack_sync_q    <= 2'b0;
+      start_ack_seen_bram_q  <= 1'b0;
+      sw_reset_ack_seen_bram_q <= 1'b0;
+    end else begin
+      start_ack_sync_q    <= {start_ack_sync_q[0],    start_ack_toggle_core_q};
+      sw_reset_ack_sync_q <= {sw_reset_ack_sync_q[0], sw_reset_ack_toggle_core_q};
+
+      if (accel_start_bram)
+        start_req_q <= 1'b1;
+      else if (start_ack_sync_q[1] != start_ack_seen_bram_q) begin
+        start_req_q           <= 1'b0;
+        start_ack_seen_bram_q <= start_ack_sync_q[1];
+      end
+
+      if (accel_sw_reset_bram)
+        sw_reset_req_q <= 1'b1;
+      else if (sw_reset_ack_sync_q[1] != sw_reset_ack_seen_bram_q) begin
+        sw_reset_req_q           <= 1'b0;
+        sw_reset_ack_seen_bram_q <= sw_reset_ack_sync_q[1];
+      end
+    end
   end
+
   always_ff @(posedge clk_core or negedge peripheral_aresetn) begin
-    if (!peripheral_aresetn) sw_reset_sync_q <= 3'b0;
-    else                     sw_reset_sync_q <= {sw_reset_sync_q[1:0], sw_reset_toggle_q};
+    if (!peripheral_aresetn) begin
+      start_req_sync_q         <= 2'b0;
+      sw_reset_req_sync_q      <= 2'b0;
+      start_req_seen_core_q    <= 1'b0;
+      sw_reset_req_seen_core_q <= 1'b0;
+      start_ack_toggle_core_q  <= 1'b0;
+      sw_reset_ack_toggle_core_q <= 1'b0;
+    end else begin
+      start_req_sync_q    <= {start_req_sync_q[0],    start_req_q};
+      sw_reset_req_sync_q <= {sw_reset_req_sync_q[0], sw_reset_req_q};
+
+      if (start_req_sync_q[1] && !start_req_seen_core_q) begin
+        start_req_seen_core_q   <= 1'b1;
+        start_ack_toggle_core_q <= ~start_ack_toggle_core_q;
+      end else if (!start_req_sync_q[1]) begin
+        start_req_seen_core_q <= 1'b0;
+      end
+
+      if (sw_reset_req_sync_q[1] && !sw_reset_req_seen_core_q) begin
+        sw_reset_req_seen_core_q   <= 1'b1;
+        sw_reset_ack_toggle_core_q <= ~sw_reset_ack_toggle_core_q;
+      end else if (!sw_reset_req_sync_q[1]) begin
+        sw_reset_req_seen_core_q <= 1'b0;
+      end
+    end
   end
-  assign sw_reset_core = sw_reset_sync_q[2] ^ sw_reset_sync_q[1];
+
+  assign start_core    = start_req_sync_q[1]    && !start_req_seen_core_q;
+  assign sw_reset_core = sw_reset_req_sync_q[1] && !sw_reset_req_seen_core_q;
 
   // -----------------------------------------------------------------------
   // GP1 address demux: AWADDR/ARADDR bit 20 selects DBRAM vs IBRAM burst

@@ -1,17 +1,17 @@
 # PAWN userspace driver + examples
 #
 # Cross-compilation for Zedboard (ARMv7 hard-float):
-#   make CROSS=arm-linux-gnueabihf-
+#   make
 #
 # Native build (when already on the board):
-#   make
+#   make CROSS=""
 
-CROSS ?=
+CROSS ?= arm-linux-gnueabihf-
 CC    := $(CROSS)gcc
 CFLAGS := -O2 -Wall -Wextra -std=c11 -static
 
 DRIVER_OBJ   := pawn.o
-EXAMPLES     := hello_posit.elf benchmark.elf
+EXAMPLES     := hello_posit.elf benchmark.elf long_run_status.elf
 EXAMPLE_BINS := $(addprefix examples/, $(EXAMPLES))
 
 .PHONY: all clean

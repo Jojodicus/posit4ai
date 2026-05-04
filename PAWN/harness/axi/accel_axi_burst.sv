@@ -256,9 +256,9 @@ module accel_axi_burst
   end
 
   // -- Arbiter port B output ------------------------------------
-  // b_req held during write burst (W_BURST + W_RESP) and read burst (R_ADDR + R_DATA).
+  // b_req held only while actively accessing BRAM: write burst data beats and read path.
   // Write has priority over read when both happen simultaneously (shouldn't in practice).
-  assign b_req = (wr_state_q == W_BURST) || (wr_state_q == W_RESP) ||
+  assign b_req = (wr_state_q == W_BURST) ||
                  (rd_state_q == R_ADDR)  || (rd_state_q == R_DATA);
 
   always_comb begin
