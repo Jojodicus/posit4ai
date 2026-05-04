@@ -113,9 +113,8 @@ module accel_ibram_burst
 
     unique case (wr_state_q)
       W_IDLE: begin
-        // Deterministic policy: only accept new program bursts when not running.
-        s_axi_awready = !running_i;
-        if (s_axi_awvalid && !running_i) wr_state_d = W_BURST;
+        s_axi_awready = 1'b1;
+        if (s_axi_awvalid) wr_state_d = W_BURST;
       end
       W_BURST: begin
         s_axi_wready = 1'b1;
@@ -161,19 +160,21 @@ module accel_ibram_burst
           wr_ibram_addr_q <= wr_ibram_addr_q + BAW'(1);
         end
       end
-      // No running_i-based SLVERR once a burst is accepted.
+      // Sticky SLVERR if running during a write burst (data silently dropped)
+      if (wr_state_q == W_BURST && running_i) wr_slverr_q <= 1'b1;
     end
   end
 
-  // b_req held during W_BURST+W_RESP for IBRAM host-port arbiter
-  assign b_req = (wr_state_q == W_BURST) || (wr_state_q == W_RESP);
+  // b_req held only during W_BURST (while beats are being written to IBRAM).
+  // Dropped in W_RESP: no BRAM access needed while waiting for BVALID ack.
+  assign b_req = (wr_state_q == W_BURST);
 
   // IBRAM write outputs: address is pre-edge value (correct current word)
   // ibram_wdata_o: {hi_beat_data, latched_lo}
   assign ibram_addr_o  = wr_ibram_addr_q;
   assign ibram_wdata_o = {s_axi_wdata, wr_lo_q};
   assign ibram_we_o    = (wr_state_q == W_BURST) && s_axi_wvalid
-                         && wr_beat_q[0] && !wr_illegal_q;
+                         && wr_beat_q[0] && !wr_illegal_q && !running_i;
 
   // -- Read FSM (returns SLVERR for all reads) -------------------------
   typedef enum logic { R_IDLE, R_DATA } rd_state_t;

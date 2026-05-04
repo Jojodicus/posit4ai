@@ -136,10 +136,8 @@ module accel_axi_burst
 
     unique case (wr_state_q)
       W_IDLE: begin
-        // Deterministic policy: only accept a new burst when accelerator is not running.
-        // Once accepted, the burst is completed without mid-burst drops.
-        s_axi_awready = !running_i;
-        if (s_axi_awvalid && !running_i) wr_state_d = W_BURST;
+        s_axi_awready = 1'b1;
+        if (s_axi_awvalid) wr_state_d = W_BURST;
       end
       W_BURST: begin
         // Always accept W-channel beats (no backpressure from running_i).
@@ -180,7 +178,9 @@ module accel_axi_burst
         wr_beat_q <= wr_beat_q + 8'd1;
         if (!wstrb_ok(s_axi_wstrb)) wr_slverr_q <= 1'b1;
       end
-      // No running_i-based SLVERR once a burst is accepted.
+      // Sticky SLVERR if running_i is seen at any point during a burst write
+      // (data was silently dropped; inform master via BRESP=SLVERR).
+      if (wr_state_q == W_BURST && running_i) wr_slverr_q <= 1'b1;
     end
   end
 
@@ -263,10 +263,11 @@ module accel_axi_burst
 
   always_comb begin
     if (wr_state_q == W_BURST && s_axi_wvalid) begin
-      // Write path: once burst is accepted in W_IDLE, write all beats deterministically.
+      // Write path: drive beat address; WE is gated by !running_i so that
+      // beats accepted during an active run are silently dropped (SLVERR returned).
       b_addr  = wr_base_q + BAW'(wr_beat_q);
       b_wdata = extract_wdata(s_axi_wdata);
-      b_we    = wstrb_write(s_axi_wstrb) && !wr_illegal_q;
+      b_we    = wstrb_write(s_axi_wstrb) && !wr_illegal_q && !running_i;
     end else begin
       // Read path: drive the pre-computed read address
       b_addr  = rd_bram_addr;
