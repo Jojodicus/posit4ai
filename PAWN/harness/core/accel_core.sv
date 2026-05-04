@@ -49,6 +49,7 @@ module accel_core
   input  logic soft_reset_i,
   output logic done_o,
   output logic running_o,
+  input  logic running_bram_i,  // running_o synced to clk_bram_i by parent
 
   // -- Instruction BRAM host port (only accessible when stopped) -------------
   input  logic [$clog2(INSTR_DEPTH)-1:0] ibram_addr_i,
@@ -127,18 +128,6 @@ module accel_core
 
   logic [63:0] ibram_fetch_rdata;
   logic [63:0] ibram_portb_rdata_q;
-  logic        running_bram_sync1_q, running_bram_sync2_q;
-
-  always_ff @(posedge clk_bram_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      running_bram_sync1_q <= 1'b0;
-      running_bram_sync2_q <= 1'b0;
-    end else begin
-      running_bram_sync1_q <= running_o;
-      running_bram_sync2_q <= running_bram_sync1_q;
-    end
-  end
-
   // Port A address/data/we mux: unified signal so the BRAM block sees one address
   // (required for Vivado to infer block RAM -- split address per sub-cycle breaks inference).
   //   phase 0: read  -> ibram_addr_i
@@ -152,7 +141,7 @@ module accel_core
       end else begin
         ibram_porta_addr  = ibram_addr_i;
         ibram_porta_wdata = ibram_wdata_i;
-        ibram_porta_we    = ibram_we_i && !running_bram_sync2_q;
+        ibram_porta_we    = ibram_we_i && !running_bram_i;
       end
     end else begin
       ibram_porta_addr  = ibram_addr_i;
@@ -178,7 +167,7 @@ module accel_core
     end else if (!phase_q) begin
       ibram_host_addr_q  <= ibram_addr_i;
       ibram_host_wdata_q <= ibram_wdata_i;
-      ibram_host_we_q    <= ibram_we_i && !running_bram_sync2_q;
+      ibram_host_we_q    <= ibram_we_i && !running_bram_i;
     end else begin
       ibram_host_we_q <= 1'b0;
     end
@@ -286,7 +275,7 @@ module accel_core
     end else if (!phase_q) begin
       dbram_host_addr_q  <= dbram_addr_i;
       dbram_host_wdata_q <= dbram_wdata_i;
-      dbram_host_we_q    <= dbram_we_i && !running_bram_sync2_q;
+      dbram_host_we_q    <= dbram_we_i && !running_bram_i;
     end else begin
       dbram_host_we_q <= 1'b0;
     end
@@ -449,7 +438,7 @@ module accel_core
             dbram_porta_wdata = dbram_host_wdata_q;
             dbram_porta_we    = 1'b1;
           end else begin
-            dbram_porta_we = dbram_we_i && !running_bram_sync2_q;
+            dbram_porta_we = dbram_we_i && !running_bram_i;
           end
         end
       end

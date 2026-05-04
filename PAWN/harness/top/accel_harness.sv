@@ -64,6 +64,18 @@ module accel_harness
   assign done_out        = done_sig;
   assign dbram_rdata_out = dbram_rdata_sig;
 
+  // 2-FF CDC: running_o (clk_core) -> clk_bram
+  logic running_bram_sync1_q, running_bram_sig;
+  always_ff @(posedge clk_bram or negedge rst_n) begin
+    if (!rst_n) begin
+      running_bram_sync1_q <= 1'b0;
+      running_bram_sig     <= 1'b0;
+    end else begin
+      running_bram_sync1_q <= running_sig;
+      running_bram_sig     <= running_bram_sync1_q;
+    end
+  end
+
   accel_core u_core (
     .clk_i         ( clk_core      ),
     .clk_bram_i    ( clk_bram      ),
@@ -72,6 +84,7 @@ module accel_harness
     .start_i       ( start_r       ),
     .done_o        ( done_sig      ),
     .running_o     ( running_sig   ),
+    .running_bram_i( running_bram_sig ),
     .ibram_addr_i  ( ibram_addr_r  ),
     .ibram_wdata_i ( ibram_wdata_r ),
     .ibram_we_i    ( ibram_we_r    ),
