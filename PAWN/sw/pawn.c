@@ -106,8 +106,8 @@ int pawn_load_program(pawn_dev_t *dev, const uint64_t *instrs, size_t count)
         fprintf(stderr, "pawn_load_program: count %zu > %u\n", count, IBRAM_DEPTH);
         return -1;
     }
-    reg_write(dev->lite, PAWN_REG_IBRAM_ADDR, 0);
     for (size_t i = 0; i < count; i++) {
+        reg_write(dev->lite, PAWN_REG_IBRAM_ADDR, i);
         reg_write(dev->lite, PAWN_REG_IBRAM_DATA_LO, (uint32_t)(instrs[i]));
         reg_write(dev->lite, PAWN_REG_IBRAM_DATA_HI, (uint32_t)(instrs[i] >> 32));
     }

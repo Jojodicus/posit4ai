@@ -191,8 +191,9 @@ module accel_core
   // matching the old clk_i sync-read behavior. Phase 0 fires AFTER clk_i, where
   // pc_q already has the new value -- reading there would fetch one instruction
   // ahead and shift all EX result addresses by one slot.
-  always_ff @(posedge clk_i) begin
-    ibram_portb_rdata_q <= instr_mem[pc_q];
+  always_ff @(posedge clk_bram_i) begin
+    if (phase_q)
+      ibram_portb_rdata_q <= instr_mem[pc_q];
   end
 
   // IF/ID pipeline register -- clk_i domain (same edge semantics as old clk_i BRAM read).

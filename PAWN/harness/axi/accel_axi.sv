@@ -215,7 +215,10 @@ module accel_axi
         case (wr_addr_q[4:0])
           5'h08: reg_ibram_addr    <= wr_data_q;
           5'h0C: reg_ibram_data_lo <= wr_data_q;
-          5'h10: reg_ibram_data_hi <= wr_data_q;
+          5'h10: begin
+            reg_ibram_data_hi <= wr_data_q;
+            reg_ibram_addr    <= reg_ibram_addr + 1;
+          end
           5'h14: reg_dbram_addr    <= wr_data_q;
           5'h18: begin
             reg_dbram_data <= wr_data_q;
