@@ -134,8 +134,8 @@ module tb_accel_axi
   logic [2:0]  burst_awsize;
   logic [1:0]  burst_awburst;
   logic        burst_awvalid, burst_awready;
-  logic [63:0] burst_wdata;
-  logic [7:0]  burst_wstrb;
+  logic [31:0] burst_wdata;
+  logic [3:0]  burst_wstrb;
   logic        burst_wlast;
   logic        burst_wvalid,  burst_wready;
   logic [3:0]  burst_bid;
@@ -149,7 +149,7 @@ module tb_accel_axi
   logic [1:0]  burst_arburst;
   logic        burst_arvalid, burst_arready;
   logic [3:0]  burst_rid;
-  logic [63:0] burst_rdata;
+  logic [31:0] burst_rdata;
   logic [1:0]  burst_rresp;
   logic        burst_rlast;
   logic        burst_rvalid,  burst_rready;
@@ -412,47 +412,73 @@ module tb_accel_axi
     end
   endtask
 
-  // ---- AXI4 burst helpers ----------------------------------------------------------------------------------------------------------------
-  // Hand-rolled INCR-only AXI4 burst tasks for the HP0 burst slave.
-  // Each beat is a full DATA_WIDTH-wide word; the 64-bit bus carries it in the
-  // low DATA_WIDTH bits (for DATA_WIDTH=32 the upper 32 bits of WDATA are X).
+  // ---- AXI4 burst helpers -----------------------------------------------
+  // Hand-rolled INCR-only AXI4 burst tasks for the GP1 burst slave (32-bit bus).
   //
-  // base_addr: byte address of the first word (4- or 8-byte aligned)
-  // len:       number of words to transfer (= number of AXI4 beats)
-  // data:      flat array of 64-bit containers; [DATA_WIDTH-1:0] slice used.
+  // base_addr: byte address of the first BRAM word (4- or 8-byte aligned)
+  // len:       number of BRAM words to transfer
+  // data:      flat array of 64-bit containers holding full BRAM word values
+  //
+  // DATA_WIDTH < 64: one AXI beat per BRAM word; posit in data[i][31:0]
+  //   (note: sub-32-bit posits are left-aligned in data[i][31:0]).
+  // DATA_WIDTH == 64: two AXI beats per BRAM word (lo beat then hi beat);
+  //   data[i][31:0] = lo half, data[i][63:32] = hi half.
+  //   burst_rd_buf[i] assembled from two beats: [31:0]=lo, [63:32]=hi.
 
   task automatic axi4_write_burst(
     input  logic [31:0] base_addr,
     input  int          len,
     input  logic [63:0] data[]
   );
+    int axi_beats;
+    axi_beats = (DATA_WIDTH == 64) ? len * 2 : len;
+
     @(posedge clk); #1;
-    // AW channel
     burst_awid    = 4'h0;
     burst_awaddr  = base_addr;
-    burst_awlen   = 8'(len - 1);
-    burst_awsize  = (DATA_WIDTH == 64) ? 3'h3 : 3'h2;  // 8 or 4 bytes
-    burst_awburst = 2'b01;  // INCR
+    burst_awlen   = 8'(axi_beats - 1);
+    burst_awsize  = 3'h2;     // 4 bytes per beat
+    burst_awburst = 2'b01;    // INCR
     burst_awvalid = 1'b1;
     burst_bready  = 1'b1;
     wait(burst_awready);
     @(posedge clk); #1;
     burst_awvalid = 1'b0;
 
-    // W channel -- send len beats
     for (int i = 0; i < len; i++) begin
-      @(posedge clk); #1;
-      burst_wdata  = data[i];
-      burst_wstrb  = (DATA_WIDTH == 64) ? 8'hFF : 8'h0F;
-      burst_wlast  = (i == len - 1);
-      burst_wvalid = 1'b1;
-      wait(burst_wready);
-      @(posedge clk); #1;
-      burst_wvalid = 1'b0;
-      burst_wlast  = 1'b0;
+      if (DATA_WIDTH == 64) begin
+        // lo beat
+        @(posedge clk); #1;
+        burst_wdata  = data[i][31:0];
+        burst_wstrb  = 4'hF;
+        burst_wlast  = 1'b0;
+        burst_wvalid = 1'b1;
+        wait(burst_wready);
+        @(posedge clk); #1;
+        burst_wvalid = 1'b0;
+        // hi beat
+        @(posedge clk); #1;
+        burst_wdata  = data[i][63:32];
+        burst_wstrb  = 4'hF;
+        burst_wlast  = (i == len - 1);
+        burst_wvalid = 1'b1;
+        wait(burst_wready);
+        @(posedge clk); #1;
+        burst_wvalid = 1'b0;
+        burst_wlast  = 1'b0;
+      end else begin
+        @(posedge clk); #1;
+        burst_wdata  = data[i][31:0];
+        burst_wstrb  = 4'hF;
+        burst_wlast  = (i == len - 1);
+        burst_wvalid = 1'b1;
+        wait(burst_wready);
+        @(posedge clk); #1;
+        burst_wvalid = 1'b0;
+        burst_wlast  = 1'b0;
+      end
     end
 
-    // B channel -- wait for response
     wait(burst_bvalid);
     @(posedge clk); #1;
     burst_bready = 1'b0;
@@ -463,27 +489,41 @@ module tb_accel_axi
     input  int          len
     // Results written to module-level burst_rd_buf[0..len-1].
     // XSim dynamic array output parameters are broken; use burst_rd_buf directly.
+    // DATA_WIDTH==64: burst_rd_buf[i] = {hi_beat, lo_beat} (assembled from 2 beats).
+    // DATA_WIDTH <64: burst_rd_buf[i] = {32'b0, beat_data}.
   );
+    int axi_beats;
+    int wi;
+    axi_beats = (DATA_WIDTH == 64) ? len * 2 : len;
+
     @(posedge clk); #1;
-    // AR channel
     burst_arid    = 4'h0;
     burst_araddr  = base_addr;
-    burst_arlen   = 8'(len - 1);
-    burst_arsize  = (DATA_WIDTH == 64) ? 3'h3 : 3'h2;
-    burst_arburst = 2'b01;  // INCR
+    burst_arlen   = 8'(axi_beats - 1);
+    burst_arsize  = 3'h2;     // 4 bytes per beat
+    burst_arburst = 2'b01;    // INCR
     burst_arvalid = 1'b1;
     burst_rready  = 1'b1;
     wait(burst_arready);
     @(posedge clk); #1;
     burst_arvalid = 1'b0;
 
-    // R channel -- receive len beats into burst_rd_buf.
-    // Capture rlast BEFORE the clock advance so we don't read the post-edge
-    // value (after the clock, rd_beat_q has already incremented and rlast
-    // reflects the *next* beat index, not the current one).
-    for (int i = 0; i < len; i++) begin
+    // Receive all beats; assemble into burst_rd_buf.
+    // Capture rlast before the clock edge so we see the current beat's flag,
+    // not the post-edge value (rd_beat_q increments at the edge).
+    wi = 0;
+    for (int beat = 0; beat < axi_beats; beat++) begin
       wait(burst_rvalid);
-      burst_rd_buf[i] = burst_rdata;
+      if (DATA_WIDTH == 64) begin
+        if (beat[0] == 1'b0)
+          burst_rd_buf[wi][31:0]  = burst_rdata;   // lo half
+        else begin
+          burst_rd_buf[wi][63:32] = burst_rdata;   // hi half
+          wi++;
+        end
+      end else begin
+        burst_rd_buf[beat] = {32'b0, burst_rdata};
+      end
       if (burst_rlast) begin
         @(posedge clk); #1;
         break;

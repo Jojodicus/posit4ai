@@ -294,20 +294,20 @@ module zynq_accel_top (
   // GP1 address demux: AWADDR/ARADDR bit 20 selects DBRAM vs IBRAM burst
   // -----------------------------------------------------------------------
 
-  // dburst_* : signals for accel_axi_burst (DBRAM, 64-bit data port)
+  // dburst_* : signals for accel_axi_burst (DBRAM, 32-bit data port)
   logic [3:0]  dburst_awid,   dburst_arid,   dburst_bid,   dburst_rid;
   logic [31:0] dburst_awaddr, dburst_araddr;
   logic [7:0]  dburst_awlen,  dburst_arlen;
   logic [2:0]  dburst_awsize, dburst_arsize;
   logic [1:0]  dburst_awburst,dburst_arburst;
   logic        dburst_awvalid,dburst_awready;
-  logic [63:0] dburst_wdata;
-  logic [7:0]  dburst_wstrb;
+  logic [31:0] dburst_wdata;
+  logic [3:0]  dburst_wstrb;
   logic        dburst_wlast,  dburst_wvalid, dburst_wready;
   logic [1:0]  dburst_bresp;
   logic        dburst_bvalid, dburst_bready;
   logic        dburst_arvalid,dburst_arready;
-  logic [63:0] dburst_rdata;
+  logic [31:0] dburst_rdata;
   logic [1:0]  dburst_rresp;
   logic        dburst_rlast,  dburst_rvalid, dburst_rready;
 
@@ -378,14 +378,14 @@ module zynq_accel_top (
     end
   end
 
-  // W channel: route to selected write transaction (zero-extend 32->64 for dburst)
+  // W channel: route to selected write transaction
   assign dburst_wvalid = (!gwr_sel_q && gwr_active_q) ? M_AXI_BURST_wvalid : 1'b0;
   assign iburst_wvalid = ( gwr_sel_q && gwr_active_q) ? M_AXI_BURST_wvalid : 1'b0;
   assign M_AXI_BURST_wready = gwr_active_q
                               ? (!gwr_sel_q ? dburst_wready : iburst_wready)
                               : 1'b0;
-  assign dburst_wdata  = {32'b0, M_AXI_BURST_wdata};
-  assign dburst_wstrb  = {4'b0,  M_AXI_BURST_wstrb};
+  assign dburst_wdata  = M_AXI_BURST_wdata;
+  assign dburst_wstrb  = M_AXI_BURST_wstrb;
   assign dburst_wlast  = M_AXI_BURST_wlast;
   assign iburst_wlast  = M_AXI_BURST_wlast;
 
@@ -454,7 +454,7 @@ module zynq_accel_top (
   assign M_AXI_BURST_rlast  = grd_active_q ? (!grd_sel_q ? dburst_rlast  : iburst_rlast ) : 1'b0;
   assign M_AXI_BURST_rresp  = grd_active_q ? (!grd_sel_q ? dburst_rresp  : iburst_rresp ) : 2'b00;
   assign M_AXI_BURST_rid    = grd_active_q ? {8'b0, (!grd_sel_q ? dburst_rid : iburst_rid)} : 12'b0;
-  assign M_AXI_BURST_rdata  = grd_active_q ? (!grd_sel_q ? dburst_rdata[31:0] : 32'b0) : 32'b0;
+  assign M_AXI_BURST_rdata  = grd_active_q ? (!grd_sel_q ? dburst_rdata : 32'b0) : 32'b0;
   assign dburst_rready      = (grd_active_q && !grd_sel_q) ? M_AXI_BURST_rready : 1'b0;
   assign iburst_rready      = (grd_active_q &&  grd_sel_q) ? M_AXI_BURST_rready : 1'b0;
 

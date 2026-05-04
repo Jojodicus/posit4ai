@@ -69,10 +69,9 @@
 
 /* ---- Device handle ---- */
 typedef struct {
-    volatile uint32_t *lite;
-    volatile uint32_t *burst;   /* DBRAM burst (GP1 bit20=0) */
-    volatile uint32_t *iburst;  /* IBRAM burst (GP1 bit20=1) */
-    int                use_burst; /* set via PAWN_USE_BURST=1 */
+    volatile uint32_t *lite;    /* AXI-Lite control registers (GP0) */
+    volatile uint32_t *burst;   /* DBRAM burst slave (GP1 bit20=0) */
+    volatile uint32_t *iburst;  /* IBRAM burst slave (GP1 bit20=1) */
     int                devmem_fd;
 } pawn_dev_t;
 
@@ -88,7 +87,7 @@ int pawn_load_program(pawn_dev_t *dev, const uint64_t *instrs, size_t count);
  * 64-bit instruction word (lo then hi).  Accelerator must not be running. */
 int pawn_load_program_burst(pawn_dev_t *dev, const uint64_t *instrs, size_t count);
 
-/* Bulk DBRAM helpers. Default path is AXI-Lite PIO; set PAWN_USE_BURST=1 to use GP1 burst. */
+/* Bulk DBRAM read/write via AXI4 burst (GP1). Use pawn_dbram_poke/peek for single-word PIO. */
 void pawn_dbram_write32(pawn_dev_t *dev, uint32_t base, const uint32_t *data, size_t count);
 void pawn_dbram_read32 (pawn_dev_t *dev, uint32_t base,       uint32_t *data, size_t count);
 void pawn_dbram_write64(pawn_dev_t *dev, uint32_t base, const uint64_t *data, size_t count);
