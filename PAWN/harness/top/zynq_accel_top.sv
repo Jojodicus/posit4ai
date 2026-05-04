@@ -325,23 +325,30 @@ module zynq_accel_top (
   logic [1:0]  iburst_rresp;
   logic        iburst_rlast,  iburst_rvalid, iburst_rready;
 
-  // Write-path demux state (one transaction at a time on the shared GP1 bus)
+  // Write-path demux state (exactly one outstanding write transaction)
   logic gwr_active_q, gwr_sel_q;  // sel: 0=dburst, 1=iburst
+  logic aw_fire_dburst, aw_fire_iburst;
+  logic b_fire_dburst, b_fire_iburst;
+
+  assign aw_fire_dburst = (!gwr_active_q && M_AXI_BURST_awvalid && !M_AXI_BURST_awaddr[20] && dburst_awready);
+  assign aw_fire_iburst = (!gwr_active_q && M_AXI_BURST_awvalid &&  M_AXI_BURST_awaddr[20] && iburst_awready);
+  assign b_fire_dburst  = ( gwr_active_q && !gwr_sel_q && dburst_bvalid && M_AXI_BURST_bready);
+  assign b_fire_iburst  = ( gwr_active_q &&  gwr_sel_q && iburst_bvalid && M_AXI_BURST_bready);
 
   always_ff @(posedge clk_bram or negedge peripheral_aresetn) begin
     if (!peripheral_aresetn) begin
       gwr_active_q <= 1'b0;
       gwr_sel_q    <= 1'b0;
-    end else if (!gwr_active_q) begin
-      // Latch sel on AW handshake
-      if (M_AXI_BURST_awvalid &&
-          (!M_AXI_BURST_awaddr[20] ? dburst_awready : iburst_awready)) begin
-        gwr_sel_q    <= M_AXI_BURST_awaddr[20];
-        gwr_active_q <= 1'b1;
-      end
     end else begin
-      if (M_AXI_BURST_bvalid && M_AXI_BURST_bready)
+      if (aw_fire_dburst) begin
+        gwr_active_q <= 1'b1;
+        gwr_sel_q    <= 1'b0;
+      end else if (aw_fire_iburst) begin
+        gwr_active_q <= 1'b1;
+        gwr_sel_q    <= 1'b1;
+      end else if (b_fire_dburst || b_fire_iburst) begin
         gwr_active_q <= 1'b0;
+      end
     end
   end
 
@@ -371,7 +378,7 @@ module zynq_accel_top (
     end
   end
 
-  // W channel: route to active slave (zero-extend 32->64 for dburst)
+  // W channel: route to selected write transaction (zero-extend 32->64 for dburst)
   assign dburst_wvalid = (!gwr_sel_q && gwr_active_q) ? M_AXI_BURST_wvalid : 1'b0;
   assign iburst_wvalid = ( gwr_sel_q && gwr_active_q) ? M_AXI_BURST_wvalid : 1'b0;
   assign M_AXI_BURST_wready = gwr_active_q
@@ -382,29 +389,37 @@ module zynq_accel_top (
   assign dburst_wlast  = M_AXI_BURST_wlast;
   assign iburst_wlast  = M_AXI_BURST_wlast;
 
-  // B channel: mux response back from active slave
-  assign M_AXI_BURST_bvalid = !gwr_sel_q ? dburst_bvalid : iburst_bvalid;
-  assign M_AXI_BURST_bresp  = !gwr_sel_q ? dburst_bresp  : iburst_bresp;
-  assign M_AXI_BURST_bid    = {8'b0, (!gwr_sel_q ? dburst_bid : iburst_bid)};
-  assign dburst_bready      = !gwr_sel_q ? M_AXI_BURST_bready : 1'b0;
-  assign iburst_bready      =  gwr_sel_q ? M_AXI_BURST_bready : 1'b0;
+  // B channel: mux response from selected write transaction only
+  assign M_AXI_BURST_bvalid = gwr_active_q ? (!gwr_sel_q ? dburst_bvalid : iburst_bvalid) : 1'b0;
+  assign M_AXI_BURST_bresp  = gwr_active_q ? (!gwr_sel_q ? dburst_bresp  : iburst_bresp ) : 2'b00;
+  assign M_AXI_BURST_bid    = gwr_active_q ? {8'b0, (!gwr_sel_q ? dburst_bid : iburst_bid)} : 12'b0;
+  assign dburst_bready      = (gwr_active_q && !gwr_sel_q) ? M_AXI_BURST_bready : 1'b0;
+  assign iburst_bready      = (gwr_active_q &&  gwr_sel_q) ? M_AXI_BURST_bready : 1'b0;
 
-  // Read-path demux state
+  // Read-path demux state (exactly one outstanding read transaction)
   logic grd_active_q, grd_sel_q;
+  logic ar_fire_dburst, ar_fire_iburst;
+  logic r_fire_dburst, r_fire_iburst;
+
+  assign ar_fire_dburst = (!grd_active_q && M_AXI_BURST_arvalid && !M_AXI_BURST_araddr[20] && dburst_arready);
+  assign ar_fire_iburst = (!grd_active_q && M_AXI_BURST_arvalid &&  M_AXI_BURST_araddr[20] && iburst_arready);
+  assign r_fire_dburst  = ( grd_active_q && !grd_sel_q && dburst_rvalid && M_AXI_BURST_rready && dburst_rlast);
+  assign r_fire_iburst  = ( grd_active_q &&  grd_sel_q && iburst_rvalid && M_AXI_BURST_rready && iburst_rlast);
 
   always_ff @(posedge clk_bram or negedge peripheral_aresetn) begin
     if (!peripheral_aresetn) begin
       grd_active_q <= 1'b0;
       grd_sel_q    <= 1'b0;
-    end else if (!grd_active_q) begin
-      if (M_AXI_BURST_arvalid &&
-          (!M_AXI_BURST_araddr[20] ? dburst_arready : iburst_arready)) begin
-        grd_sel_q    <= M_AXI_BURST_araddr[20];
-        grd_active_q <= 1'b1;
-      end
     end else begin
-      if (M_AXI_BURST_rvalid && M_AXI_BURST_rready && M_AXI_BURST_rlast)
+      if (ar_fire_dburst) begin
+        grd_sel_q    <= 1'b0;
+        grd_active_q <= 1'b1;
+      end else if (ar_fire_iburst) begin
+        grd_sel_q    <= 1'b1;
+        grd_active_q <= 1'b1;
+      end else if (r_fire_dburst || r_fire_iburst) begin
         grd_active_q <= 1'b0;
+      end
     end
   end
 
@@ -434,14 +449,14 @@ module zynq_accel_top (
     end
   end
 
-  // R channel: mux read data back; iburst always returns SLVERR with 0 data
-  assign M_AXI_BURST_rvalid = !grd_sel_q ? dburst_rvalid : iburst_rvalid;
-  assign M_AXI_BURST_rlast  = !grd_sel_q ? dburst_rlast  : iburst_rlast;
-  assign M_AXI_BURST_rresp  = !grd_sel_q ? dburst_rresp  : iburst_rresp;
-  assign M_AXI_BURST_rid    = {8'b0, (!grd_sel_q ? dburst_rid : iburst_rid)};
-  assign M_AXI_BURST_rdata  = !grd_sel_q ? dburst_rdata[31:0] : 32'b0;
-  assign dburst_rready      = !grd_sel_q ? M_AXI_BURST_rready : 1'b0;
-  assign iburst_rready      =  grd_sel_q ? M_AXI_BURST_rready : 1'b0;
+  // R channel: mux data/resp from selected read transaction only
+  assign M_AXI_BURST_rvalid = grd_active_q ? (!grd_sel_q ? dburst_rvalid : iburst_rvalid) : 1'b0;
+  assign M_AXI_BURST_rlast  = grd_active_q ? (!grd_sel_q ? dburst_rlast  : iburst_rlast ) : 1'b0;
+  assign M_AXI_BURST_rresp  = grd_active_q ? (!grd_sel_q ? dburst_rresp  : iburst_rresp ) : 2'b00;
+  assign M_AXI_BURST_rid    = grd_active_q ? {8'b0, (!grd_sel_q ? dburst_rid : iburst_rid)} : 12'b0;
+  assign M_AXI_BURST_rdata  = grd_active_q ? (!grd_sel_q ? dburst_rdata[31:0] : 32'b0) : 32'b0;
+  assign dburst_rready      = (grd_active_q && !grd_sel_q) ? M_AXI_BURST_rready : 1'b0;
+  assign iburst_rready      = (grd_active_q &&  grd_sel_q) ? M_AXI_BURST_rready : 1'b0;
 
   // -----------------------------------------------------------------------
   // Internal wires

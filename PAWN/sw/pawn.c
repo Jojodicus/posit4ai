@@ -145,9 +145,10 @@ void pawn_dbram_write32(pawn_dev_t *dev, uint32_t base, const uint32_t *data,
         return;
     }
 
-    reg_write(dev->lite, PAWN_REG_DBRAM_ADDR, base);
-    for (size_t i = 0; i < count; i++)
+    for (size_t i = 0; i < count; i++) {
+        reg_write(dev->lite, PAWN_REG_DBRAM_ADDR, base + i);
         reg_write(dev->lite, PAWN_REG_DBRAM_DATA, data[i]);
+    }
 }
 
 void pawn_dbram_write64(pawn_dev_t *dev, uint32_t base, const uint64_t *data,
@@ -167,8 +168,8 @@ void pawn_dbram_write64(pawn_dev_t *dev, uint32_t base, const uint64_t *data,
         return;
     }
 
-    reg_write(dev->lite, PAWN_REG_DBRAM_ADDR, base);
     for (size_t i = 0; i < count; i++) {
+        reg_write(dev->lite, PAWN_REG_DBRAM_ADDR, base + i);
         reg_write(dev->lite, PAWN_REG_DBRAM_DATA,    (uint32_t)(data[i]));
         reg_write(dev->lite, PAWN_REG_DBRAM_DATA_HI, (uint32_t)(data[i] >> 32));
     }
