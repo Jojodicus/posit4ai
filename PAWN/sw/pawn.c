@@ -21,6 +21,20 @@ static inline void reg_write(volatile uint32_t *base, unsigned off, uint32_t v)
     *(volatile uint32_t *)((volatile char *)base + off) = v;
 }
 
+static inline void pawn_mmio_fence(void)
+{
+    __sync_synchronize();
+}
+
+static inline void pawn_burst_fence32(volatile uint32_t *base, size_t idx)
+{
+    volatile uint32_t sink;
+    pawn_mmio_fence();
+    sink = base[idx];
+    (void)sink;
+    pawn_mmio_fence();
+}
+
 /* ---- Lifecycle ---- */
 
 int pawn_open(pawn_dev_t *dev)
@@ -130,6 +144,8 @@ int pawn_load_program_burst(pawn_dev_t *dev, const uint64_t *instrs, size_t coun
         dst[i * 2]     = (uint32_t)(instrs[i]);
         dst[i * 2 + 1] = (uint32_t)(instrs[i] >> 32);
     }
+    if (count)
+        pawn_burst_fence32(dev->iburst, count * 2 - 1);
     return 0;
 }
 
@@ -142,6 +158,8 @@ void pawn_dbram_write32(pawn_dev_t *dev, uint32_t base, const uint32_t *data,
         volatile uint32_t *dst = dev->burst + base;
         for (size_t i = 0; i < count; i++)
             dst[i] = data[i];
+        if (count)
+            pawn_burst_fence32(dev->burst, base + count - 1);
         return;
     }
 
@@ -165,6 +183,8 @@ void pawn_dbram_write64(pawn_dev_t *dev, uint32_t base, const uint64_t *data,
             dst[i * 2]     = (uint32_t)(data[i]);
             dst[i * 2 + 1] = (uint32_t)(data[i] >> 32);
         }
+        if (count)
+            pawn_burst_fence32(dev->burst, base * 2 + count * 2 - 1);
         return;
     }
 
@@ -241,6 +261,7 @@ uint64_t pawn_dbram_peek64(pawn_dev_t *dev, uint32_t idx)
 
 void pawn_start(pawn_dev_t *dev)
 {
+    pawn_mmio_fence();
     reg_write(dev->lite, PAWN_REG_CTRL, 1u << 0);
 }
 

@@ -113,8 +113,9 @@ module accel_ibram_burst
 
     unique case (wr_state_q)
       W_IDLE: begin
-        s_axi_awready = 1'b1;
-        if (s_axi_awvalid) wr_state_d = W_BURST;
+        // Deterministic policy: only accept new program bursts when not running.
+        s_axi_awready = !running_i;
+        if (s_axi_awvalid && !running_i) wr_state_d = W_BURST;
       end
       W_BURST: begin
         s_axi_wready = 1'b1;
@@ -160,8 +161,7 @@ module accel_ibram_burst
           wr_ibram_addr_q <= wr_ibram_addr_q + BAW'(1);
         end
       end
-      // Sticky SLVERR if running during a write burst (data silently dropped)
-      if (wr_state_q == W_BURST && running_i) wr_slverr_q <= 1'b1;
+      // No running_i-based SLVERR once a burst is accepted.
     end
   end
 
@@ -173,7 +173,7 @@ module accel_ibram_burst
   assign ibram_addr_o  = wr_ibram_addr_q;
   assign ibram_wdata_o = {s_axi_wdata, wr_lo_q};
   assign ibram_we_o    = (wr_state_q == W_BURST) && s_axi_wvalid
-                         && wr_beat_q[0] && !wr_illegal_q && !running_i;
+                         && wr_beat_q[0] && !wr_illegal_q;
 
   // -- Read FSM (returns SLVERR for all reads) -------------------------
   typedef enum logic { R_IDLE, R_DATA } rd_state_t;
