@@ -140,12 +140,14 @@ module accel_axi
         else if (s_axi_wvalid)             wr_state_d = WR_ADDR;
       end
       WR_ADDR: begin
-        s_axi_wready = 1'b1;
-        if (s_axi_wvalid) wr_state_d = WR_RESP;
-      end
-      WR_DATA: begin
+        // W data accepted in WR_IDLE; now waiting for AW (address)
         s_axi_awready = 1'b1;
         if (s_axi_awvalid) wr_state_d = WR_RESP;
+      end
+      WR_DATA: begin
+        // AW address accepted in WR_IDLE; now waiting for W (data)
+        s_axi_wready = 1'b1;
+        if (s_axi_wvalid) wr_state_d = WR_RESP;
       end
       WR_RESP: begin
         s_axi_bvalid = 1'b1;
@@ -192,13 +194,13 @@ module accel_axi
       // Capture AW address
       if (wr_state_q == WR_IDLE && s_axi_awvalid)
         wr_addr_q <= s_axi_awaddr;
-      if (wr_state_q == WR_DATA && s_axi_awvalid)
+      if (wr_state_q == WR_ADDR && s_axi_awvalid)  // WR_ADDR: waiting for AW
         wr_addr_q <= s_axi_awaddr;
 
       // Capture W data
       if (wr_state_q == WR_IDLE && s_axi_wvalid)
         wr_data_q <= s_axi_wdata;
-      if (wr_state_q == WR_ADDR && s_axi_wvalid)
+      if (wr_state_q == WR_DATA && s_axi_wvalid)  // WR_DATA: waiting for W
         wr_data_q <= s_axi_wdata;
 
       // Write to shadow registers (always; BRAM write only when !running, handled above).
