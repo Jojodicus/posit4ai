@@ -29,7 +29,7 @@
 #define PAWN_BASE_LITE   0x43C00000UL
 #define PAWN_BASE_BURST  0x80000000UL  /* GP1 bit 20 = 0: DBRAM burst           */
 #define PAWN_BASE_IBURST 0x80100000UL  /* GP1 bit 20 = 1: IBRAM burst (32-bit)  */
-#define PAWN_MAP_SIZE    0x10000UL
+#define PAWN_MAP_SIZE    (1UL << 15)
 
 /* ---- AXI-Lite register offsets ---- */
 #define PAWN_REG_CTRL          0x00  /* [0]=START, [1]=RESET (self-clearing)       */
