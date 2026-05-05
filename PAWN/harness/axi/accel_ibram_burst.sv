@@ -1,18 +1,23 @@
 // 32-bit AXI4 burst slave for instruction BRAM (write-only).
 //
 // Accepts AXI4 INCR burst writes and assembles 64-bit IBRAM words from
-// consecutive 32-bit beats: beat 0 (even) = lo[31:0], beat 1 (odd) = hi[63:32].
+// consecutive 32-bit beats: lo[31:0] then hi[63:32].
 // Each hi-beat fires one IBRAM write; IBRAM address auto-increments per 64-bit word.
 //
 // The module is write-only.  All read requests return SLVERR immediately.
 //
 // Beat <-> IBRAM word mapping (32-bit AXI bus, 8-byte IBRAM words):
-//   Beat 0 (wr_beat_q[0]=0): wdata -> wr_lo_q
-//   Beat 1 (wr_beat_q[0]=1): {wdata, wr_lo_q} -> instr_mem[ibram_addr_o]
-//   AWADDR must be 8-byte aligned (AWADDR[2]=0); misaligned -> SLVERR.
+//   Absolute beat parity = AWADDR[2] XOR wr_beat_q[0]
+//     parity 0 (lo beat): wdata -> wr_lo_q
+//     parity 1 (hi beat): {wdata, wr_lo_q} -> instr_mem[ibram_addr_o]
 //   IBRAM word index = AWADDR[$clog2(INSTR_DEPTH)+2:3].
 //   NOTE: requires $clog2(INSTR_DEPTH) <= 17 so the index field [BAW+2:3]
 //         does not overlap the GP1 address-space selector bit [20].
+//
+// Single-beat transactions are supported: the PS7 may issue each 32-bit volatile
+// store as a separate AWLEN=0 transaction.  AWADDR[2]=0 is a lo-beat; AWADDR[2]=1
+// is a hi-beat that fires WE using the wr_lo_q latched by the prior lo-beat
+// transaction.  Multi-beat bursts starting at AWADDR[2]=1 (misaligned) -> SLVERR.
 //
 // b_req is held from W_BURST through W_RESP for the IBRAM host-port arbiter.
 //
@@ -20,7 +25,8 @@
 //   - AXI4, 32-bit data bus
 //   - INCR bursts only; non-INCR -> SLVERR
 //   - Burst writes gated by running_i; beats accepted but WE is inhibited and SLVERR sticky
-//   - AWADDR[2]=1 (misaligned start) -> SLVERR
+//   - AWADDR[2]=1 with AWLEN>0 (misaligned multi-beat start) -> SLVERR
+//   - AWADDR[2]=1 with AWLEN=0 (single hi-beat) -> OK, WE fires
 
 module accel_ibram_burst
   import config_pkg::*;
@@ -99,6 +105,7 @@ module accel_ibram_burst
   logic [BAW-1:0]          wr_ibram_addr_q;
   logic [7:0]              wr_awlen_q;
   logic [7:0]              wr_beat_q;
+  logic                    wr_addr2_q;   // AWADDR[2] latched at AW: lo/hi start parity
   logic                    wr_illegal_q;
   logic                    wr_slverr_q;
   logic [31:0]             wr_lo_q;
@@ -136,6 +143,7 @@ module accel_ibram_burst
       wr_ibram_addr_q <= '0;
       wr_awlen_q      <= '0;
       wr_beat_q       <= '0;
+      wr_addr2_q      <= 1'b0;
       wr_illegal_q    <= 1'b0;
       wr_slverr_q     <= 1'b0;
       wr_lo_q         <= '0;
@@ -146,17 +154,30 @@ module accel_ibram_burst
         wr_awlen_q      <= s_axi_awlen;
         wr_beat_q       <= '0;
         wr_slverr_q     <= 1'b0;
-        // SLVERR conditions: non-INCR burst or misaligned start (odd beat parity)
-        wr_illegal_q    <= (s_axi_awburst != 2'b01) || s_axi_awaddr[2];
+        wr_addr2_q      <= s_axi_awaddr[2];
         wr_ibram_addr_q <= ibram_index(s_axi_awaddr);
+        // SLVERR: non-INCR burst, non-32-bit beat size, or AWADDR[2]=1 with multi-beat burst (misaligned
+        // start).  Single-beat (AWLEN=0) with AWADDR[2]=1 is a lone hi-beat and
+        // is legal: WE fires using wr_lo_q latched by the prior lo-beat transaction.
+        wr_illegal_q    <= (s_axi_awburst != 2'b01) ||
+                           (s_axi_awsize != 3'b010) ||
+                           (s_axi_awaddr[2] && s_axi_awlen != 8'd0);
+        if ((s_axi_awburst != 2'b01) ||
+            (s_axi_awsize != 3'b010) ||
+            (s_axi_awaddr[2] && s_axi_awlen != 8'd0))
+          wr_slverr_q <= 1'b1;
       end
       if (wr_state_q == W_BURST && s_axi_wvalid) begin
         wr_beat_q <= wr_beat_q + 8'd1;
-        if (!wr_beat_q[0]) begin
-          // Even (lo) beat: latch lower half
+        if ((wr_beat_q == wr_awlen_q) != s_axi_wlast)
+          wr_slverr_q <= 1'b1;
+        if (s_axi_wstrb != 4'hF && s_axi_wstrb != 4'h0)
+          wr_slverr_q <= 1'b1;
+        if (!(wr_addr2_q ^ wr_beat_q[0])) begin
+          // Lo beat (absolute parity 0): latch lower half
           wr_lo_q <= s_axi_wdata;
         end else begin
-          // Odd (hi) beat: word written; advance address for next word
+          // Hi beat (absolute parity 1): word written; advance address for next word
           wr_ibram_addr_q <= wr_ibram_addr_q + BAW'(1);
         end
       end
@@ -174,7 +195,7 @@ module accel_ibram_burst
   assign ibram_addr_o  = wr_ibram_addr_q;
   assign ibram_wdata_o = {s_axi_wdata, wr_lo_q};
   assign ibram_we_o    = (wr_state_q == W_BURST) && s_axi_wvalid
-                         && wr_beat_q[0] && !wr_illegal_q && !running_i;
+                         && (wr_addr2_q ^ wr_beat_q[0]) && !wr_illegal_q && !running_i;
 
   // -- Read FSM (returns SLVERR for all reads) -------------------------
   typedef enum logic { R_IDLE, R_DATA } rd_state_t;

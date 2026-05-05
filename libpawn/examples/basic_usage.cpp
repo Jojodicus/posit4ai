@@ -2,7 +2,7 @@
 #include "libpawn.hpp"
 
 int main() {
-    p::UniversalTarget target(32);
+    p::Posit32Target target;
 
     p::Number a = target.toNumber(2.0f);
     p::Number b = target.toNumber(3.0f);

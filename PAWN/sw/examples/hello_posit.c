@@ -15,6 +15,23 @@
 
 #define N 4
 
+static int verify_dbram32(pawn_dev_t *dev, uint32_t base, const uint32_t *exp, size_t n, const char *tag)
+{
+    int ok = 1;
+    for (size_t i = 0; i < n; i++) {
+        uint32_t got = pawn_dbram_peek32(dev, base + (uint32_t)i);
+        if (got != exp[i]) {
+            if (ok)
+                printf("verify %s: FAIL\n", tag);
+            printf("  [%zu] exp=0x%08X got=0x%08X\n", i, exp[i], got);
+            ok = 0;
+        }
+    }
+    if (ok)
+        printf("verify %s: OK\n", tag);
+    return ok;
+}
+
 int main(void)
 {
     printf("hello!\n");
@@ -30,12 +47,16 @@ int main(void)
     uint32_t a[N] = { 0x40000000, 0x48000000, 0x4C000000, 0x50000000 };
     uint32_t b[N] = { 0x40000000, 0x40000000, 0x40000000, 0x40000000 }; /* 1.0 */
     uint32_t c[N] = { 0 };
+    uint32_t exp[N] = { 0x48000000, 0x4C000000, 0x50000000, 0x52000000 };
     /* expected: c = { 2.0, 3.0, 4.0, 5.0 } */
 
     pawn_dbram_write32(&dev, 0, a, N);
     printf("wrote a\n");
     pawn_dbram_write32(&dev, N, b, N);
     printf("wrote b\n");
+
+    verify_dbram32(&dev, 0, a, N, "a");
+    verify_dbram32(&dev, N, b, N, "b");
 
     uint64_t prog[N + 1];
     for (int i = 0; i < N; i++)
@@ -53,6 +74,7 @@ int main(void)
     printf("read results\n");
 
     printf("elapsed: %lld ns\n", ns);
+    verify_dbram32(&dev, 2*N, exp, N, "result");
     printf("%-4s  %-12s  %-12s  %-12s\n", "i", "a", "b", "c");
     for (int i = 0; i < N; i++)
         printf("%-4d  0x%08X    0x%08X    0x%08X\n", i, a[i], b[i], c[i]);

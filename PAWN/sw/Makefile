@@ -11,7 +11,7 @@ CC    := $(CROSS)gcc
 CFLAGS := -O2 -Wall -Wextra -std=c11 -static
 
 DRIVER_OBJ   := pawn.o
-EXAMPLES     := hello_posit.elf benchmark.elf long_run_status.elf
+EXAMPLES     := hello_posit.elf hello_posit64.elf benchmark.elf long_run_status.elf
 EXAMPLE_BINS := $(addprefix examples/, $(EXAMPLES))
 
 .PHONY: all clean

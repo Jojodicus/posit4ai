@@ -15,8 +15,8 @@
 //     BRAM word index = AWADDR[BAW+2:3].
 //   Reads (DATA_WIDTH==64): even beat returns BRAM[i][31:0];
 //     odd beat returns buffered BRAM[i][63:32] from rd_hi_buf_q.
-//     Note: read pipeline assumes RREADY stays high throughout a burst
-//     (back-pressure invalidates the 1-cycle pre-fetch timing).
+//     Back-pressure safe: beat counter, hi-half capture, and address advance
+//     occur only on R-channel handshake (RVALID && RREADY).
 //
 // Protocol:
 //   - AXI4, 32-bit data bus
@@ -161,13 +161,20 @@ module accel_axi_burst
         wr_awlen_q   <= s_axi_awlen;
         wr_beat_q    <= '0;
         wr_slverr_q  <= 1'b0;
-        // SLVERR: non-INCR burst; misaligned start for DATA_WIDTH=64 (AWADDR[2]=1)
+        // SLVERR: non-INCR burst; non-32-bit beat size; misaligned start for DATA_WIDTH=64 (AWADDR[2]=1)
         wr_illegal_q <= (s_axi_awburst != 2'b01) ||
+                        (s_axi_awsize  != 3'b010) ||
                         (DATA_WIDTH == 64 && s_axi_awaddr[2]);
+        if ((s_axi_awburst != 2'b01) ||
+            (s_axi_awsize  != 3'b010) ||
+            (DATA_WIDTH == 64 && s_axi_awaddr[2]))
+          wr_slverr_q <= 1'b1;
         wr_base_q    <= bram_index(s_axi_awaddr);
       end
       if (wr_state_q == W_BURST && s_axi_wvalid) begin
         wr_beat_q <= wr_beat_q + 8'd1;
+        if ((wr_beat_q == wr_awlen_q) != s_axi_wlast)
+          wr_slverr_q <= 1'b1;
         if (DATA_WIDTH == 64 && !wr_beat_q[0])
           wr_lo_q <= s_axi_wdata;   // even beat: latch lo half
         if (DATA_WIDTH != 64 && s_axi_wstrb != 4'hF && s_axi_wstrb != 4'h0)
@@ -193,8 +200,10 @@ module accel_axi_burst
   logic [7:0]                rd_beat_q;
   logic                      rd_illegal_q;
   logic [31:0]               rd_hi_buf_q;  // DATA_WIDTH=64: hi half of current BRAM word
+  logic                      rd_fire;
 
   logic [BAW-1:0] rd_bram_addr;
+  assign rd_fire = (rd_state_q == R_DATA) && s_axi_rvalid && s_axi_rready;
 
   always_comb begin
     rd_state_d    = rd_state_q;
@@ -208,11 +217,9 @@ module accel_axi_burst
     if (DATA_WIDTH == 64) begin
       // Even beats: output lo half; odd beats: output buffered hi half.
       s_axi_rdata  = rd_beat_q[0] ? rd_hi_buf_q : b_rdata[31:0];
-      // Even beats: hold current word addr so b_rdata stays valid for hi capture
-      // at the next clk_i posedge (b_rdata must not advance before the capture).
-      // Odd beats: advance to next word; BRAM output updates 2 clk_bram cycles
-      // later (< 1 clk_i cycle) and is ready for the next even beat.
-      // Formula: word index = (beat+1)>>1.
+      // Address derives from handshake-tracked beat index (rd_beat_q).
+      // When RREADY is low rd_beat_q does not advance, so the BRAM address
+      // and the even/odd data pairing remain stable under back-pressure.
       rd_bram_addr = rd_base_q + BAW'((rd_beat_q + 8'd1) >> 1);
     end else begin
       s_axi_rdata  = pack_rdata(b_rdata);
@@ -252,10 +259,10 @@ module accel_axi_burst
         rd_id_q      <= s_axi_arid;
         rd_arlen_q   <= s_axi_arlen;
         rd_beat_q    <= '0;
-        rd_illegal_q <= (s_axi_arburst != 2'b01);
+        rd_illegal_q <= (s_axi_arburst != 2'b01) || (s_axi_arsize != 3'b010);
         rd_base_q    <= bram_index(s_axi_araddr);
       end
-      if (rd_state_q == R_DATA && s_axi_rready) begin
+      if (rd_fire) begin
         rd_beat_q <= rd_beat_q + 8'd1;
         // DATA_WIDTH=64: capture hi half on even beats while b_rdata holds current word
         if (DATA_WIDTH == 64 && !rd_beat_q[0])

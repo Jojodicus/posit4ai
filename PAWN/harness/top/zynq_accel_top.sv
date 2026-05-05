@@ -295,7 +295,7 @@ module zynq_accel_top (
   // -----------------------------------------------------------------------
 
   // dburst_* : signals for accel_axi_burst (DBRAM, 32-bit data port)
-  logic [3:0]  dburst_awid,   dburst_arid,   dburst_bid,   dburst_rid;
+  logic [11:0] dburst_awid,   dburst_arid,   dburst_bid,   dburst_rid;
   logic [31:0] dburst_awaddr, dburst_araddr;
   logic [7:0]  dburst_awlen,  dburst_arlen;
   logic [2:0]  dburst_awsize, dburst_arsize;
@@ -312,7 +312,7 @@ module zynq_accel_top (
   logic        dburst_rlast,  dburst_rvalid, dburst_rready;
 
   // iburst_* : signals for accel_ibram_burst (IBRAM, 32-bit data port)
-  logic [3:0]  iburst_awid,   iburst_arid,   iburst_bid,   iburst_rid;
+  logic [11:0] iburst_awid,   iburst_arid,   iburst_bid,   iburst_rid;
   logic [31:0] iburst_awaddr, iburst_araddr;
   logic [7:0]  iburst_awlen,  iburst_arlen;
   logic [2:0]  iburst_awsize, iburst_arsize;
@@ -354,13 +354,13 @@ module zynq_accel_top (
 
   // AW channel mux
   always_comb begin
-    dburst_awid     = M_AXI_BURST_awid[3:0];
+    dburst_awid     = M_AXI_BURST_awid;
     dburst_awaddr   = M_AXI_BURST_awaddr;
     dburst_awlen    = M_AXI_BURST_awlen;
     dburst_awsize   = M_AXI_BURST_awsize;
     dburst_awburst  = M_AXI_BURST_awburst;
     dburst_awvalid  = 1'b0;
-    iburst_awid     = M_AXI_BURST_awid[3:0];
+    iburst_awid     = M_AXI_BURST_awid;
     iburst_awaddr   = M_AXI_BURST_awaddr;
     iburst_awlen    = M_AXI_BURST_awlen;
     iburst_awsize   = M_AXI_BURST_awsize;
@@ -392,7 +392,7 @@ module zynq_accel_top (
   // B channel: mux response from selected write transaction only
   assign M_AXI_BURST_bvalid = gwr_active_q ? (!gwr_sel_q ? dburst_bvalid : iburst_bvalid) : 1'b0;
   assign M_AXI_BURST_bresp  = gwr_active_q ? (!gwr_sel_q ? dburst_bresp  : iburst_bresp ) : 2'b00;
-  assign M_AXI_BURST_bid    = gwr_active_q ? {8'b0, (!gwr_sel_q ? dburst_bid : iburst_bid)} : 12'b0;
+  assign M_AXI_BURST_bid    = gwr_active_q ? (!gwr_sel_q ? dburst_bid : iburst_bid) : 12'b0;
   assign dburst_bready      = (gwr_active_q && !gwr_sel_q) ? M_AXI_BURST_bready : 1'b0;
   assign iburst_bready      = (gwr_active_q &&  gwr_sel_q) ? M_AXI_BURST_bready : 1'b0;
 
@@ -425,13 +425,13 @@ module zynq_accel_top (
 
   // AR channel mux
   always_comb begin
-    dburst_arid     = M_AXI_BURST_arid[3:0];
+    dburst_arid     = M_AXI_BURST_arid;
     dburst_araddr   = M_AXI_BURST_araddr;
     dburst_arlen    = M_AXI_BURST_arlen;
     dburst_arsize   = M_AXI_BURST_arsize;
     dburst_arburst  = M_AXI_BURST_arburst;
     dburst_arvalid  = 1'b0;
-    iburst_arid     = M_AXI_BURST_arid[3:0];
+    iburst_arid     = M_AXI_BURST_arid;
     iburst_araddr   = M_AXI_BURST_araddr;
     iburst_arlen    = M_AXI_BURST_arlen;
     iburst_arsize   = M_AXI_BURST_arsize;
@@ -453,7 +453,7 @@ module zynq_accel_top (
   assign M_AXI_BURST_rvalid = grd_active_q ? (!grd_sel_q ? dburst_rvalid : iburst_rvalid) : 1'b0;
   assign M_AXI_BURST_rlast  = grd_active_q ? (!grd_sel_q ? dburst_rlast  : iburst_rlast ) : 1'b0;
   assign M_AXI_BURST_rresp  = grd_active_q ? (!grd_sel_q ? dburst_rresp  : iburst_rresp ) : 2'b00;
-  assign M_AXI_BURST_rid    = grd_active_q ? {8'b0, (!grd_sel_q ? dburst_rid : iburst_rid)} : 12'b0;
+  assign M_AXI_BURST_rid    = grd_active_q ? (!grd_sel_q ? dburst_rid : iburst_rid) : 12'b0;
   assign M_AXI_BURST_rdata  = grd_active_q ? (!grd_sel_q ? dburst_rdata : 32'b0) : 32'b0;
   assign dburst_rready      = (grd_active_q && !grd_sel_q) ? M_AXI_BURST_rready : 1'b0;
   assign iburst_rready      = (grd_active_q &&  grd_sel_q) ? M_AXI_BURST_rready : 1'b0;
@@ -544,7 +544,9 @@ module zynq_accel_top (
   // -----------------------------------------------------------------------
   // GP1 DBRAM burst slave (clk_bram)
   // -----------------------------------------------------------------------
-  accel_axi_burst u_dburst (
+  accel_axi_burst #(
+    .AXI_ID_WIDTH    ( 12 )
+  ) u_dburst (
     .clk_i             ( clk_bram             ),
     .rst_ni            ( peripheral_aresetn   ),
     .running_i         ( accel_running_bram   ),
@@ -587,7 +589,9 @@ module zynq_accel_top (
   // -----------------------------------------------------------------------
   // GP1 IBRAM burst slave (clk_bram, write-only)
   // -----------------------------------------------------------------------
-  accel_ibram_burst u_iburst (
+  accel_ibram_burst #(
+    .AXI_ID_WIDTH    ( 12 )
+  ) u_iburst (
     .clk_i             ( clk_bram             ),
     .rst_ni            ( peripheral_aresetn   ),
     .running_i         ( accel_running_bram   ),

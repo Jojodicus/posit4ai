@@ -35,12 +35,36 @@ static inline void pawn_mmio_fence(void)
  * Issues a barrier, then a read-back from a known readable address on the
  * same GP1 port (DBRAM word 0), then another barrier.  The read-back forces
  * all preceding burst writes to complete before the read response returns.
+ * Use for DBRAM burst writes (dev->burst).
  */
 static inline void pawn_burst_fence32(pawn_dev_t *dev)
 {
     volatile uint32_t sink;
     pawn_mmio_fence();
     sink = dev->burst[0];
+    (void)sink;
+    pawn_mmio_fence();
+}
+
+/*
+ * pawn_iburst_fence32: drain the AXI write buffer for the GP1 IBRAM burst port.
+ * GP1 iburst reads return SLVERR (SIGBUS under Linux), so we cannot fence via
+ * a read-back from dev->iburst.  Instead: drain GP1 with the DBRAM read-back
+ * (same physical AXI master port -- all prior GP1 writes complete before GP1
+ * reads are issued for device-mapped memory with a preceding DMB), then
+ * read STATUS from the AXI-Lite port (GP0) to ensure the GP0 path that carries
+ * pawn_start is ordered after all preceding memory operations.
+ */
+static inline void pawn_iburst_fence32(pawn_dev_t *dev)
+{
+    volatile uint32_t sink;
+    /* Drain the GP1 write buffer: DMB + GP1 readback. */
+    pawn_mmio_fence();
+    sink = dev->burst[0];
+    (void)sink;
+    /* Drain GP0 path: STATUS read ensures pawn_start cannot overtake iburst. */
+    pawn_mmio_fence();
+    sink = reg_read(dev->lite, PAWN_REG_STATUS);
     (void)sink;
     pawn_mmio_fence();
 }
@@ -131,8 +155,8 @@ int pawn_load_program(pawn_dev_t *dev, const uint64_t *instrs, size_t count)
      * AXI-Lite path: set address once, then write lo+hi pairs.
      * IBRAM_DATA_HI write triggers the BRAM write and auto-increments the address.
      */
-    reg_write(dev->lite, PAWN_REG_IBRAM_ADDR, 0);
     for (size_t i = 0; i < count; i++) {
+        reg_write(dev->lite, PAWN_REG_IBRAM_ADDR, i);
         reg_write(dev->lite, PAWN_REG_IBRAM_DATA_LO, (uint32_t)(instrs[i]));
         reg_write(dev->lite, PAWN_REG_IBRAM_DATA_HI, (uint32_t)(instrs[i] >> 32));
     }
@@ -156,7 +180,7 @@ int pawn_load_program_burst(pawn_dev_t *dev, const uint64_t *instrs, size_t coun
         dst[i * 2 + 1] = (uint32_t)(instrs[i] >> 32);
     }
     if (count)
-        pawn_burst_fence32(dev);
+        pawn_iburst_fence32(dev);
     return 0;
 }
 

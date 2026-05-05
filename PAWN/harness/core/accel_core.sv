@@ -218,14 +218,14 @@ module accel_core
 
   // -- DBRAM port A -- clocked at clk_bram ------------------------------
   // phase 0: latch data at dbram_porta_addr into dbram_porta_rdata
-  // phase 1: capture dbram_porta_rdata into op_a_q (gated); write if dbram_porta_we
+  // phase 1: capture dbram_porta_rdata into op_a_q (gated)
+  // writes are accepted on either phase when dbram_porta_we is asserted
   // Memory array: sync only (no async reset) so Vivado infers BRAM
   always_ff @(posedge clk_bram_i) begin
+    if (dbram_porta_we)
+      data_mem[dbram_porta_addr] <= dbram_porta_wdata;
     if (!phase_q) begin
       dbram_porta_rdata <= data_mem[dbram_porta_addr];
-    end else begin
-      if (dbram_porta_we)
-        data_mem[dbram_porta_addr] <= dbram_porta_wdata;
     end
   end
   // Output registers: async reset allowed
@@ -269,28 +269,6 @@ module accel_core
 
   // Host data BRAM read via port A registered output
   assign dbram_rdata_o = dbram_porta_rdata;
-
-  // -- DBRAM host write latch -----------------------------------------------
-  // When host port signals come from a clk_bram-domain AXI slave the WE pulse
-  // is 1 clk_bram cycle wide and may land at phase 0 (before the write sub-cycle).
-  // Latch at phase 0; execute at phase 1 via the always_comb default: branch.
-  logic [$clog2(DATA_DEPTH)-1:0] dbram_host_addr_q;
-  logic [DATA_WIDTH-1:0]         dbram_host_wdata_q;
-  logic                          dbram_host_we_q;
-
-  always_ff @(posedge clk_bram_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      dbram_host_addr_q  <= '0;
-      dbram_host_wdata_q <= '0;
-      dbram_host_we_q    <= 1'b0;
-    end else if (!phase_q) begin
-      dbram_host_addr_q  <= dbram_addr_i;
-      dbram_host_wdata_q <= dbram_wdata_i;
-      dbram_host_we_q    <= dbram_we_i && !running_bram_sync2_q;
-    end else begin
-      dbram_host_we_q <= 1'b0;
-    end
-  end
 
   // -- Pipeline registers ------------------------------------------------
   logic        if_id_valid_q;  // ibram_fetch_rdata holds a valid instruction
@@ -437,21 +415,12 @@ module accel_core
       end
 
       // Host access when stopped (IDLE_S or HALT_S).
-      // Use write latch: phase-0 WE arrivals are in dbram_host_*_q by phase 1.
-      // Direct phase-1 WE arrivals fall through to the else branch.
+      // Accept host writes on either clk_bram phase to avoid dropping
+      // back-to-back burst beats.
       default: begin
         dbram_porta_addr  = dbram_addr_i;
         dbram_porta_wdata = dbram_wdata_i;
-        dbram_porta_we    = 1'b0;
-        if (phase_q) begin
-          if (dbram_host_we_q) begin
-            dbram_porta_addr  = dbram_host_addr_q;
-            dbram_porta_wdata = dbram_host_wdata_q;
-            dbram_porta_we    = 1'b1;
-          end else begin
-            dbram_porta_we = dbram_we_i && !running_bram_sync2_q;
-          end
-        end
+        dbram_porta_we    = dbram_we_i && !running_bram_sync2_q;
       end
 
     endcase
