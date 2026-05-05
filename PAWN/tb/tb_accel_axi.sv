@@ -533,6 +533,115 @@ module tb_accel_axi
     burst_rready = 1'b0;
   endtask
 
+  // Single-beat AWLEN=0 32-bit write at byte_addr -- mirrors how the
+  // Cortex-A9 issues each volatile store on /dev/mem (Strongly-Ordered or
+  // Device memory does not merge consecutive stores into multi-beat bursts).
+  task automatic axi4_single_write(
+    input logic [31:0] byte_addr,
+    input logic [31:0] wdata
+  );
+    @(posedge clk); #1;
+    burst_awid    = 4'h0;
+    burst_awaddr  = byte_addr;
+    burst_awlen   = 8'd0;
+    burst_awsize  = 3'h2;
+    burst_awburst = 2'b01;
+    burst_awvalid = 1'b1;
+    burst_bready  = 1'b1;
+    wait(burst_awready);
+    @(posedge clk); #1;
+    burst_awvalid = 1'b0;
+
+    burst_wdata  = wdata;
+    burst_wstrb  = 4'hF;
+    burst_wlast  = 1'b1;
+    burst_wvalid = 1'b1;
+    wait(burst_wready);
+    @(posedge clk); #1;
+    burst_wvalid = 1'b0;
+    burst_wlast  = 1'b0;
+
+    wait(burst_bvalid);
+    @(posedge clk); #1;
+    burst_bready = 1'b0;
+  endtask
+
+  // Single-beat ARLEN=0 32-bit read at byte_addr.
+  task automatic axi4_single_read(
+    input  logic [31:0] byte_addr,
+    output logic [31:0] rdata
+  );
+    @(posedge clk); #1;
+    burst_arid    = 4'h0;
+    burst_araddr  = byte_addr;
+    burst_arlen   = 8'd0;
+    burst_arsize  = 3'h2;
+    burst_arburst = 2'b01;
+    burst_arvalid = 1'b1;
+    burst_rready  = 1'b1;
+    wait(burst_arready);
+    @(posedge clk); #1;
+    burst_arvalid = 1'b0;
+
+    wait(burst_rvalid);
+    rdata = burst_rdata;
+    @(posedge clk); #1;
+    burst_rready = 1'b0;
+  endtask
+
+  // Multi-beat read with intermittent RREADY deassertion to exercise
+  // back-pressure. Same result layout as axi4_read_burst (writes burst_rd_buf).
+  task automatic axi4_read_burst_bp(
+    input  logic [31:0] base_addr,
+    input  int          len
+  );
+    int axi_beats;
+    int wi;
+    int gap;
+    axi_beats = (DATA_WIDTH == 64) ? len * 2 : len;
+
+    @(posedge clk); #1;
+    burst_arid    = 4'h0;
+    burst_araddr  = base_addr;
+    burst_arlen   = 8'(axi_beats - 1);
+    burst_arsize  = 3'h2;
+    burst_arburst = 2'b01;
+    burst_arvalid = 1'b1;
+    burst_rready  = 1'b0;
+    wait(burst_arready);
+    @(posedge clk); #1;
+    burst_arvalid = 1'b0;
+
+    wi = 0;
+    for (int beat = 0; beat < axi_beats; beat++) begin
+      // Random rready bubble before consuming this beat.
+      gap = beat % 3;
+      burst_rready = 1'b0;
+      repeat(gap) begin
+        wait(burst_rvalid);
+        @(posedge clk); #1;
+      end
+      burst_rready = 1'b1;
+      wait(burst_rvalid);
+      if (DATA_WIDTH == 64) begin
+        if (beat[0] == 1'b0)
+          burst_rd_buf[wi][31:0]  = burst_rdata;
+        else begin
+          burst_rd_buf[wi][63:32] = burst_rdata;
+          wi++;
+        end
+      end else begin
+        burst_rd_buf[beat] = {32'b0, burst_rdata};
+      end
+      if (burst_rlast) begin
+        @(posedge clk); #1;
+        break;
+      end
+      @(posedge clk); #1;
+    end
+    burst_rready = 1'b0;
+  endtask
+
   function automatic logic [63:0] make_instr(
     input opcode_t     op,
     input logic [19:0] a, b, res
@@ -908,6 +1017,101 @@ module tb_accel_axi
         fail_count++; ok = 0;
       end else pass_count++;
       if (ok) $display("  PASS  burst_then_kernel: ADD+DIV via burst load/readback OK");
+    end
+
+    // ---- Single-beat (AWLEN=0) write/read: exercises the actual on-chip ARM
+    //      store path on /dev/mem mappings, where each 32-bit volatile store
+    //      becomes a separate AWLEN=0 transaction (the multi-beat path above
+    //      assumes the AXI master issues a real burst, which the Cortex-A9
+    //      does not for Strongly-Ordered/Device memory).
+    $display("-- HP0 single-beat (AWLEN=0) write+read --");
+    begin : single_beat_pairs
+      automatic int    BSLOT  = 110;
+      automatic int    BYTES  = (DATA_WIDTH == 64) ? 8 : 4;
+      automatic int    N      = 4;
+      automatic logic [63:0] vals [4];
+      automatic logic [31:0] got_lo, got_hi;
+      automatic int    ok = 1;
+
+      vals[0] = V_1; vals[1] = V_2; vals[2] = V_3; vals[3] = V_4;
+
+      // Issue separate AWLEN=0 transactions per 32-bit word -- exactly what
+      // the Cortex-A9 does for `dst[i] = val;` on /dev/mem.
+      for (int i = 0; i < N; i++) begin
+        automatic logic [31:0] base = 32'((BSLOT + i) * BYTES);
+        if (DATA_WIDTH == 64) begin
+          axi4_single_write(base,         vals[i][31:0]);     // lo
+          axi4_single_write(base + 32'd4, vals[i][63:32]);    // hi
+        end else begin
+          axi4_single_write(base, vals[i][31:0]);
+        end
+      end
+
+      // Read back via the same single-beat pattern.
+      for (int i = 0; i < N; i++) begin
+        automatic logic [63:0] got = '0;
+        automatic logic [31:0] base = 32'((BSLOT + i) * BYTES);
+        if (DATA_WIDTH == 64) begin
+          axi4_single_read(base,         got_lo);
+          axi4_single_read(base + 32'd4, got_hi);
+          got = {got_hi, got_lo};
+        end else begin
+          axi4_single_read(base, got_lo);
+          got = {32'b0, got_lo};
+        end
+        if (got[DATA_WIDTH-1:0] !== vals[i][DATA_WIDTH-1:0]) begin
+          $display("  FAIL  single_beat[%0d]  got 0x%0X  exp 0x%0X",
+                   i, got[DATA_WIDTH-1:0], vals[i][DATA_WIDTH-1:0]);
+          fail_count++; ok = 0;
+        end else pass_count++;
+      end
+
+      // Cross-check via PIO read.
+      for (int i = 0; i < N; i++) begin
+        automatic logic [63:0] got;
+        read_data(BSLOT + i, got);
+        if (got[DATA_WIDTH-1:0] !== vals[i][DATA_WIDTH-1:0]) begin
+          $display("  FAIL  single_beat_pio[%0d]  got 0x%0X  exp 0x%0X",
+                   i, got[DATA_WIDTH-1:0], vals[i][DATA_WIDTH-1:0]);
+          fail_count++; ok = 0;
+        end else pass_count++;
+      end
+
+      if (ok) $display("  PASS  single_beat_pairs: %0d words via AWLEN=0 stores", N);
+    end
+
+    // ---- Read back-pressure: deassert RREADY mid-burst. ARM masters can
+    //      deassert RREADY arbitrarily; the slave must not advance the BRAM
+    //      address while the beat is parked.
+    $display("-- HP0 burst read with RREADY back-pressure --");
+    begin : read_backpressure
+      automatic int          BSLOT = 130;
+      automatic int          BADDR = BSLOT * (DATA_WIDTH / 8);
+      automatic int          N = 8;
+      automatic logic [63:0] wdata [];
+      automatic int          ok = 1;
+
+      wdata = new[N];
+      for (int i = 0; i < N; i++)
+        case (i % 4)
+          0: wdata[i] = V_1;
+          1: wdata[i] = V_2;
+          2: wdata[i] = V_3;
+          3: wdata[i] = V_4;
+        endcase
+
+      axi4_write_burst(32'(BADDR), N, wdata);
+      repeat(2) @(posedge clk);
+
+      axi4_read_burst_bp(32'(BADDR), N);
+      for (int i = 0; i < N; i++) begin
+        if (burst_rd_buf[i][DATA_WIDTH-1:0] !== wdata[i][DATA_WIDTH-1:0]) begin
+          $display("  FAIL  rd_bp[%0d]  got 0x%0X  exp 0x%0X",
+                   i, burst_rd_buf[i][DATA_WIDTH-1:0], wdata[i][DATA_WIDTH-1:0]);
+          fail_count++; ok = 0;
+        end else pass_count++;
+      end
+      if (ok) $display("  PASS  read_backpressure: %0d words OK under RREADY gaps", N);
     end
 
     $display("-- Burst write gated while RUNNING --");
