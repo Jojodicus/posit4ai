@@ -656,7 +656,6 @@ module zynq_accel_top (
     .start_i       ( start_core        ),
     .done_o        ( accel_done_core   ),
     .running_o     ( accel_running_core),
-    .running_bram_i( accel_running_bram),
     .ibram_addr_i  ( core_ibram_addr   ),
     .ibram_wdata_i ( core_ibram_wdata  ),
     .ibram_we_i    ( core_ibram_we     ),
