@@ -1,0 +1,7 @@
+results/
+dataset/cifar10/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+cpp/build/

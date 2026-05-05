@@ -1,0 +1,1 @@
+../../posit-neuralnet/examples/cifar10_cifarnet/include/Cifar10Data.hpp

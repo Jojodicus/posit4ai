@@ -1,0 +1,100 @@
+"""Fine-tune ResNet-18 FP32 checkpoint in FP64 on CIFAR-10."""
+import argparse
+import sys
+from pathlib import Path
+
+import torch
+import torch.nn as nn
+
+sys.path.insert(0, str(Path(__file__).parent))
+from models.resnet18 import ResNet18
+from utils.data import cifar10_loaders
+from utils.fusion import export_fused_jit
+from utils.metrics import evaluate, EpochLogger, save_meta
+
+SEED = 42
+EPOCHS = 10
+BATCH_SIZE = 128
+LR = 0.01   # 1/10 of base LR
+MOMENTUM = 0.9
+WEIGHT_DECAY = 5e-4
+
+
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument('--data-dir', default='dataset/cifar10')
+    p.add_argument('--out-dir', default='results')
+    p.add_argument('--ckpt', default='results/checkpoints/ckpt_resnet18.pt')
+    p.add_argument('--epochs', type=int, default=EPOCHS)
+    p.add_argument('--workers', type=int, default=4)
+    return p.parse_args()
+
+
+def main():
+    args = parse_args()
+    torch.manual_seed(SEED)
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    out = Path(args.out_dir)
+    (out / 'checkpoints').mkdir(parents=True, exist_ok=True)
+
+    train_loader, test_loader = cifar10_loaders(args.data_dir, BATCH_SIZE, args.workers)
+
+    model = ResNet18()
+    model.load_state_dict(torch.load(args.ckpt, map_location='cpu'))
+    model = model.double().to(device)
+
+    optimizer = torch.optim.SGD(
+        model.parameters(), lr=LR, momentum=MOMENTUM, weight_decay=WEIGHT_DECAY
+    )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+    criterion = nn.CrossEntropyLoss()
+
+    logger = EpochLogger(out / 'logs' / 'finetune_resnet18_fp64.csv')
+
+    for epoch in range(1, args.epochs + 1):
+        model.train()
+        train_loss = 0.0
+        for x, y in train_loader:
+            x = x.to(device=device, dtype=torch.float64)
+            y = y.to(device)
+            optimizer.zero_grad()
+            loss = criterion(model(x), y)
+            loss.backward()
+            optimizer.step()
+            train_loss += loss.item() * x.size(0)
+        scheduler.step()
+
+        train_loss /= len(train_loader.dataset)
+        val_acc, val_nll = evaluate(model, test_loader, device, dtype=torch.float64)
+        lr = scheduler.get_last_lr()[0]
+
+        logger.log({
+            'epoch': epoch,
+            'train_loss': round(train_loss, 6),
+            'val_acc': round(val_acc, 6),
+            'val_nll': round(val_nll, 6),
+            'lr': round(lr, 8),
+        })
+        print(f'[{epoch:2d}/{args.epochs}] loss={train_loss:.4f}  acc={val_acc:.4f}  nll={val_nll:.4f}')
+
+    torch.save(model.state_dict(), out / 'checkpoints' / 'ckpt_resnet18_fp64_ft.pt')
+    export_fused_jit(model, out / 'checkpoints' / 'ckpt_resnet18_fp64_ft_fused.pt')
+    logger.close()
+
+    save_meta(out / 'logs' / 'finetune_resnet18_fp64_meta.json', {
+        'run': 'resnet18_fp64_ft', 'model': 'resnet18', 'format': 'fp64_ft',
+        'source_ckpt': args.ckpt,
+        'epochs': args.epochs,
+        'final_val_acc': val_acc,
+        'final_val_nll': val_nll,
+        'config': {
+            'lr': LR, 'momentum': MOMENTUM, 'weight_decay': WEIGHT_DECAY,
+            'batch_size': BATCH_SIZE, 'seed': SEED,
+        },
+    })
+    print(f'Done. Final val acc: {val_acc:.4f}')
+
+
+if __name__ == '__main__':
+    main()
