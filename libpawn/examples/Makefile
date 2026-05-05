@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -std=c++17 -O3 -flto -march=native -mtune=native -funroll-loops -fomit-frame-pointer -pipe
+CXXFLAGS = -std=c++20 -O3 -flto -march=native -mtune=native -funroll-loops -fomit-frame-pointer -pipe
 INCLUDE = -I../include
 
 LIBS = ../build/libpawn_static.a -lpthread -lstdc++ -lm
