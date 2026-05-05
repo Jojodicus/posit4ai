@@ -42,7 +42,7 @@ else
 fi
 
 # Binaries
-for bin in hello_posit.elf benchmark.elf long_run_status.elf hello_posit64.elf; do
+for bin in hello_posit.elf benchmark.elf long_run_status.elf hello_posit64.elf bench_gemm.elf bench_conv.elf; do
     src="${ROOT}/sw/examples/${bin}"
     if [ -f "${src}" ]; then
         scp "${src}" "${REMOTE}:${DEST}/examples/"
@@ -63,5 +63,4 @@ echo "      devmem 0xF8000240 32 0x0      # deassert PL resets"
 echo "      devmem 0xF8000004 32 0x767B   # SLCR lock"
 echo ""
 echo "==> Then run:"
-echo "      ${DEST}/examples/hello_posit"
-echo "      ${DEST}/examples/benchmark 4096"
+echo "      ${DEST}/examples/*.elf"
