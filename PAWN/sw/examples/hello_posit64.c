@@ -63,7 +63,7 @@ int main(void)
         prog[i] = PAWN_INSTR(PAWN_OP_ADD, i, N + i, 2*N + i);
     prog[N] = PAWN_INSTR(PAWN_OP_HALT, 0, 0, 0);
 
-    pawn_load_program_burst(&dev, prog, N + 1);
+    pawn_load_program(&dev, prog, N + 1);
     printf("program loaded\n");
 
     long long ns = pawn_run_blocking(&dev, 1000);

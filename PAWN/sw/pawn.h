@@ -79,21 +79,16 @@ int  pawn_open (pawn_dev_t *dev);
 void pawn_close(pawn_dev_t *dev);
 void pawn_reset(pawn_dev_t *dev);
 
-/* Load 'count' instructions into IBRAM via AXI-Lite PIO (last must be HALT). */
+/* Load 'count' instructions into IBRAM (last must be HALT). */
 int pawn_load_program(pawn_dev_t *dev, const uint64_t *instrs, size_t count);
 
-/* Load 'count' instructions into IBRAM via AXI4 burst (faster for large programs).
- * Uses the 32-bit IBRAM burst slave at PAWN_BASE_IBURST: two 32-bit beats per
- * 64-bit instruction word (lo then hi).  Accelerator must not be running. */
-int pawn_load_program_burst(pawn_dev_t *dev, const uint64_t *instrs, size_t count);
-
-/* Bulk DBRAM read/write via AXI4 burst (GP1). Use pawn_dbram_poke/peek for single-word PIO. */
+/* Bulk DBRAM read/write. Use pawn_dbram_poke/peek for single-word PIO. */
 void pawn_dbram_write32(pawn_dev_t *dev, uint32_t base, const uint32_t *data, size_t count);
 void pawn_dbram_read32 (pawn_dev_t *dev, uint32_t base,       uint32_t *data, size_t count);
 void pawn_dbram_write64(pawn_dev_t *dev, uint32_t base, const uint64_t *data, size_t count);
 void pawn_dbram_read64 (pawn_dev_t *dev, uint32_t base,       uint64_t *data, size_t count);
 
-/* Single-word DBRAM via AXI-Lite PIO (debug / sparse access). */
+/* Single-word DBRAM via AXI-Lite (debug / sparse access). */
 void     pawn_dbram_poke32(pawn_dev_t *dev, uint32_t idx, uint32_t val);
 uint32_t pawn_dbram_peek32(pawn_dev_t *dev, uint32_t idx);
 void     pawn_dbram_poke64(pawn_dev_t *dev, uint32_t idx, uint64_t val);

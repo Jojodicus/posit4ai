@@ -206,7 +206,7 @@ int main(int argc, char *argv[])
             cur_prog = prog;
         }
 
-        pawn_load_program_burst(&dev, cur_prog, cur_len);
+        pawn_load_program(&dev, cur_prog, cur_len);
 
         t0 = bench_now_ns();
         long long ns = pawn_run_blocking(&dev, 30000);

@@ -255,7 +255,7 @@ int main(int argc, char *argv[])
                 if (!use_quire && first_k)
                     bytes_in += (long long)(tp.TM * tp.TN) * 4;
 
-                pawn_load_program_burst(&dev, cur_prog, cur_len);
+                pawn_load_program(&dev, cur_prog, cur_len);
 
                 t0 = bench_now_ns();
                 long long ns = pawn_run_blocking(&dev, 30000);

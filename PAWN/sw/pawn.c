@@ -11,6 +11,11 @@
 
 #define IBRAM_DEPTH (1u << 15)
 
+static inline int axi_full() {
+    char *env = getenv("AXI_FULL");
+    return env != NULL && *env == '1';
+}
+
 static inline uint32_t reg_read(volatile uint32_t *base, unsigned off)
 {
     return *(volatile uint32_t *)((volatile char *)base + off);
@@ -145,12 +150,7 @@ void pawn_reset(pawn_dev_t *dev)
 
 /* ---- Program load ---- */
 
-int pawn_load_program(pawn_dev_t *dev, const uint64_t *instrs, size_t count)
-{
-    if (count > IBRAM_DEPTH) {
-        fprintf(stderr, "pawn_load_program: count %zu > %u\n", count, IBRAM_DEPTH);
-        return -1;
-    }
+static int load_program_lite(pawn_dev_t *dev, const uint64_t *instrs, size_t count) {
     /*
      * AXI-Lite path: set address once, then write lo+hi pairs.
      * IBRAM_DATA_HI write triggers the BRAM write and auto-increments the address.
@@ -163,12 +163,8 @@ int pawn_load_program(pawn_dev_t *dev, const uint64_t *instrs, size_t count)
     return 0;
 }
 
-int pawn_load_program_burst(pawn_dev_t *dev, const uint64_t *instrs, size_t count)
+static int load_program_burst(pawn_dev_t *dev, const uint64_t *instrs, size_t count)
 {
-    if (count > IBRAM_DEPTH) {
-        fprintf(stderr, "pawn_load_program_burst: count %zu > %u\n", count, IBRAM_DEPTH);
-        return -1;
-    }
     /*
      * IBRAM burst slave: 32-bit AXI4 bus, byte address = word_index * 8.
      * Two 32-bit writes per 64-bit instruction: iburst[i*2]=lo, iburst[i*2+1]=hi.
@@ -184,55 +180,88 @@ int pawn_load_program_burst(pawn_dev_t *dev, const uint64_t *instrs, size_t coun
     return 0;
 }
 
-/* ---- DBRAM bulk via burst slave ---- */
+int pawn_load_program(pawn_dev_t *dev, const uint64_t *instrs, size_t count)
+{
+    if (axi_full()) {
+        return load_program_burst(dev, instrs, count);
+    } else {
+        return load_program_lite(dev, instrs, count);
+    }
+}
+
+/* ---- DBRAM read/write ---- */
 
 void pawn_dbram_write32(pawn_dev_t *dev, uint32_t base, const uint32_t *data,
                         size_t count)
 {
-    volatile uint32_t *dst = dev->burst + base;
-    for (size_t i = 0; i < count; i++)
-        dst[i] = data[i];
-    if (count)
-        pawn_burst_fence32(dev);
+    if (axi_full()) {
+        volatile uint32_t *dst = dev->burst + base;
+        for (size_t i = 0; i < count; i++)
+            dst[i] = data[i];
+        if (count)
+            pawn_burst_fence32(dev);
+    } else {
+        for (size_t i = 0; i < count; ++i) {
+            pawn_dbram_poke32(dev, base + i, data[i]);
+        }
+    }
 }
 
 void pawn_dbram_write64(pawn_dev_t *dev, uint32_t base, const uint64_t *data,
                         size_t count)
 {
-    /*
-     * DATA_WIDTH=64: BRAM[i] spans [i*8 .. i*8+7].
-     * Two 32-bit GP1 writes per BRAM word: burst[base*2 + i*2]=lo, +1=hi.
-     */
-    volatile uint32_t *dst = dev->burst + base * 2;
-    for (size_t i = 0; i < count; i++) {
-        dst[i * 2]     = (uint32_t)(data[i]);
-        dst[i * 2 + 1] = (uint32_t)(data[i] >> 32);
+    if (axi_full()) {
+        /*
+        * DATA_WIDTH=64: BRAM[i] spans [i*8 .. i*8+7].
+        * Two 32-bit GP1 writes per BRAM word: burst[base*2 + i*2]=lo, +1=hi.
+        */
+        volatile uint32_t *dst = dev->burst + base * 2;
+        for (size_t i = 0; i < count; i++) {
+            dst[i * 2]     = (uint32_t)(data[i]);
+            dst[i * 2 + 1] = (uint32_t)(data[i] >> 32);
+        }
+        if (count)
+            pawn_burst_fence32(dev);
+    } else {
+        for (size_t i = 0; i < count; ++i) {
+            pawn_dbram_poke64(dev, base + i, data[i]);
+        }
     }
-    if (count)
-        pawn_burst_fence32(dev);
 }
 
 void pawn_dbram_read32(pawn_dev_t *dev, uint32_t base, uint32_t *data,
                        size_t count)
 {
-    /*
-     * Fence before reads: ensures all preceding burst writes (possibly to a
-     * different GP1 slave) have completed and any memory-ordering effects
-     * from the done-poll path (GP0) are visible before we issue GP1 reads.
-     */
-    pawn_mmio_fence();
-    volatile uint32_t *src = dev->burst + base;
-    for (size_t i = 0; i < count; i++)
-        data[i] = src[i];
+    if (axi_full()) {
+        /*
+        * Fence before reads: ensures all preceding burst writes (possibly to a
+        * different GP1 slave) have completed and any memory-ordering effects
+        * from the done-poll path (GP0) are visible before we issue GP1 reads.
+        */
+        pawn_mmio_fence();
+        volatile uint32_t *src = dev->burst + base;
+        for (size_t i = 0; i < count; i++)
+            data[i] = src[i];
+    } else {
+        for (size_t i = 0; i < count; ++i) {
+            data[i] = pawn_dbram_peek32(dev, base + i);
+        }
+    }
 }
 
 void pawn_dbram_read64(pawn_dev_t *dev, uint32_t base, uint64_t *data,
                        size_t count)
 {
-    pawn_mmio_fence();
-    volatile uint32_t *src = dev->burst + base * 2;
-    for (size_t i = 0; i < count; i++)
-        data[i] = (uint64_t)src[i * 2] | ((uint64_t)src[i * 2 + 1] << 32);
+    if (axi_full()) {
+        pawn_mmio_fence();
+        volatile uint32_t *src = dev->burst + base * 2;
+        for (size_t i = 0; i < count; i++)
+            data[i] = (uint64_t)src[i * 2] | ((uint64_t)src[i * 2 + 1] << 32);
+    } else {
+        for (size_t i = 0; i < count; ++i) {
+            data[i] = pawn_dbram_peek64(dev, base + i);
+        }
+    }
 }
 
 /* ---- DBRAM single-word PIO via AXI-Lite ---- */
@@ -240,6 +269,7 @@ void pawn_dbram_read64(pawn_dev_t *dev, uint32_t base, uint64_t *data,
 void pawn_dbram_poke32(pawn_dev_t *dev, uint32_t idx, uint32_t val)
 {
     reg_write(dev->lite, PAWN_REG_DBRAM_ADDR, idx);
+    reg_write(dev->lite, PAWN_REG_DBRAM_DATA_HI, 0);
     reg_write(dev->lite, PAWN_REG_DBRAM_DATA, val);
 }
 
