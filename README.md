@@ -2,7 +2,15 @@
 
 Master's thesis "Hardware-Level Comparison of Posit and Float Arithmetic for AI Applications" at [i3@FAU](https://www.cs3.tf.fau.de/).
 
-## Usage and Development
+## Project overview
+
+A lot of sub-parts depend on each other, consult the `README` files in the respective folders
+
+- **PAWN**: the FPGA accelerator, including example programs
+- **libpawn**: a software emulation framework for posits, has support for XPosit and Takums
+- **resnet**: posit implementations of ResNet (and CifarNet) in posit, together with accuracy evaluation
+
+## Usage and Development - Spike XPosit
 
 This was tested on [CachyOS](https://cachyos.org/).
 The steps should work with minimal (if any) adjustments on other Arch-based systems as well.
@@ -108,6 +116,3 @@ spike pk posit64_testsuite_llvm.elf
 Division and square root might differ in their output from the PERCIVAL results.
 This is expected, PERCIVAL (optionally) does approximate computation for these to save hardware and clock cycles.
 The simulator on the other hand does exact arithmetic as emulated by [stillwater-sc/universal](https://github.com/stillwater-sc/universal).
-
-TODO:
-- [ ] Dockerize
