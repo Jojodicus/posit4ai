@@ -215,16 +215,21 @@ module accel_axi_burst
     end
   end
 
-  // -- Read FSM (R_IDLE -> R_ADDR -> R_DATA -> R_IDLE) ------------
+  // -- Read FSM (R_IDLE -> R_ADDR -> R_ADDR2 -> R_DATA -> R_IDLE) --------
   // Address pipeline (back-pressure safe):
-  //   R_ADDR : drive b_addr = rd_idx_q (= base index). At edge, BRAM samples;
-  //            R_DATA cycle 0 then has b_rdata = BRAM[base].
-  //   R_DATA : drive b_addr = rd_idx_next, where rd_idx_next advances by 1
-  //            iff this cycle's R-handshake fires AND parity says we are done
-  //            with this BRAM word. If RREADY is low, rd_idx_q holds, b_addr
-  //            stays on the same word, BRAM stays parked.
+  //   R_ADDR  : drive b_addr = rd_idx_q (= base index). b_req asserts this
+  //             cycle so the arbiter hands the BRAM to us. A phase-0 clk_bram
+  //             edge may or may not occur here depending on phase alignment.
+  //   R_ADDR2 : drive b_addr = rd_idx_q (second wait cycle). Guarantees that
+  //             at least one phase-0 clk_bram edge fires with the correct
+  //             address present regardless of when AR arrived.  Required
+  //             because clk_bram = clk_i (1x) in the current impl: phase-0
+  //             occurs every other clk_i cycle, so a 1-cycle R_ADDR hits it
+  //             only 50% of the time.
+  //   R_DATA  : drive b_addr = rd_idx_next (prefetch next word). RVALID asserts.
+  //             If RREADY is low rd_idx_q holds, b_addr stays on same word.
 
-  typedef enum logic [1:0] { R_IDLE, R_ADDR, R_DATA } rd_state_t;
+  typedef enum logic [1:0] { R_IDLE, R_ADDR, R_ADDR2, R_DATA } rd_state_t;
   rd_state_t rd_state_q, rd_state_d;
 
   logic [AXI_ID_WIDTH-1:0]   rd_id_q;
@@ -270,13 +275,15 @@ module accel_axi_burst
         if (s_axi_arvalid) rd_state_d = R_ADDR;
       end
       R_ADDR: begin
+        rd_state_d = R_ADDR2;
+      end
+      R_ADDR2: begin
         rd_state_d = R_DATA;
       end
       R_DATA: begin
         s_axi_rvalid = 1'b1;
         if (s_axi_rready && (rd_beat_q == rd_arlen_q)) rd_state_d = R_IDLE;
       end
-      default: rd_state_d = R_IDLE;
     endcase
   end
 
@@ -313,13 +320,14 @@ module accel_axi_burst
   // -- Arbiter port B output ------------------------------------
   // b_req held during all BRAM-active states. Dropped in W_RESP.
   assign b_req = (wr_state_q == W_BURST) ||
-                 (rd_state_q == R_ADDR)  || (rd_state_q == R_DATA);
+                 (rd_state_q == R_ADDR)  || (rd_state_q == R_ADDR2) ||
+                 (rd_state_q == R_DATA);
 
   always_comb begin
-    // Default: drive read address. In R_ADDR drive rd_idx_q (current=base);
+    // Default: drive read address. In R_ADDR/R_ADDR2 drive rd_idx_q (base);
     // in R_DATA drive rd_idx_next (one cycle ahead so BRAM is parked on the
     // word we will need at the next cycle, modulo back-pressure).
-    if (rd_state_q == R_ADDR)
+    if (rd_state_q == R_ADDR || rd_state_q == R_ADDR2)
       b_addr = rd_idx_q;
     else
       b_addr = rd_idx_next;

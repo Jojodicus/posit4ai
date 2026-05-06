@@ -86,7 +86,7 @@ int pawn_open(pawn_dev_t *dev)
         perror("pawn_open: /dev/mem");
         return -1;
     }
-    dev->lite = (volatile uint32_t *)mmap(NULL, PAWN_MAP_SIZE,
+    dev->lite = (volatile uint32_t *)mmap(NULL, PAWN_MAP_SIZE * 8,
                                           PROT_READ | PROT_WRITE, MAP_SHARED,
                                           dev->devmem_fd, PAWN_BASE_LITE);
     if (dev->lite == MAP_FAILED) {
@@ -94,22 +94,22 @@ int pawn_open(pawn_dev_t *dev)
         close(dev->devmem_fd);
         return -1;
     }
-    dev->burst = (volatile uint32_t *)mmap(NULL, PAWN_MAP_SIZE,
+    dev->burst = (volatile uint32_t *)mmap(NULL, PAWN_MAP_SIZE * 8,
                                            PROT_READ | PROT_WRITE, MAP_SHARED,
                                            dev->devmem_fd, PAWN_BASE_BURST);
     if (dev->burst == MAP_FAILED) {
         perror("pawn_open: mmap burst");
-        munmap((void *)dev->lite, PAWN_MAP_SIZE);
+        munmap((void *)dev->lite, PAWN_MAP_SIZE * 8);
         close(dev->devmem_fd);
         return -1;
     }
-    dev->iburst = (volatile uint32_t *)mmap(NULL, PAWN_MAP_SIZE,
+    dev->iburst = (volatile uint32_t *)mmap(NULL, PAWN_MAP_SIZE * 8,
                                             PROT_READ | PROT_WRITE, MAP_SHARED,
                                             dev->devmem_fd, PAWN_BASE_IBURST);
     if (dev->iburst == MAP_FAILED) {
         perror("pawn_open: mmap iburst");
-        munmap((void *)dev->burst, PAWN_MAP_SIZE);
-        munmap((void *)dev->lite,  PAWN_MAP_SIZE);
+        munmap((void *)dev->burst, PAWN_MAP_SIZE * 8);
+        munmap((void *)dev->lite,  PAWN_MAP_SIZE * 8);
         close(dev->devmem_fd);
         return -1;
     }
@@ -119,11 +119,11 @@ int pawn_open(pawn_dev_t *dev)
 void pawn_close(pawn_dev_t *dev)
 {
     if (dev->iburst && dev->iburst != MAP_FAILED)
-        munmap((void *)dev->iburst, PAWN_MAP_SIZE);
+        munmap((void *)dev->iburst, PAWN_MAP_SIZE * 8);
     if (dev->burst  && dev->burst  != MAP_FAILED)
-        munmap((void *)dev->burst,  PAWN_MAP_SIZE);
+        munmap((void *)dev->burst,  PAWN_MAP_SIZE * 8);
     if (dev->lite   && dev->lite   != MAP_FAILED)
-        munmap((void *)dev->lite,   PAWN_MAP_SIZE);
+        munmap((void *)dev->lite,   PAWN_MAP_SIZE * 8);
     if (dev->devmem_fd >= 0)
         close(dev->devmem_fd);
     memset(dev, 0, sizeof(*dev));
