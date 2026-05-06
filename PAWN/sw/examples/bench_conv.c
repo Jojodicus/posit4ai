@@ -49,16 +49,17 @@ static int solve_ntile(int FH, int FW, int instr_depth, int data_depth, int use_
 
 /* ---- program builder ---- */
 
-/* Builds program for aNT output pixels, each with KA accumulations.
- * is_first: true for every tile (each pixel is independent, so always first).
+/* Builds program for NT output pixels, each with KA accumulations.
+ * NTILE is the max pixels per tile (used for stable base addresses across
+ * full and partial tiles so main() and build_prog() agree on DBRAM layout).
  */
-static size_t build_prog(uint64_t *prog, int NT, int KA, int use_quire)
+static size_t build_prog(uint64_t *prog, int NT, int KA, int use_quire, int NTILE)
 {
     size_t n      = 0;
     int BASE_FILT  = 0;
     int BASE_PATCH = KA;
-    int BASE_OUT   = KA + NT * KA;
-    int BASE_TMP   = BASE_OUT + NT;
+    int BASE_OUT   = KA + NTILE * KA;
+    int BASE_TMP   = BASE_OUT + NTILE;
 
     for (int p = 0; p < NT; p++) {
         int addr_out = BASE_OUT + p;
@@ -153,7 +154,7 @@ int main(int argc, char *argv[])
     for (int i = 0; i < KA;    i++) filt[i] = bench_rand32();
 
     /* Pre-build full-tile program (reused for interior tiles) */
-    size_t prog_full_len = build_prog(prog, NTILE, KA, use_quire);
+    size_t prog_full_len = build_prog(prog, NTILE, KA, use_quire, NTILE);
     uint64_t *prog_full = malloc(prog_full_len * sizeof(uint64_t));
     memcpy(prog_full, prog, prog_full_len * sizeof(uint64_t));
 
@@ -202,7 +203,7 @@ int main(int argc, char *argv[])
             cur_prog = prog_full;
             cur_len  = prog_full_len;
         } else {
-            cur_len  = build_prog(prog, aNT, KA, use_quire);
+            cur_len  = build_prog(prog, aNT, KA, use_quire, NTILE);
             cur_prog = prog;
         }
 

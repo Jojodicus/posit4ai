@@ -160,6 +160,8 @@ static int load_program_lite(pawn_dev_t *dev, const uint64_t *instrs, size_t cou
         reg_write(dev->lite, PAWN_REG_IBRAM_DATA_LO, (uint32_t)(instrs[i]));
         reg_write(dev->lite, PAWN_REG_IBRAM_DATA_HI, (uint32_t)(instrs[i] >> 32));
     }
+    /* Fence: read STATUS to drain posted AXI-Lite writes */
+    (void)reg_read(dev->lite, PAWN_REG_STATUS);
     return 0;
 }
 
@@ -192,7 +194,7 @@ int pawn_load_program(pawn_dev_t *dev, const uint64_t *instrs, size_t count)
 /* ---- DBRAM read/write ---- */
 
 void pawn_dbram_write32(pawn_dev_t *dev, uint32_t base, const uint32_t *data,
-                        size_t count)
+                         size_t count)
 {
     if (axi_full()) {
         volatile uint32_t *dst = dev->burst + base;
@@ -207,11 +209,13 @@ void pawn_dbram_write32(pawn_dev_t *dev, uint32_t base, const uint32_t *data,
         for (size_t i = 0; i < count; i++) {
             reg_write(dev->lite, PAWN_REG_DBRAM_DATA, data[i]);
         }
+        /* Fence: read STATUS to drain posted AXI-Lite writes */
+        (void)reg_read(dev->lite, PAWN_REG_STATUS);
     }
 }
 
 void pawn_dbram_write64(pawn_dev_t *dev, uint32_t base, const uint64_t *data,
-                        size_t count)
+                         size_t count)
 {
     if (axi_full()) {
         /*
@@ -232,6 +236,8 @@ void pawn_dbram_write64(pawn_dev_t *dev, uint32_t base, const uint64_t *data,
             reg_write(dev->lite, PAWN_REG_DBRAM_DATA,    (uint32_t)(data[i]));
             reg_write(dev->lite, PAWN_REG_DBRAM_DATA_HI, (uint32_t)(data[i] >> 32));
         }
+        /* Fence: read STATUS to drain posted AXI-Lite writes */
+        (void)reg_read(dev->lite, PAWN_REG_STATUS);
     }
 }
 
@@ -310,6 +316,8 @@ void pawn_start(pawn_dev_t *dev)
 {
     pawn_mmio_fence();
     reg_write(dev->lite, PAWN_REG_CTRL, 1u << 0);
+    /* Fence: ensure START reaches the device before we poll DONE */
+    (void)reg_read(dev->lite, PAWN_REG_STATUS);
 }
 
 int pawn_done(pawn_dev_t *dev)
