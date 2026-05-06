@@ -1,8 +1,17 @@
 /*
  * pawn.h -- PAWN accelerator userspace driver (Zedboard PetaLinux, /dev/mem)
  *
- * AXI-Lite slave:  0x43C00000 (GP0) -- control, IBRAM, DBRAM single-word
- * AXI burst slave: 0x80000000 (GP1) -- DBRAM bulk read/write
+ * AXI-Lite slave:  0x43C00000 (GP0) -- control + FIFO-style streamed IBRAM/DBRAM
+ * AXI burst slave: 0x80000000 (GP1) -- DBRAM bulk read/write (debug)
+ * AXI iburst slave: 0x80100000 (GP1) -- IBRAM bulk write (debug)
+ *
+ * FIFO-style streaming (AXI-Lite):
+ * - IBRAM: set addr once, then for each instr: write LO(0x0C) then HI(0x10).
+ *   HI triggers BRAM write and auto-increments IBRAM_ADDR.
+ * - DBRAM 32-bit: set addr once, then write DATA(0x18) per word (triggers + inc).
+ * - DBRAM 64-bit: set addr once, then for each word: write LO(0x18) then HI(0x1C).
+ *   HI triggers BRAM write and auto-increments DBRAM_ADDR.
+ * Reads work analogously: LO then HI, HI increments the address.
  *
  * Data convention: the RTL stores posit values left-aligned in the BRAM word,
  * extracting the high DATA_WIDTH bits from each 32-bit AXI write and returning

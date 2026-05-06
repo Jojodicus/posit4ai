@@ -42,7 +42,7 @@ else
 fi
 
 # Binaries
-for bin in hello_posit.elf benchmark.elf long_run_status.elf hello_posit64.elf bench_gemm.elf bench_conv.elf; do
+for bin in hello_posit.elf benchmark.elf long_run_status.elf hello_posit64.elf bench_gemm.elf bench_conv.elf hello_posit2.elf; do
     src="${ROOT}/sw/examples/${bin}"
     if [ -f "${src}" ]; then
         scp "${src}" "${REMOTE}:${DEST}/examples/"

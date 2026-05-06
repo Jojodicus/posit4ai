@@ -4,20 +4,23 @@
 //   0x00  CTRL       [0]=START, [1]=RESET  (write 1; self-clearing)
 //   0x04  STATUS     [0]=DONE,  [1]=RUNNING  (read-only)
 //   0x08  IBRAM_ADDR instruction BRAM word index (0 .. INSTR_DEPTH-1)
-//   0x0C  IBRAM_DATA_LO  instruction bits [31:0]  (addr_result[19:0], addr_b[11:0] low)
-//   0x10  IBRAM_DATA_HI  instruction bits [63:32]; write triggers BRAM write
+//   0x0C  IBRAM_DATA_LO  instruction bits [31:0] (low beat)
+//   0x10  IBRAM_DATA_HI  instruction bits [63:32] (trigger beat)
 //   0x14  DBRAM_ADDR data BRAM word index (0 .. DATA_DEPTH-1)
 //   0x18  DBRAM_DATA data BRAM low word (DATA_WIDTH bits, zero-padded to 32)
 //   0x1C  DBRAM_DATA_HI data BRAM high word (only meaningful for DATA_WIDTH=64)
 //
-// DBRAM address auto-increment: after every write to DBRAM_DATA (0x18, 32-bit) or
-// DBRAM_DATA_HI (0x1C, 64-bit) the DBRAM_ADDR register increments by one, allowing
-// the host to stream consecutive data words without re-writing DBRAM_ADDR between
-// each word.  Reads of 0x18 (32-bit) or 0x1C (64-bit) also auto-increment.
-// An explicit write to 0x14 always overrides.
+// FIFO-style streaming:
+// - IBRAM write: LO (0x0C), then HI (0x10). HI triggers BRAM write and increments IBRAM_ADDR.
+// - IBRAM read: LO (0x0C), then HI (0x10). HI increments IBRAM_ADDR.
+// - DBRAM write (DATA_WIDTH <= 32): DATA (0x18) triggers write and increments DBRAM_ADDR.
+// - DBRAM write (DATA_WIDTH == 64): LO (0x18), then HI (0x1C). HI triggers write and increments DBRAM_ADDR.
+// - DBRAM read (DATA_WIDTH <= 32): DATA (0x18) increments DBRAM_ADDR.
+// - DBRAM read (DATA_WIDTH == 64): LO (0x18), then HI (0x1C). HI increments DBRAM_ADDR.
+// Explicit writes to 0x08/0x14 override the stream pointers.
 //
 // AXI safety: while RUNNING=1, AXI writes to BRAM registers are ACK'd but dropped.
-// AXI reads return the last values written to the shadow registers.
+// AXI reads return live BRAM data at the current stream pointer.
 //
 // accel_core is NOT instantiated here; it lives in the parent (zynq_accel_top or
 // tb_accel_axi).  This module exposes the IBRAM/DBRAM host ports and control
@@ -206,11 +209,7 @@ module accel_axi
         wr_data_q <= s_axi_wdata;
 
       // Write to shadow registers (always; BRAM write only when !running, handled above).
-      // After each data-word write trigger (0x18 for 32-bit, 0x1C for 64-bit) the
-      // DBRAM_ADDR register auto-increments so that the host can stream consecutive
-      // words without re-writing the address register between beats.
-      // After reading the last beat of a data word the address likewise auto-increments
-      // to enable streaming reads.  An explicit write to 0x14 always overrides.
+      // Trigger beat semantics: IBRAM 0x10, DBRAM 0x18 (<=32-bit), DBRAM 0x1C (64-bit).
       if (wr_state_q == WR_RESP && s_axi_bready) begin
         case (wr_addr_q[4:0])
           5'h08: reg_ibram_addr    <= wr_data_q;
@@ -232,6 +231,8 @@ module accel_axi
         endcase
 
       end else if (rd_state_q == RD_DATA && s_axi_rready) begin
+        if (rd_addr_q[4:0] == 5'h10)
+          reg_ibram_addr <= reg_ibram_addr + 1;
         if ((DATA_WIDTH <= 32 && rd_addr_q[4:0] == 5'h18) ||
             (DATA_WIDTH == 64 && rd_addr_q[4:0] == 5'h1C))
           reg_dbram_addr <= reg_dbram_addr + 1;
@@ -261,8 +262,8 @@ module accel_axi
         case (rd_addr_q[4:0])
           5'h04: s_axi_rdata = {30'b0, running_i, done_i};  // STATUS [0]=DONE [1]=RUNNING
           5'h08: s_axi_rdata = reg_ibram_addr;
-          5'h0C: s_axi_rdata = reg_ibram_data_lo;
-          5'h10: s_axi_rdata = reg_ibram_data_hi;
+          5'h0C: s_axi_rdata = ibram_rdata_i[31:0];
+          5'h10: s_axi_rdata = ibram_rdata_i[63:32];
           5'h14: s_axi_rdata = reg_dbram_addr;
           5'h18: s_axi_rdata = dbram_rdata_64[31:0];   // low 32 bits (zero-extended for <32-bit)
           5'h1C: s_axi_rdata = dbram_rdata_64[63:32];  // high 32 bits (zero for <64-bit)
