@@ -88,13 +88,12 @@ module arith_unit
   end else if (ACCEL_TYPE == "PAU") begin : g_pau
     pau_top pau_inst (
       .clk_i, .rst_ni,
-      .fu_data_i           ( pau_fu_data    ),
-      .pau_valid_i         ( pau_valid_i_sig ),
-      .pau_skip_prestage_i ( mac2_bypass     ),
-      .pau_ready_o         ( pau_ready_o_sig ),
-      .pau_trans_id_o      (                ),
-      .pau_valid_o         ( pau_valid_o_sig ),
-      .result_o            ( pau_result_sig  )
+      .fu_data_i      ( pau_fu_data    ),
+      .pau_valid_i    ( pau_valid_i_sig ),
+      .pau_ready_o    ( pau_ready_o_sig ),
+      .pau_trans_id_o (                ),
+      .pau_valid_o    ( pau_valid_o_sig ),
+      .result_o       ( pau_result_sig  )
     );
     assign fpu_ready_o_sig = 1'b0;
     assign fpu_valid_o_sig = 1'b0;
