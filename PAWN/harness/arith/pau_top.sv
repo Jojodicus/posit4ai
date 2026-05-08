@@ -481,7 +481,6 @@ module pau_top import ariane_pkg::*; (
         assign sgnj_d = move_flip ? ~operand_a + {{POSLEN-1{1'b0}}, 1'b1}
                                   : operand_a;
 
-        // Combinatorial result mux -- registered into result_o on pau_valid_d
         riscv::xlen_t result_comb;
         always_comb begin : result_mux
             result_comb = '0;

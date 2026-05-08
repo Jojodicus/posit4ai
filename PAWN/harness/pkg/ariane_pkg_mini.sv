@@ -51,12 +51,15 @@ package ariane_pkg;
     localparam bit XF16ALT   = 1'b0;
     localparam bit XF8       = 1'b0;
     localparam bit XFVEC     = 1'b0;
-    localparam int unsigned LAT_COMP_FP32   = 2;
-    localparam int unsigned LAT_COMP_FP64   = 3;
+    // fpu_wrap adds one output register FF (breaks clk_i -> clk_bram T/2 path).
+    // Each LAT here is one less than the visible latency from arith_unit; the
+    // output FF accounts for the missing stage so net visible latency is unchanged.
+    localparam int unsigned LAT_COMP_FP32   = 1;  // was 2; net L=3 with output FF
+    localparam int unsigned LAT_COMP_FP64   = 2;  // was 3; net L=4 with output FF
     localparam int unsigned LAT_COMP_FP16   = 1;
     localparam int unsigned LAT_COMP_FP16ALT = 1;
     localparam int unsigned LAT_COMP_FP8    = 1;
-    localparam int unsigned LAT_DIVSQRT     = 2;
+    localparam int unsigned LAT_DIVSQRT     = 1;  // was 2; net unchanged with output FF
     localparam int unsigned LAT_NONCOMP     = 1;
     localparam int unsigned LAT_CONV        = 2;
 

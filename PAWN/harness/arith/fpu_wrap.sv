@@ -90,6 +90,7 @@ module fpu_wrap import ariane_pkg::*; (
 
     logic fpu_in_ready, fpu_in_valid;
     logic fpu_out_ready, fpu_out_valid;
+    logic [FLEN-1:0] fpu_result_int;
 
     logic [4:0] fpu_status;
 
@@ -528,7 +529,7 @@ module fpu_wrap import ariane_pkg::*; (
       .in_valid_i     ( fpu_in_valid                        ),
       .in_ready_o     ( fpu_in_ready                        ),
       .flush_i,
-      .result_o,
+      .result_o       ( fpu_result_int                        ),
       .status_o       ( fpu_status                          ),
       .tag_o          ( fpu_trans_id_o                      ),
       .out_valid_o    ( fpu_out_valid                       ),
@@ -543,8 +544,18 @@ module fpu_wrap import ariane_pkg::*; (
     // Donwstream write port is dedicated to FPU and always ready
     assign fpu_out_ready = 1'b1;
 
-    // Downstream valid from unit
-    assign fpu_valid_o = fpu_out_valid;
+    // Output register: breaks fpnew-internal FF -> clk_bram T/2 path.
+    // Net visible latency unchanged: LAT_* in ariane_pkg_mini were each reduced by 1.
+    always_ff @(posedge clk_i or negedge rst_ni) begin : fpu_out_reg
+      if (!rst_ni) begin
+        result_o    <= '0;
+        fpu_valid_o <= 1'b0;
+      end else begin
+        if (fpu_out_valid)
+          result_o <= fpu_result_int;
+        fpu_valid_o <= fpu_out_valid;
+      end
+    end
 
   end
 endmodule
