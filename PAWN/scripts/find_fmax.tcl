@@ -180,6 +180,34 @@ for {set iter 0} {$iter < $MAX_ITER} {incr iter} {
 
 close $log_fh
 
+if {$wns < 0 && $best_good >= 0} {
+    # Rerun best if outdated
+    run_impl_at $best_good $root_dir
+}
+
+if {$best_good > 0} {
+    # Timing Summary Report
+    report_timing_summary -file [file normalize $root_dir/reports/timing_summary.rpt]
+    report_timing -sort_by slack -max_paths 10 -file [file normalize $root_dir/reports/timing_detailed.rpt]
+
+    # Utilization Report
+    report_utilization -file [file normalize $root_dir/reports/utilization.rpt]
+    report_utilization -hierarchical -file [file normalize $root_dir/reports/utilization_hierarchical.rpt]
+
+    # Power Report
+    report_power -file [file normalize $root_dir/reports/power.rpt]
+
+    launch_runs impl_1 -to_step write_bitstream -jobs 8
+    wait_on_run impl_1
+
+    set bitstream_file [file normalize \
+        $root_dir/vivado_proj/posit_research.runs/impl_1/zynq_accel_top.bit]
+    if {![file exists $bitstream_file]} {
+        puts "\nERROR: Bitstream generation failed!"
+        exit 1
+    }
+}
+
 # --------------------------------------------------------------------------
 puts "\n=========================================="
 puts "Fmax Search Results"

@@ -69,7 +69,7 @@ puts "Running Synthesis..."
 puts "=========================================="
 
 set_property -name {STEPS.SYNTH_DESIGN.ARGS.GLOBAL_RETIMING} -value on -objects [get_runs synth_1]
-set_property -name {STEPS.SYNTH_DESIGN.ARGS.FLATTEN_HIERARCHY} -value full -objects [get_runs synth_1]
+# set_property -name {STEPS.SYNTH_DESIGN.ARGS.FLATTEN_HIERARCHY} -value full -objects [get_runs synth_1]
 
 # Force clk_wiz_0 to re-synthesize so STA uses the updated clock periods.
 # Without this Vivado reuses the stale DCP from the previous frequency.
