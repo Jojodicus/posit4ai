@@ -18,13 +18,14 @@ module pau_top import ariane_pkg::*; (
     input  logic                     rst_ni,         // Asynchronous reset active low
     input  fu_data_t                 fu_data_i,
     input  logic                     pau_valid_i,
+    input  logic                     pau_skip_prestage_i, // bypass PRE_STALL (mac2_bypass path)
     output logic                     pau_ready_o,
     output logic [TRANS_ID_BITS-1:0] pau_trans_id_o,
     output logic                     pau_valid_o,
     output riscv::xlen_t             result_o
 );
     if (POS_PRESENT) begin : pau_gen
-        enum logic {READY, STALL} state_q, state_d;
+        enum logic [1:0] {READY, PRE_STALL, STALL} state_q, state_d;
 
         logic [POSLEN-1:0]   add_a_i;
         logic [POSLEN-1:0]   add_b_i;
@@ -513,73 +514,51 @@ module pau_top import ariane_pkg::*; (
 
         logic hold_inputs;
         logic use_hold;
-        logic restart_count; // Set when accepting a new op in the STALL-exit cycle.
         logic [3:0] count;
         logic [3:0] latency_d, latency_q;
-        // Latency of the incoming op (fu_data_i.operator), used during restart.
-        logic [3:0] latency_new;
 
         always_comb begin : p_inputFSM
-            // Default Values
-            pau_ready_o   = 1'b0;
-            hold_inputs   = 1'b0;    // Hold register disabled
-            use_hold      = 1'b0;    // Inputs go directly to unit
-            pau_valid_d   = 1'b0;
-            restart_count = 1'b0;
-            state_d       = state_q; // Stay in the same state
-            trans_id_d    = trans_id_q;
+            pau_ready_o = 1'b0;
+            hold_inputs = 1'b0;
+            use_hold    = 1'b0;
+            pau_valid_d = 1'b0;
+            state_d     = state_q;
+            trans_id_d  = trans_id_q;
 
             unique case (state_q)
-                // Default state, ready for instructions
                 READY: begin
-                    pau_ready_o  = 1'b1;        // Act as if PAU ready
-                    trans_id_d = fu_data_i.trans_id;
-
+                    pau_ready_o = 1'b1;
+                    trans_id_d  = fu_data_i.trans_id;
                     if (pau_valid_i) begin
                         if (latency_d > 0) begin
-                            pau_ready_o = 1'b0;  // No token given to Issue
-                            hold_inputs = 1'b1;  // save inputs to the holding register
-                            state_d     = STALL; // stall future incoming requests
+                            pau_ready_o = 1'b0;
+                            hold_inputs = 1'b1;
+                            // pau_skip_prestage_i: mac2_bypass operands are already stable
+                            // clk_i FFs (arith_result, acc_q) -- skip pre-staging to save
+                            // 1 cycle on the 2-pass MAC second pass.
+                            state_d = pau_skip_prestage_i ? STALL : PRE_STALL;
                         end else begin
-                            pau_valid_d  = 1'b1; // 1 cycle operations
+                            pau_valid_d = 1'b1; // zero-latency ops fire immediately
                         end
                     end
                 end
-                // We're stalling the upstream (ready=0)
+                // PRE_STALL: present pre-registered operands to VHDL cores for 1 cycle.
+                // Breaks the long combinatorial path into VHDL's first pipeline stage.
+                PRE_STALL: begin
+                    use_hold = 1'b1;
+                    state_d  = STALL;
+                end
                 STALL: begin
-                    use_hold     = 1'b1; // The data comes from the hold reg
-
-                    // Wait until it's consumed
+                    use_hold = 1'b1;
                     if (count == latency_q) begin
-                        pau_ready_o = 1'b1;  // Give a token to issue
-                        pau_valid_d = 1'b1;  // Multicycle operations
-                        // Accept next op immediately without returning to READY.
-                        // Used by arith_unit for the 2-pass MAC second-pass issue.
-                        if (pau_valid_i) begin
-                            hold_inputs   = 1'b1; // Capture new op inputs
-                            restart_count = 1'b1; // count restarts at 1 (one compute cy elapsed)
-                            state_d       = STALL;
-                        end else begin
-                            state_d       = READY;
-                        end
+                        pau_ready_o = 1'b1;
+                        pau_valid_d = 1'b1;
+                        state_d     = READY;
                     end
                 end
                 default: ;
             endcase
         end  // p_inputFSM
-
-        // Latency of the incoming op from fu_data_i, independent of use_hold.
-        // Used to update latency_q when a new op is accepted in the STALL-exit cycle.
-        always_comb begin : latency_new_mux
-            unique case (fu_data_i.operator)
-                PADD, PSUB, PMUL:   latency_new = 4'b0001;
-                QROUND:             latency_new = 4'b0010;
-                QMADD, QMSUB:       latency_new = (POSLEN == 32) ? 4'b0010 : 4'b0011;
-                PDIV:               latency_new = POS_LOG_DIV  ? 4'b0001 : 4'b1010;
-                PSQRT:              latency_new = POS_LOG_SQRT ? 4'b0001 : 4'b1101;
-                default:            latency_new = 4'b0000;
-            endcase
-        end  // latency_new_mux
 
         // Registers and FSM state holding
         always_ff @(posedge clk_i or negedge rst_ni) begin : pos_hold_reg
@@ -611,8 +590,7 @@ module pau_top import ariane_pkg::*; (
                 if (QUIRE_PRESENT) begin
                     quire_q        <= quire_d;
                 end
-                // During restart: use new op's latency so count comparison is correct.
-                latency_q      <= restart_count ? latency_new : latency_d;
+                latency_q      <= latency_d;
                 trans_id_q     <= trans_id_d;
                 pau_valid_o    <= pau_valid_d;
                 sgnj_o         <= sgnj_d;
@@ -644,15 +622,11 @@ module pau_top import ariane_pkg::*; (
         assign operand_b  = use_hold ? operand_b_q  : operand_b_d;
         assign operator   = use_hold ? operator_q   : operator_d;
 
-        // Pipeline stalling
-        // restart_count: count starts at 1 (not 0) when accepting a new op in STALL-exit,
-        // because one compute cycle has already elapsed (inputs captured this edge).
-        // This makes the restart latency identical to the READY->STALL latency.
+        // count resets when entering READY or PRE_STALL so that STALL sees count=1
+        // on its first cycle (PRE_STALL -> STALL edge increments 0 -> 1).
         always_ff @(posedge clk_i or negedge rst_ni) begin : pos_pipe_reg
-            if(~rst_ni || state_d == READY) begin
+            if (~rst_ni || state_d == READY || state_d == PRE_STALL) begin
                 count <= 0;
-            end else if (restart_count) begin
-                count <= 1;
             end else begin
                 count <= count + 1;
             end

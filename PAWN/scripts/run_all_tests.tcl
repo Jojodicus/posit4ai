@@ -62,8 +62,7 @@ foreach sim_set $sim_filesets {
     set_property target_simulator XSim [current_project]
     current_fileset -simset [get_filesets $sim_set]
 
-    # Set simulation runtime (long enough for typical tests)
-    set_property -name {xsim.simulate.runtime} -value {50us} -objects [get_filesets $sim_set]
+    set_property -name {xsim.simulate.runtime} -value {150us} -objects [get_filesets $sim_set]
 
     # Launch simulation
     set sim_result [catch {
