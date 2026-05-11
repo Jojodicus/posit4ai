@@ -1,4 +1,4 @@
-"""Fine-tune ResNet-18 FP32 checkpoint in FP64 on CIFAR-10."""
+"""Fine-tune SmallNet FP32 checkpoint in FP64 on MNIST."""
 import argparse
 import sys
 from pathlib import Path
@@ -7,27 +7,34 @@ import torch
 import torch.nn as nn
 
 sys.path.insert(0, str(Path(__file__).parent))
-from models.resnet18 import ResNet18
-from utils.data import cifar10_loaders
-from utils.fusion import export_fused_jit
+from models.smallnet import SmallNet
+from utils.data import mnist_loaders
 from utils.metrics import evaluate, EpochLogger, save_meta
 
 SEED = 42
 EPOCHS = 10
 BATCH_SIZE = 128
-LR = 0.01   # 1/10 of base LR
+LR = 0.01
 MOMENTUM = 0.9
 WEIGHT_DECAY = 5e-4
 
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument('--data-dir', default='dataset/cifar10')
-    p.add_argument('--out-dir', default='results/resnet')
-    p.add_argument('--ckpt', default='results/resnet/checkpoints/ckpt_resnet18.pt')
+    p.add_argument('--data-dir', default='dataset/mnist')
+    p.add_argument('--out-dir', default='results/smallnet')
+    p.add_argument('--ckpt', default='results/smallnet/checkpoints/ckpt_smallnet.pt')
     p.add_argument('--epochs', type=int, default=EPOCHS)
     p.add_argument('--workers', type=int, default=4)
     return p.parse_args()
+
+
+def export_jit(model: SmallNet, path: Path) -> None:
+    model.eval()
+    dummy = torch.zeros(1, 1, 28, 28, dtype=torch.float64)
+    with torch.no_grad():
+        scripted = torch.jit.trace(model.cpu(), dummy)
+    torch.jit.save(scripted, str(path))
 
 
 def set_seed(seed):
@@ -47,9 +54,9 @@ def main():
     out = Path(args.out_dir)
     (out / 'checkpoints').mkdir(parents=True, exist_ok=True)
 
-    train_loader, val_loader, _ = cifar10_loaders(args.data_dir, BATCH_SIZE, args.workers)
+    train_loader, val_loader, _ = mnist_loaders(args.data_dir, BATCH_SIZE, args.workers)
 
-    model = ResNet18()
+    model = SmallNet()
     model.load_state_dict(torch.load(args.ckpt, map_location='cpu'))
     model = model.double().to(device)
 
@@ -59,7 +66,7 @@ def main():
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
     criterion = nn.CrossEntropyLoss()
 
-    logger = EpochLogger(out / 'logs' / 'finetune_resnet18_fp64.csv')
+    logger = EpochLogger(out / 'logs' / 'finetune_smallnet_fp64.csv')
 
     for epoch in range(1, args.epochs + 1):
         model.train()
@@ -92,12 +99,12 @@ def main():
         })
         print(f'[{epoch:2d}/{args.epochs}] loss={train_loss:.4f}  train_acc={train_acc:.4f}  val_acc={val_acc:.4f}  nll={val_nll:.4f}')
 
-    torch.save(model.state_dict(), out / 'checkpoints' / 'ckpt_resnet18_fp64_ft.pt')
-    export_fused_jit(model, out / 'checkpoints' / 'ckpt_resnet18_fp64_ft_fused.pt')
+    torch.save(model.state_dict(), out / 'checkpoints' / 'ckpt_smallnet_fp64_ft.pt')
+    export_jit(model, out / 'checkpoints' / 'ckpt_smallnet_fp64_ft_jit.pt')
     logger.close()
 
-    save_meta(out / 'logs' / 'finetune_resnet18_fp64_meta.json', {
-        'run': 'resnet18_fp64_ft', 'model': 'resnet18', 'format': 'fp64_ft',
+    save_meta(out / 'logs' / 'finetune_smallnet_fp64_meta.json', {
+        'run': 'smallnet_fp64_ft', 'model': 'smallnet', 'format': 'fp64_ft',
         'source_ckpt': args.ckpt,
         'epochs': args.epochs,
         'final_train_acc': train_acc,

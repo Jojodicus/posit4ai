@@ -1,11 +1,14 @@
 // Posit from-scratch training (Phase 4 / D1).
 //
 // Usage:
-//   ./train_posit <model:resnet18|cifarnet> <cifar10_dir>
+//   ./train_posit <model:resnet18|cifarnet|smallnet> <data_dir>
 //                 <nbits> <es> <out_ckpt.dat> <run_name> <out_csv>
 //
-// Trains for 200 epochs with cosine LR (0.1->0), SGD momentum=0.9,
-// weight_decay=5e-4, batch=128. Logs CSV: epoch,train_loss,val_acc,val_nll,lr.
+// For resnet18/cifarnet, data_dir is the CIFAR-10 binary directory.
+// For smallnet, data_dir is the MNIST directory (ubyte files).
+//
+// Trains for 100 epochs with cosine LR (0.1->0), SGD momentum=0.9,
+// weight_decay=5e-4, batch=128. Logs CSV: epoch,train_loss,train_acc,val_acc,val_nll,lr.
 
 #include <cstdio>
 #include <fstream>
@@ -19,15 +22,18 @@
 #include "Cifar10Data.hpp"
 #include "posit_types.hpp"
 #include "posit_train_utils.hpp"
+#include "mnist_train_utils.hpp"
 #include "resnet18.hpp"
 #include "cifarnet.hpp"
+#include "smallnet.hpp"
 
-static const size_t NUM_EPOCHS  = 200;
-static const size_t BATCH_SIZE  = 128;
-static const float  LR_MAX      = 0.1f;
-static const float  MOMENTUM    = 0.9f;
+static const size_t NUM_EPOCHS   = 100;
+static const size_t BATCH_SIZE   = 128;
+static const float  LR_MAX       = 0.1f;
+static const float  MOMENTUM     = 0.9f;
 static const float  WEIGHT_DECAY = 5e-4f;
 
+// CIFAR-10 training (resnet18, cifarnet).
 template<size_t N, size_t E, template<typename> class ModelT>
 void run_training(
     const std::string& data_path,
@@ -58,23 +64,78 @@ void run_training(
     bool write_header = !std::ifstream(out_csv).good();
     std::ofstream csv(out_csv, std::ios::app);
     if (write_header)
-        csv << "run,epoch,train_loss,val_acc,val_nll,lr\n";
+        csv << "run,epoch,train_loss,train_acc,val_acc,val_nll,lr\n";
 
     for (size_t epoch = 1; epoch <= NUM_EPOCHS; epoch++) {
         float lr = LR_MAX * 0.5f * (1.f + std::cos(
             static_cast<float>(M_PI) * float(epoch - 1) / float(NUM_EPOCHS)));
 
-        float train_loss = train_epoch_posit<PT, ModelT>(
+        auto [train_loss, train_acc] = train_epoch_posit<PT, ModelT>(
             model, *train_loader, optimizer, epoch, NUM_EPOCHS, LR_MAX);
 
         auto [val_acc, val_nll] = eval_posit<PT, ModelT>(model, data_path);
 
-        std::printf("epoch %3zu/%zu  lr=%.5f  loss=%.4f  val_acc=%.4f  val_nll=%.4f\n",
-                    epoch, NUM_EPOCHS, lr, train_loss, val_acc, val_nll);
+        std::printf("epoch %3zu/%zu  lr=%.5f  loss=%.4f  train_acc=%.4f  val_acc=%.4f  val_nll=%.4f\n",
+                    epoch, NUM_EPOCHS, lr, train_loss, train_acc, val_acc, val_nll);
         std::fflush(stdout);
 
         csv << run_name << "," << epoch << ","
-            << train_loss << "," << val_acc << "," << val_nll << ","
+            << train_loss << "," << train_acc << "," << val_acc << "," << val_nll << ","
+            << lr << "\n";
+        csv.flush();
+    }
+
+    save<posit<N, E>>(model, out_ckpt);
+    std::printf("Saved checkpoint: %s\n", out_ckpt.c_str());
+}
+
+// MNIST training (smallnet).
+template<size_t N, size_t E, template<typename> class ModelT>
+void run_training_mnist(
+    const std::string& data_path,
+    const std::string& out_ckpt,
+    const std::string& run_name,
+    const std::string& out_csv
+) {
+    using PT = PType<N, E>;
+    using O  = typename PT::Optimizer;
+
+    torch::manual_seed(42);
+
+    ModelT<PT> model;
+
+    auto train_dataset =
+        torch::data::datasets::MNIST(data_path)
+        .map(torch::data::transforms::Normalize<>(MNIST_MEAN, MNIST_STD))
+        .map(torch::data::transforms::Stack<>());
+
+    auto train_loader = torch::data::make_data_loader(
+        std::move(train_dataset),
+        torch::data::DataLoaderOptions().batch_size(BATCH_SIZE));
+
+    SGD<O> optimizer(model.parameters(),
+        SGDOptions<O>(LR_MAX, MOMENTUM, 0.0f, WEIGHT_DECAY));
+
+    bool write_header = !std::ifstream(out_csv).good();
+    std::ofstream csv(out_csv, std::ios::app);
+    if (write_header)
+        csv << "run,epoch,train_loss,train_acc,val_acc,val_nll,lr\n";
+
+    for (size_t epoch = 1; epoch <= NUM_EPOCHS; epoch++) {
+        float lr = LR_MAX * 0.5f * (1.f + std::cos(
+            static_cast<float>(M_PI) * float(epoch - 1) / float(NUM_EPOCHS)));
+
+        auto [train_loss, train_acc] = train_epoch_posit_mnist<PT, ModelT>(
+            model, *train_loader, optimizer, epoch, NUM_EPOCHS, LR_MAX);
+
+        auto [val_acc, val_nll] = eval_posit_mnist<PT, ModelT>(model, data_path);
+
+        std::printf("epoch %3zu/%zu  lr=%.5f  loss=%.4f  train_acc=%.4f  val_acc=%.4f  val_nll=%.4f\n",
+                    epoch, NUM_EPOCHS, lr, train_loss, train_acc, val_acc, val_nll);
+        std::fflush(stdout);
+
+        csv << run_name << "," << epoch << ","
+            << train_loss << "," << train_acc << "," << val_acc << "," << val_nll << ","
             << lr << "\n";
         csv.flush();
     }
@@ -84,9 +145,9 @@ void run_training(
 }
 
 template<template<typename> class ModelT>
-void dispatch(int nbits, int es,
-              const std::string& data, const std::string& ckpt,
-              const std::string& run_name, const std::string& out_csv)
+void dispatch_cifar(int nbits, int es,
+                    const std::string& data, const std::string& ckpt,
+                    const std::string& run_name, const std::string& out_csv)
 {
     if (nbits == 8  && es == 1) { run_training<8,  1, ModelT>(data, ckpt, run_name, out_csv); return; }
     if (nbits == 8  && es == 2) { run_training<8,  2, ModelT>(data, ckpt, run_name, out_csv); return; }
@@ -97,13 +158,36 @@ void dispatch(int nbits, int es,
     if (nbits == 32 && es == 1) { run_training<32, 1, ModelT>(data, ckpt, run_name, out_csv); return; }
     if (nbits == 32 && es == 2) { run_training<32, 2, ModelT>(data, ckpt, run_name, out_csv); return; }
     if (nbits == 32 && es == 3) { run_training<32, 3, ModelT>(data, ckpt, run_name, out_csv); return; }
+    if (nbits == 64 && es == 1) { run_training<64, 1, ModelT>(data, ckpt, run_name, out_csv); return; }
+    if (nbits == 64 && es == 2) { run_training<64, 2, ModelT>(data, ckpt, run_name, out_csv); return; }
+    if (nbits == 64 && es == 3) { run_training<64, 3, ModelT>(data, ckpt, run_name, out_csv); return; }
+    std::fprintf(stderr, "ERROR: unsupported nbits=%d es=%d\n", nbits, es);
+}
+
+template<template<typename> class ModelT>
+void dispatch_mnist(int nbits, int es,
+                    const std::string& data, const std::string& ckpt,
+                    const std::string& run_name, const std::string& out_csv)
+{
+    if (nbits == 8  && es == 1) { run_training_mnist<8,  1, ModelT>(data, ckpt, run_name, out_csv); return; }
+    if (nbits == 8  && es == 2) { run_training_mnist<8,  2, ModelT>(data, ckpt, run_name, out_csv); return; }
+    if (nbits == 8  && es == 3) { run_training_mnist<8,  3, ModelT>(data, ckpt, run_name, out_csv); return; }
+    if (nbits == 16 && es == 1) { run_training_mnist<16, 1, ModelT>(data, ckpt, run_name, out_csv); return; }
+    if (nbits == 16 && es == 2) { run_training_mnist<16, 2, ModelT>(data, ckpt, run_name, out_csv); return; }
+    if (nbits == 16 && es == 3) { run_training_mnist<16, 3, ModelT>(data, ckpt, run_name, out_csv); return; }
+    if (nbits == 32 && es == 1) { run_training_mnist<32, 1, ModelT>(data, ckpt, run_name, out_csv); return; }
+    if (nbits == 32 && es == 2) { run_training_mnist<32, 2, ModelT>(data, ckpt, run_name, out_csv); return; }
+    if (nbits == 32 && es == 3) { run_training_mnist<32, 3, ModelT>(data, ckpt, run_name, out_csv); return; }
+    if (nbits == 64 && es == 1) { run_training_mnist<64, 1, ModelT>(data, ckpt, run_name, out_csv); return; }
+    if (nbits == 64 && es == 2) { run_training_mnist<64, 2, ModelT>(data, ckpt, run_name, out_csv); return; }
+    if (nbits == 64 && es == 3) { run_training_mnist<64, 3, ModelT>(data, ckpt, run_name, out_csv); return; }
     std::fprintf(stderr, "ERROR: unsupported nbits=%d es=%d\n", nbits, es);
 }
 
 int main(int argc, char* argv[]) {
     if (argc != 8) {
         std::fprintf(stderr,
-            "Usage: %s <model:resnet18|cifarnet> <cifar10_dir>"
+            "Usage: %s <model:resnet18|cifarnet|smallnet> <data_dir>"
             " <nbits> <es> <out_ckpt.dat> <run_name> <out_csv>\n",
             argv[0]);
         return 1;
@@ -123,9 +207,11 @@ int main(int argc, char* argv[]) {
     std::fflush(stdout);
 
     if (model_name == "resnet18")
-        dispatch<ResNet18Posit>(nbits, es, data_path, out_ckpt, run_name, out_csv);
+        dispatch_cifar<ResNet18Posit>(nbits, es, data_path, out_ckpt, run_name, out_csv);
     else if (model_name == "cifarnet")
-        dispatch<CifarNetPosit>(nbits, es, data_path, out_ckpt, run_name, out_csv);
+        dispatch_cifar<CifarNetPosit>(nbits, es, data_path, out_ckpt, run_name, out_csv);
+    else if (model_name == "smallnet")
+        dispatch_mnist<SmallNetPosit>(nbits, es, data_path, out_ckpt, run_name, out_csv);
     else {
         std::fprintf(stderr, "ERROR: unknown model '%s'\n", model_name.c_str());
         return 1;

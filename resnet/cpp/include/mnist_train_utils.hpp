@@ -1,6 +1,8 @@
 #pragma once
 
-// Shared utilities for posit training: augmentation, eval, and train-epoch.
+// Shared utilities for posit training on MNIST: eval and train-epoch.
+// Mirrors posit_train_utils.hpp but uses torch::data::datasets::MNIST
+// instead of Cifar10Data, and omits CIFAR-specific augmentation.
 
 #include <cmath>
 #include <cstdio>
@@ -10,41 +12,20 @@
 #include <universal/posit/posit>
 #include <positnn/positnn>
 
-#include "Cifar10Data.hpp"
 #include "posit_types.hpp"
 
-static const float TRAIN_CIFAR_MEAN[3] = {0.4914f, 0.4822f, 0.4465f};
-static const float TRAIN_CIFAR_STD[3]  = {0.2023f, 0.1994f, 0.2010f};
+static const float MNIST_MEAN = 0.1307f;
+static const float MNIST_STD  = 0.3081f;
 
-// Random pad-4-crop-32 + random horizontal flip in-place on a float32 batch tensor.
-inline torch::Tensor augment_batch(torch::Tensor data) {
-    namespace F = torch::nn::functional;
-    data = F::pad(data, F::PadFuncOptions({4, 4, 4, 4}));
-    for (int64_t i = 0; i < data.size(0); i++) {
-        int64_t x = torch::randint(0, 8, {1}).item<int64_t>();
-        int64_t y = torch::randint(0, 8, {1}).item<int64_t>();
-        namespace idx = torch::indexing;
-        data[i] = data.index({i,
-            idx::Slice(),
-            idx::Slice(y, y + 32),
-            idx::Slice(x, x + 32)}).clone();
-    }
-    for (int64_t i = 0; i < data.size(0); i++) {
-        if (torch::rand({1}).item<float>() > 0.5f)
-            data[i] = data[i].flip(2);
-    }
-    return data;
-}
-
-// Evaluate posit model on CIFAR-10 test set. Returns (accuracy, mean_nll).
+// Evaluate posit model on MNIST test set. Returns (accuracy, mean_nll).
 template<typename PT, template<typename> class ModelT>
-std::pair<float, float> eval_posit(ModelT<PT>& model, const std::string& data_path) {
+std::pair<float, float> eval_posit_mnist(ModelT<PT>& model, const std::string& data_path) {
     using F = typename PT::Forward;
 
-    auto test_dataset = Cifar10Data(data_path, false)
-        .map(torch::data::transforms::Normalize<>(
-            {TRAIN_CIFAR_MEAN[0], TRAIN_CIFAR_MEAN[1], TRAIN_CIFAR_MEAN[2]},
-            {TRAIN_CIFAR_STD[0],  TRAIN_CIFAR_STD[1],  TRAIN_CIFAR_STD[2]}))
+    auto test_dataset =
+        torch::data::datasets::MNIST(
+            data_path, torch::data::datasets::MNIST::Mode::kTest)
+        .map(torch::data::transforms::Normalize<>(MNIST_MEAN, MNIST_STD))
         .map(torch::data::transforms::Stack<>());
     const size_t n_test = test_dataset.size().value();
 
@@ -75,9 +56,9 @@ std::pair<float, float> eval_posit(ModelT<PT>& model, const std::string& data_pa
     return {static_cast<float>(correct) / n_test, total_nll / n_test};
 }
 
-// One training epoch with cosine-annealed LR. Returns {mean_batch_loss, accuracy}.
+// One training epoch on MNIST (no augmentation). Returns {mean_batch_loss, accuracy}.
 template<typename PT, template<typename> class ModelT, typename SGDType, typename DataLoader>
-std::pair<float, float> train_epoch_posit(
+std::pair<float, float> train_epoch_posit_mnist(
     ModelT<PT>&  model,
     DataLoader&  train_loader,
     SGDType&     optimizer,
@@ -99,7 +80,7 @@ std::pair<float, float> train_epoch_posit(
     size_t total      = 0;
 
     for (auto& batch : train_loader) {
-        auto data_f32  = augment_batch(batch.data.to(torch::kFloat32));
+        auto data_f32  = batch.data.to(torch::kFloat32);
         auto target_u8 = batch.target.to(torch::kUInt8);
 
         auto data   = Tensor_to_StdTensor<float, F>(data_f32);
