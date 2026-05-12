@@ -4,6 +4,7 @@ xposit-tools/
 # binary outputs
 *.o
 *.elf
+*.a
 pk
 
 # PAWN Artifacts

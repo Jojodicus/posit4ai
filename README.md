@@ -7,6 +7,7 @@ Master's thesis "Hardware-Level Comparison of Posit and Float Arithmetic for AI 
 A lot of sub-parts depend on each other, consult the `README` files in the respective folders
 
 - **PAWN**: the FPGA accelerator, including example programs
+- **EMULSION**: emulator for PAWN
 - **libpawn**: a software emulation framework for posits, has support for XPosit and Takums
 - **resnet**: posit implementations of ResNet (and CifarNet) in posit, together with accuracy evaluation
 
