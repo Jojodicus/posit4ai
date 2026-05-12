@@ -144,7 +144,6 @@ static uint32_t apply_unary(uint32_t a_word, uint8_t opcode) {
 
 static int run_program(EmuState& st, unsigned timeout_ms) {
     st.status = PAWN_STATUS_RUNNING;
-    st.quire.clear();
 
     const auto t0 = std::chrono::steady_clock::now();
     for (uint32_t pc = 0; pc < kInstrDepth; ++pc) {
