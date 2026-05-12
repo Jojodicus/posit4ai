@@ -10,6 +10,7 @@ A lot of sub-parts depend on each other, consult the `README` files in the respe
 - **EMULSION**: emulator for PAWN
 - **libpawn**: a software emulation framework for posits, has support for XPosit and Takums
 - **resnet**: posit implementations of ResNet (and CifarNet) in posit, together with accuracy evaluation
+- **buttler**: SmallNet client/server for running inference on the FPGA
 
 ## Usage and Development - Spike XPosit
 
