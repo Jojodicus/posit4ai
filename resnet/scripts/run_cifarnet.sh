@@ -8,7 +8,7 @@ CKPT_DIR=results/cifarnet/checkpoints
 LOG_DIR=results/cifarnet/logs
 CKPT_FP32_JIT=$CKPT_DIR/ckpt_cifarnet_jit.pt
 CKPT_FP32_PY=$CKPT_DIR/ckpt_cifarnet.pt
-CKPT_FP64_PY=$CKPT_DIR/ckpt_cifarnet_fp64_ft_jit.pt
+CKPT_FP64_PY=$CKPT_DIR/ckpt_cifarnet_fp64_ft.pt
 CKPT_P8E2=$CKPT_DIR/ckpt_cifarnet_p8e2_ft.dat
 INF_CSV=$LOG_DIR/inference_results.csv
 
