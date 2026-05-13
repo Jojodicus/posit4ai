@@ -9,7 +9,7 @@ LOG_DIR=results/smallnet/logs
 CKPT_FP32_JIT=$CKPT_DIR/ckpt_smallnet_jit.pt
 CKPT_FP32_PY=$CKPT_DIR/ckpt_smallnet.pt
 CKPT_FP64_PY=$CKPT_DIR/ckpt_smallnet_fp64_ft.pt
-CKPT_P8E2=$CKPT_DIR/ckpt_smallnet_p8e2_ft.dat
+CKPT_P32E2=$CKPT_DIR/ckpt_smallnet_p32e2_ft.dat
 INF_CSV=$LOG_DIR/inference_results.csv
 
 echo "=== SmallNet: train FP32 ==="
@@ -42,15 +42,15 @@ for NBITS in 8 16 32; do
     done
 done
 
-echo "=== SmallNet: posit finetune p8e2 (quire) ==="
+echo "=== SmallNet: posit finetune p32e2 (quire) ==="
 cpp/build_quire/finetune_posit \
-    $MODEL $CKPT_FP32_JIT float $DATA 8 2 10 \
-    $CKPT_P8E2 smallnet_p8e2_ft $LOG_DIR/finetune_p8e2.csv
+    $MODEL $CKPT_FP32_JIT float $DATA 32 2 10 \
+    $CKPT_P32E2 smallnet_p32e2_ft $LOG_DIR/finetune_p32e2.csv
 
-echo "=== SmallNet: posit inference p8e2_ft (quire) ==="
+echo "=== SmallNet: posit inference p32e2_ft (quire) ==="
 cpp/build_quire/inference_posit \
-    $MODEL $CKPT_P8E2 posit $DATA 8 2 \
-    smallnet_p8e2_ft $INF_CSV
+    $MODEL $CKPT_P32E2 posit $DATA 32 2 \
+    smallnet_p32e2_ft $INF_CSV
 
 echo "=== SmallNet: posit from-scratch training (quire) ==="
 for CFG in "32 2" "32 1" "16 2" "16 1" "8 2"; do
@@ -83,10 +83,10 @@ for NBITS in 8 16 32; do
     done
 done
 
-echo "=== SmallNet: posit inference p8e2_ft (no quire) ==="
+echo "=== SmallNet: posit inference p32e2_ft (no quire) ==="
 cpp/build_noquire/inference_posit \
-    $MODEL $CKPT_P8E2 posit $DATA 8 2 \
-    smallnet_p8e2_ft $INF_CSV
+    $MODEL $CKPT_P32E2 posit $DATA 32 2 \
+    smallnet_p32e2_ft $INF_CSV
 
 echo "=== SmallNet: posit inference scratch models (no quire) ==="
 for CFG in "32 2" "32 1" "16 2" "16 1" "8 2"; do
