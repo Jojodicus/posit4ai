@@ -22,7 +22,7 @@ LIB8 := libemulsion8.a
 LIB16 := libemulsion16.a
 LIB32 := libemulsion32.a
 
-EXAMPLE_NAMES := hello_posit hello_posit2 benchmark long_run_status bench_gemm bench_conv
+EXAMPLE_NAMES := hello_posit hello_posit2 benchmark long_run_status bench_gemm bench_conv bench_per_op
 
 EMU8_ELFS := $(addsuffix .emu8.elf,$(EXAMPLE_NAMES))
 EMU16_ELFS := $(addsuffix .emu16.elf,$(EXAMPLE_NAMES))
