@@ -1,42 +1,22 @@
 /*
- * bench_conv.c -- PAWN 2D convolution benchmark (no padding, stride=1)
+ * bench_conv64.c -- PAWN 2D convolution benchmark (64-bit posit)
  *
- * Usage: ./bench_conv <H> <W> <FH> <FW>
- *                     [--no-quire]
- *                     [--data-depth N]   (default 32768)
- *                     [--instr-depth N]  (default 32768)
- *                     [--seed N]         (default 42)
+ * 64-bit variant of bench_conv.c. Uses uint64_t arrays and
+ * pawn_dbram_write64/read64 for DBRAM access.
  *
- * Input:  H x W image
- * Filter: FH x FW kernel
- * Output: (H-FH+1) x (W-FW+1)
- *
- * Uses im2col internally: for each output pixel (y,x), extract the flat
- * FH*FW-length input patch.  NTILE pixels are processed per PAWN execution.
- *
- * DBRAM layout (constant for a given NTILE and KA=FH*FW):
- *   [0 .. KA-1]                  filter (FH*FW words; loaded once)
- *   [KA .. KA+NTILE*KA-1]        im2col patches (NTILE rows x KA cols)
- *   [KA+NTILE*KA .. +NTILE-1]    output (NTILE words)
- *   [KA+NTILE*KA+NTILE]          TMP (no-quire only)
- *
- * Each output pixel's accumulation is independent (no K-tiling across pixels).
- * K-tiling within a single pixel (KA > capacity) is an error for typical filters.
+ * Usage: ./bench_conv64 <H> <W> <FH> <FW>
+ *                       [--no-quire] [--data-depth N] [--instr-depth N] [--seed N]
  */
 
 #include "bench_common.h"
 
-/* ---- tile solver ---- */
-
-/* Returns NTILE: max output pixels per PAWN execution. */
 static int solve_ntile(int FH, int FW, int instr_depth, int data_depth, int use_quire)
 {
     int KA = FH * FW;
-    /* Per pixel: worst-case KA+3 (quire with reload) or 2*KA (no-quire) */
     int NT_instr = use_quire
         ? (instr_depth - 1) / (KA + 3)
         : (instr_depth - 1) / (KA * 2);
-    int extra    = use_quire ? 0 : 1;   /* TMP slot */
+    int extra    = use_quire ? 0 : 1;
     int NT_data  = (data_depth - KA - extra) / (KA + 1);
     int NT = NT_instr < NT_data ? NT_instr : NT_data;
     if (NT < 1) {
@@ -47,12 +27,6 @@ static int solve_ntile(int FH, int FW, int instr_depth, int data_depth, int use_
     return NT;
 }
 
-/* ---- program builder ---- */
-
-/* Builds program for NT output pixels, each with KA accumulations.
- * NTILE is the max pixels per tile (used for stable base addresses across
- * full and partial tiles so main() and build_prog() agree on DBRAM layout).
- */
 static size_t build_prog(uint64_t *prog, int NT, int KA, int use_quire, int NTILE)
 {
     size_t n      = 0;
@@ -85,10 +59,7 @@ static size_t build_prog(uint64_t *prog, int NT, int KA, int use_quire, int NTIL
     return n;
 }
 
-/* ---- im2col ---- */
-
-/* Extract one output pixel's receptive field into dst[0..KA-1]. */
-static void im2col_pixel(const uint32_t *inp, uint32_t *dst,
+static void im2col_pixel(const uint64_t *inp, uint64_t *dst,
                           int y, int x, int W, int FH, int FW)
 {
     int k = 0;
@@ -96,8 +67,6 @@ static void im2col_pixel(const uint32_t *inp, uint32_t *dst,
         for (int fx = 0; fx < FW; fx++)
             dst[k++] = inp[(y + fy) * W + (x + fx)];
 }
-
-/* ---- main ---- */
 
 static void usage(const char *prog)
 {
@@ -130,30 +99,27 @@ int main(int argc, char *argv[])
     int NTILE   = solve_ntile(FH, FW, instr_depth, data_depth, use_quire);
     int n_tiles = (N_out + NTILE - 1) / NTILE;
 
-    printf("Conv  H=%d W=%d  filter=%dx%d  output=%dx%d  mode=%s  seed=%d\n",
+    printf("Conv-64  H=%d W=%d  filter=%dx%d  output=%dx%d  mode=%s  seed=%d\n",
            H, W, FH, FW, OH, OW, use_quire ? "quire" : "no-quire", seed);
     printf("  KA=%d  NTILE=%d  output_pixels=%d  tile_runs=%d\n",
            KA, NTILE, N_out, n_tiles);
     printf("  data_depth=%d  instr_depth=%d\n", data_depth, instr_depth);
 
-    /* Allocate buffers */
-    uint32_t *inp      = malloc((size_t)(H * W)       * sizeof(uint32_t));
-    uint32_t *filt     = malloc((size_t)(KA)           * sizeof(uint32_t));
-    uint32_t *out      = malloc((size_t)(N_out)        * sizeof(uint32_t));
-    uint32_t *patch_buf = malloc((size_t)(NTILE * KA)  * sizeof(uint32_t));
-    uint32_t *out_buf   = malloc((size_t)(NTILE)        * sizeof(uint32_t));
+    uint64_t *inp      = malloc((size_t)(H * W)       * sizeof(uint64_t));
+    uint64_t *filt     = malloc((size_t)(KA)           * sizeof(uint64_t));
+    uint64_t *out      = malloc((size_t)(N_out)        * sizeof(uint64_t));
+    uint64_t *patch_buf = malloc((size_t)(NTILE * KA)  * sizeof(uint64_t));
+    uint64_t *out_buf   = malloc((size_t)(NTILE)        * sizeof(uint64_t));
     uint64_t *prog      = malloc((size_t)instr_depth    * sizeof(uint64_t));
 
     if (!inp || !filt || !out || !patch_buf || !out_buf || !prog) {
         perror("malloc"); return 1;
     }
 
-    /* Generate deterministic random data */
     srand((unsigned)seed);
-    for (int i = 0; i < H * W; i++) inp[i]  = bench_rand32();
-    for (int i = 0; i < KA;    i++) filt[i] = bench_rand32();
+    for (int i = 0; i < H * W; i++) inp[i]  = bench_rand64();
+    for (int i = 0; i < KA;    i++) filt[i] = bench_rand64();
 
-    /* Pre-build full-tile program (reused for interior tiles) */
     size_t prog_full_len = build_prog(prog, NTILE, KA, use_quire, NTILE);
     uint64_t *prog_full = malloc(prog_full_len * sizeof(uint64_t));
     memcpy(prog_full, prog, prog_full_len * sizeof(uint64_t));
@@ -162,16 +128,14 @@ int main(int argc, char *argv[])
     int BASE_PATCH = KA;
     int BASE_OUT   = KA + NTILE * KA;
 
-    /* Open accelerator */
     pawn_dev_t dev;
     if (pawn_open(&dev) != 0) return 1;
     pawn_reset(&dev);
 
-    /* Write filter once -- does not change between tiles */
-    pawn_dbram_write32(&dev, (uint32_t)BASE_FILT, filt, (size_t)KA);
+    pawn_dbram_write64(&dev, (uint32_t)BASE_FILT, filt, (size_t)KA);
 
     double t_prog = 0.0, t_load = 0.0, t_compute = 0.0, t_readback = 0.0;
-    long long bytes_in = (long long)KA * 4;   /* filter loaded upfront */
+    long long bytes_in = (long long)KA * 8;
     long long bytes_out = 0;
 
     printf("\n  Running...\n");
@@ -180,10 +144,9 @@ int main(int argc, char *argv[])
         int p0     = tile * NTILE;
         int aNT    = N_out - p0 < NTILE ? N_out - p0 : NTILE;
 
-        /* Build im2col patches for this tile */
         if (aNT < NTILE)
             memset(patch_buf + (size_t)(aNT * KA), 0,
-                   (size_t)((NTILE - aNT) * KA) * sizeof(uint32_t));
+                   (size_t)((NTILE - aNT) * KA) * sizeof(uint64_t));
         for (int pi = 0; pi < aNT; pi++) {
             int y = (p0 + pi) / OW;
             int x = (p0 + pi) % OW;
@@ -191,12 +154,11 @@ int main(int argc, char *argv[])
         }
 
         long long t0 = bench_now_ns();
-        pawn_dbram_write32(&dev, (uint32_t)BASE_PATCH, patch_buf,
+        pawn_dbram_write64(&dev, (uint32_t)BASE_PATCH, patch_buf,
                            (size_t)(NTILE * KA));
         t_load  += (double)(bench_now_ns() - t0);
-        bytes_in += (long long)(NTILE * KA) * 4;
+        bytes_in += (long long)(NTILE * KA) * 8;
 
-        /* Select or build program */
         uint64_t *cur_prog;
         size_t    cur_len;
         if (aNT == NTILE) {
@@ -221,9 +183,9 @@ int main(int argc, char *argv[])
         t_compute += (double)ns;
 
         t0 = bench_now_ns();
-        pawn_dbram_read32(&dev, (uint32_t)BASE_OUT, out_buf, (size_t)aNT);
+        pawn_dbram_read64(&dev, (uint32_t)BASE_OUT, out_buf, (size_t)aNT);
         t_readback += (double)(bench_now_ns() - t0);
-        bytes_out  += (long long)aNT * 4;
+        bytes_out  += (long long)aNT * 8;
 
         for (int pi = 0; pi < aNT; pi++)
             out[p0 + pi] = out_buf[pi];
@@ -245,15 +207,14 @@ int main(int argc, char *argv[])
     printf("  Arithmetic int: %.2f ops/byte\n", ai);
     printf("\n");
     bench_csv_header("conv");
-    printf("#CSV,conv,32,%s,%d,%d,%d,%d,%lld,%lld,%.3f,%.3f,%.3f,%.3f,%.3f,%.2f\n",
+    printf("#CSV,conv,64,%s,%d,%d,%d,%d,%lld,%lld,%.3f,%.3f,%.3f,%.3f,%.3f,%.2f\n",
            use_quire ? "quire" : "no-quire", H, W, FH, FW, total_ops, total_bytes,
            t_prog / 1e6, t_load / 1e6, t_compute / 1e6, t_readback / 1e6,
            mops, ai);
 
-    /* Print a few result words for cross-check against libpawn SW bench */
     int show = N_out < 8 ? N_out : 8;
     printf("\n  First %d result words (hex): ", show);
-    for (int i = 0; i < show; i++) printf("%08X ", out[i]);
+    for (int i = 0; i < show; i++) printf("%016llX ", (unsigned long long)out[i]);
     printf("\n");
 
     free(inp); free(filt); free(out);

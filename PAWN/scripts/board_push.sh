@@ -42,7 +42,8 @@ else
 fi
 
 # Binaries
-for bin in hello_posit.elf benchmark.elf long_run_status.elf hello_posit64.elf bench_gemm.elf bench_conv.elf hello_posit2.elf; do
+for bin in hello_posit.elf benchmark.elf long_run_status.elf hello_posit64.elf bench_gemm.elf bench_conv.elf hello_posit2.elf \
+           bench_per_op.elf bench_per_op64.elf bench_gemm64.elf bench_conv64.elf; do
     src="${ROOT}/sw/examples/${bin}"
     if [ -f "${src}" ]; then
         scp "${src}" "${REMOTE}:${DEST}/examples/"
@@ -52,15 +53,19 @@ for bin in hello_posit.elf benchmark.elf long_run_status.elf hello_posit64.elf b
     fi
 done
 
+# Scripts
+for script in load.sh bench_all.sh; do
+    src="${ROOT}/sw/${script}"
+    if [ -f "${src}" ]; then
+        scp "${src}" "${REMOTE}:"
+        ssh "${REMOTE}" "chmod +x ${script}"
+        echo "    ${script}: ok"
+    else
+        echo "    WARNING: ${script} not found"
+    fi
+done
+
 echo ""
-echo "==> On the board, program the bitstream:"
-echo "      mkdir -p /lib/firmware"
-echo "      echo 0 > /sys/class/fpga_manager/fpga0/flags"
-echo "      cp ${DEST}/zynq_accel_top.bin /lib/firmware/"
-echo "      echo zynq_accel_top.bin > /sys/class/fpga_manager/fpga0/firmware"
-echo "      devmem 0xF8000008 32 0xDF0D   # SLCR unlock"
-echo "      devmem 0xF8000240 32 0x0      # deassert PL resets"
-echo "      devmem 0xF8000004 32 0x767B   # SLCR lock"
-echo ""
-echo "==> Then run:"
-echo "      ${DEST}/examples/*.elf"
+echo "==> On the board, program and run benchmarks:"
+echo "      cd ${DEST}"
+echo "      ./bench_all.sh ./<bitstream>.bin quire|no-quire 32|64"

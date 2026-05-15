@@ -12,7 +12,8 @@ CFLAGS := -O2 -Wall -Wextra -std=c11 -static
 
 DRIVER_OBJ   := pawn.o
 EXAMPLES     := hello_posit.elf hello_posit2.elf hello_posit64.elf benchmark.elf long_run_status.elf \
-                bench_gemm.elf bench_conv.elf
+                bench_gemm.elf bench_conv.elf \
+                bench_per_op.elf bench_per_op64.elf bench_gemm64.elf bench_conv64.elf
 EXAMPLE_BINS := $(addprefix examples/, $(EXAMPLES))
 
 .PHONY: all clean

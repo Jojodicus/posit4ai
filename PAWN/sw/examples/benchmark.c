@@ -2,9 +2,9 @@
  * benchmark.c -- PAWN throughput benchmark (posit32 / DATA_WIDTH=32)
  *
  * Times N independent ADD operations (no RAW hazards -> steady-state throughput).
- * Reports elapsed time and cycles/op at CLOCK_FREQ_MHZ (edit to match ./impl.sh).
+ * Reports elapsed time, ns/op, and MOPS.
  *
- * Usage: ./benchmark [N]   (default N=1000)
+ * Usage: ./benchmark.elf [N]   (default N=1000)
  *
  * DBRAM layout:  [0] operand a (1.0)   [1] operand b (1.0)   [2..N+1] results
  */
@@ -13,13 +13,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define CLOCK_FREQ_MHZ 30   /* must match the frequency used in ./impl.sh */
-
 static int run(pawn_dev_t *dev, const uint64_t *prog, int N, long long *ns_out)
 {
     pawn_reset(dev);
 
-    uint32_t vals[2] = { 0x40000000, 0x40000000 }; /* posit 1.0 (all widths) */
+    uint32_t vals[2] = { 0x40000000, 0x40000000 };
     pawn_dbram_write32(dev, 0, vals, 2);
 
     if (pawn_load_program(dev, prog, N + 1) != 0) return -1;
@@ -58,9 +56,10 @@ int main(int argc, char *argv[])
 
     free(prog);
 
-    double cycles_per_op = (double)ns / (1000.0 / CLOCK_FREQ_MHZ) / N;
-    printf("N=%d  elapsed=%.3f us  cycles/op=%.2f  (at %d MHz)\n",
-           N, ns / 1000.0, cycles_per_op, CLOCK_FREQ_MHZ);
+    double ns_per_op = (double)ns / N;
+    double mops = (double)N / ((double)ns / 1e9) / 1e6;
+    printf("N=%d  elapsed=%.3f us  ns/op=%.1f  MOPS=%.3f\n",
+           N, ns / 1000.0, ns_per_op, mops);
 
     pawn_close(&dev);
     return 0;
