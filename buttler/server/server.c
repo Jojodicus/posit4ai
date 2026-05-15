@@ -85,15 +85,6 @@ static uint32_t  g_fc2_w[W_FC2_W];
 static uint32_t  g_fc2_b[W_FC2_B];
 static int       g_weights_loaded = 0;
 
-/* ---- log file ---- */
-static FILE *g_log;
-
-/* Write to stderr and, if open, to buttler.log */
-#define LOGF(fmt, ...) do { \
-    fprintf(stderr, fmt, ##__VA_ARGS__); \
-    if (g_log) { fprintf(g_log, fmt, ##__VA_ARGS__); fflush(g_log); } \
-} while (0)
-
 static uint64_t  g_fc1_prog[FC1_PROG_MAX];
 static size_t    g_fc1_prog_len;
 static uint64_t  g_fc2_prog[FC2_PROG_MAX];
@@ -176,26 +167,12 @@ static size_t build_fc2_prog(uint64_t *prog)
  * time_us: wall-clock time in microseconds
  * Returns 0 on success, -1 if no weights, -2 on PAWN timeout.
  */
-static int g_infer_count = 0;
-
 static int run_inference(const uint32_t *input, int *cls, long long *time_us)
 {
     if (!g_weights_loaded)
         return -1;
 
     long long t0 = now_ns();
-    int infer_id = ++g_infer_count;
-
-    if (g_log) {
-        fprintf(g_log, "\n=== INFERENCE %d ===\n", infer_id);
-        fprintf(g_log, "[DIAG] input[0..3]: 0x%08X 0x%08X 0x%08X 0x%08X\n",
-                input[0], input[1], input[2], input[3]);
-        fprintf(g_log, "[DIAG] fc1_w[0..3]: 0x%08X 0x%08X 0x%08X 0x%08X\n",
-                g_fc1_w[0], g_fc1_w[1], g_fc1_w[2], g_fc1_w[3]);
-        fprintf(g_log, "[DIAG] fc1_b[0..3]: 0x%08X 0x%08X 0x%08X 0x%08X\n",
-                g_fc1_b[0], g_fc1_b[1], g_fc1_b[2], g_fc1_b[3]);
-        fflush(g_log);
-    }
 
     /* Write input once – reused for both fc1 n-tiles (PAWN only reads it) */
     pawn_dbram_write32(&g_dev, FC1_BASE_IN, input, FC1_TK);
@@ -218,34 +195,11 @@ static int run_inference(const uint32_t *input, int *cls, long long *time_us)
         pawn_dbram_write32(&g_dev, FC1_BASE_W,    g_wtile,           FC1_TK * FC1_TN);
         pawn_dbram_write32(&g_dev, FC1_BASE_BIAS, g_fc1_b + n0,      FC1_TN);
 
-        if (g_log && tile == 0) {
-            /* Read back first 4 weight slots: neurons 0&1 at k=0 (addrs 784,785) and k=1 (800,801) */
-            uint32_t rb[4];
-            pawn_dbram_read32(&g_dev, FC1_BASE_W,    &rb[0], 1);
-            pawn_dbram_read32(&g_dev, FC1_BASE_W+1,  &rb[1], 1);
-            pawn_dbram_read32(&g_dev, FC1_BASE_W+16, &rb[2], 1);
-            pawn_dbram_read32(&g_dev, FC1_BASE_W+17, &rb[3], 1);
-            fprintf(g_log,
-                "[DIAG] DBRAM readback: [784]=0x%08X [785]=0x%08X [800]=0x%08X [801]=0x%08X\n",
-                rb[0], rb[1], rb[2], rb[3]);
-            fprintf(g_log,
-                "[DIAG] wtile[0]=0x%08X wtile[1]=0x%08X wtile[16]=0x%08X wtile[17]=0x%08X\n",
-                g_wtile[0], g_wtile[1], g_wtile[16], g_wtile[17]);
-        }
-
         if (pawn_run_blocking(&g_dev, 10000) < 0) {
             pawn_reset(&g_dev);
             return -2;
         }
         pawn_dbram_read32(&g_dev, FC1_BASE_OUT, g_hidden + n0, FC1_TN);
-
-        if (g_log) {
-            fprintf(g_log, "[DIAG] FC1 tile %d hidden[%d..%d]:\n  ", tile, n0, n0 + FC1_TN - 1);
-            for (int i = 0; i < FC1_TN; i++)
-                fprintf(g_log, " 0x%08X", g_hidden[n0 + i]);
-            fprintf(g_log, "\n");
-            fflush(g_log);
-        }
     }
 
     /* FC2: single tile (all 10 output neurons fit at once) */
@@ -264,14 +218,6 @@ static int run_inference(const uint32_t *input, int *cls, long long *time_us)
     }
     pawn_dbram_read32(&g_dev, FC2_BASE_OUT, g_logits, FC2_TN);
 
-    if (g_log) {
-        fprintf(g_log, "[DIAG] FC2 logits:");
-        for (int i = 0; i < FC2_OUT; i++)
-            fprintf(g_log, " 0x%08X", g_logits[i]);
-        fprintf(g_log, "\n");
-        fflush(g_log);
-    }
-
     /*
      * Argmax using int32_t comparison.
      * Posit values are left-aligned in the 32-bit DBRAM word, so comparing as
@@ -286,11 +232,6 @@ static int run_inference(const uint32_t *input, int *cls, long long *time_us)
     }
     *cls = best;
     *time_us = (now_ns() - t0) / 1000;
-    if (g_log) {
-        fprintf(g_log, "[DIAG] infer %d → class %d (%lld us)\n",
-                infer_id, best, *time_us);
-        fflush(g_log);
-    }
     return 0;
 }
 
@@ -455,12 +396,6 @@ static void handle_request(int fd)
 int main(int argc, char *argv[])
 {
     int port = (argc > 1) ? atoi(argv[1]) : 8080;
-
-    g_log = fopen("buttler.log", "w");
-    if (g_log)
-        printf("Logging diagnostics to buttler.log\n");
-    else
-        fprintf(stderr, "Warning: could not open buttler.log\n");
 
     printf("Opening PAWN device...\n");
     if (pawn_open(&g_dev) != 0) {
