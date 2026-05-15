@@ -42,26 +42,6 @@ for NBITS in 8 16 32; do
     done
 done
 
-echo "=== ResNet: posit finetune p32e2 (quire) ==="
-cpp/build_quire/finetune_posit \
-    $MODEL $CKPT_FP32_JIT float $DATA 32 2 10 \
-    $CKPT_P32E2 resnet18_p32e2_ft $LOG_DIR/finetune_p32e2.csv
-
-echo "=== ResNet: posit inference p32e2_ft (quire) ==="
-cpp/build_quire/inference_posit \
-    $MODEL $CKPT_P32E2 posit $DATA 32 2 \
-    resnet18_p32e2_ft $INF_CSV
-
-echo "=== ResNet: posit inference p32e2ft_p16e2 (quire) ==="
-cpp/build_quire/inference_posit \
-    $MODEL $CKPT_P32E2 posit $DATA 16 2 \
-    resnet18_p32e2ft_p16e2 $INF_CSV
-
-echo "=== ResNet: posit inference p32e2ft_p8e2 (quire) ==="
-cpp/build_quire/inference_posit \
-    $MODEL $CKPT_P32E2 posit $DATA 8 2 \
-    resnet18_p32e2ft_p8e2 $INF_CSV
-
 echo "=== ResNet: build C++ without quire ==="
 cmake -S cpp -B cpp/build_noquire -DQUIRE_MODE=0 -DCMAKE_BUILD_TYPE=Release -Wno-dev
 cmake --build cpp/build_noquire -j"$(nproc)"
@@ -76,19 +56,39 @@ for NBITS in 8 16 32; do
     done
 done
 
+echo "=== ResNet: posit finetune p32e2 (quire) ==="
+cpp/build_quire/finetune_posit \
+    $MODEL $CKPT_FP32_JIT float $DATA 32 2 10 \
+    $CKPT_P32E2 resnet18_p32e2_ft $LOG_DIR/finetune_p32e2.csv
+
+echo "=== ResNet: posit inference p32e2_ft (quire) ==="
+cpp/build_quire/inference_posit \
+    $MODEL $CKPT_P32E2 posit $DATA 32 2 \
+    resnet18_p32e2_ft $INF_CSV
+
+# echo "=== ResNet: posit inference p32e2ft_p16e2 (quire) ==="
+# cpp/build_quire/inference_posit \
+#     $MODEL $CKPT_P32E2 posit $DATA 16 2 \
+#     resnet18_p32e2ft_p16e2 $INF_CSV
+
+# echo "=== ResNet: posit inference p32e2ft_p8e2 (quire) ==="
+# cpp/build_quire/inference_posit \
+#     $MODEL $CKPT_P32E2 posit $DATA 8 2 \
+#     resnet18_p32e2ft_p8e2 $INF_CSV
+
 echo "=== ResNet: posit inference p32e2_ft (no quire) ==="
 cpp/build_noquire/inference_posit \
     $MODEL $CKPT_P32E2 posit $DATA 32 2 \
     resnet18_p32e2_ft $INF_CSV
 
-echo "=== ResNet: posit inference p32e2ft_p16e2 (no quire) ==="
-cpp/build_noquire/inference_posit \
-    $MODEL $CKPT_P32E2 posit $DATA 16 2 \
-    resnet18_p32e2ft_p16e2 $INF_CSV
+# echo "=== ResNet: posit inference p32e2ft_p16e2 (no quire) ==="
+# cpp/build_noquire/inference_posit \
+#     $MODEL $CKPT_P32E2 posit $DATA 16 2 \
+#     resnet18_p32e2ft_p16e2 $INF_CSV
 
-echo "=== ResNet: posit inference p32e2ft_p8e2 (no quire) ==="
-cpp/build_noquire/inference_posit \
-    $MODEL $CKPT_P32E2 posit $DATA 8 2 \
-    resnet18_p32e2ft_p8e2 $INF_CSV
+# echo "=== ResNet: posit inference p32e2ft_p8e2 (no quire) ==="
+# cpp/build_noquire/inference_posit \
+#     $MODEL $CKPT_P32E2 posit $DATA 8 2 \
+#     resnet18_p32e2ft_p8e2 $INF_CSV
 
 echo "=== ResNet: done ==="

@@ -10,6 +10,7 @@ CKPT_FP32_JIT=$CKPT_DIR/ckpt_smallnet_jit.pt
 CKPT_FP32_PY=$CKPT_DIR/ckpt_smallnet.pt
 CKPT_FP64_PY=$CKPT_DIR/ckpt_smallnet_fp64_ft.pt
 CKPT_P32E2=$CKPT_DIR/ckpt_smallnet_p32e2_ft.dat
+CKPT_P32E2_NOQ=$CKPT_DIR/ckpt_smallnet_p32e2_noquire_ft.dat
 INF_CSV=$LOG_DIR/inference_results.csv
 
 echo "=== SmallNet: train FP32 ==="
@@ -52,36 +53,52 @@ cpp/build_quire/inference_posit \
     $MODEL $CKPT_P32E2 posit $DATA 32 2 \
     smallnet_p32e2_ft $INF_CSV
 
-echo "=== SmallNet: posit inference p32e2ft_p16e2 (quire) ==="
-cpp/build_quire/inference_posit \
-    $MODEL $CKPT_P32E2 posit $DATA 16 2 \
-    smallnet_p32e2ft_p16e2 $INF_CSV
+# echo "=== SmallNet: posit inference p32e2ft_p16e2 (quire) ==="
+# cpp/build_quire/inference_posit \
+#     $MODEL $CKPT_P32E2 posit $DATA 16 2 \
+#     smallnet_p32e2ft_p16e2 $INF_CSV
 
-echo "=== SmallNet: posit inference p32e2ft_p8e2 (quire) ==="
-cpp/build_quire/inference_posit \
-    $MODEL $CKPT_P32E2 posit $DATA 8 2 \
-    smallnet_p32e2ft_p8e2 $INF_CSV
+# echo "=== SmallNet: posit inference p32e2ft_p8e2 (quire) ==="
+# cpp/build_quire/inference_posit \
+#     $MODEL $CKPT_P32E2 posit $DATA 8 2 \
+#     smallnet_p32e2ft_p8e2 $INF_CSV
 
-echo "=== SmallNet: posit from-scratch training (quire) ==="
-for CFG in "32 2" "32 1" "16 2" "16 1" "8 2"; do
-    NBITS=$(echo $CFG | cut -d' ' -f1)
-    ES=$(echo $CFG | cut -d' ' -f2)
-    SCRATCH_CKPT=$CKPT_DIR/ckpt_smallnet_p${NBITS}e${ES}_scratch.dat
-    echo "  train p${NBITS}e${ES} from scratch"
-    cpp/build_quire/train_posit \
-        $MODEL $DATA $NBITS $ES \
-        $SCRATCH_CKPT \
-        smallnet_p${NBITS}e${ES}_scratch \
-        $LOG_DIR/train_p${NBITS}e${ES}_scratch.csv
-    echo "  inference p${NBITS}e${ES} scratch (quire)"
-    cpp/build_quire/inference_posit \
-        $MODEL $SCRATCH_CKPT posit $DATA $NBITS $ES \
-        smallnet_p${NBITS}e${ES}_scratch $INF_CSV
-done
+# echo "=== SmallNet: posit from-scratch training (quire) ==="
+# for CFG in "32 2" "32 1" "16 2" "16 1" "8 2"; do
+#     NBITS=$(echo $CFG | cut -d' ' -f1)
+#     ES=$(echo $CFG | cut -d' ' -f2)
+#     SCRATCH_CKPT=$CKPT_DIR/ckpt_smallnet_p${NBITS}e${ES}_scratch.dat
+#     echo "  train p${NBITS}e${ES} from scratch"
+#     cpp/build_quire/train_posit \
+#         $MODEL $DATA $NBITS $ES \
+#         $SCRATCH_CKPT \
+#         smallnet_p${NBITS}e${ES}_scratch \
+#         $LOG_DIR/train_p${NBITS}e${ES}_scratch.csv
+#     echo "  inference p${NBITS}e${ES} scratch (quire)"
+#     cpp/build_quire/inference_posit \
+#         $MODEL $SCRATCH_CKPT posit $DATA $NBITS $ES \
+#         smallnet_p${NBITS}e${ES}_scratch $INF_CSV
+# done
 
 echo "=== SmallNet: build C++ without quire ==="
 cmake -S cpp -B cpp/build_noquire -DQUIRE_MODE=0 -DCMAKE_BUILD_TYPE=Release -Wno-dev
 cmake --build cpp/build_noquire -j"$(nproc)"
+
+echo "=== SmallNet: posit finetune p32e2 (no quire) ==="
+cpp/build_noquire/finetune_posit \
+    $MODEL $CKPT_FP32_JIT float $DATA 32 2 10 \
+    $CKPT_P32E2_NOQ smallnet_p32e2_noquire_ft $LOG_DIR/finetune_p32e2_noquire.csv
+
+echo "=== SmallNet: posit inference p32e2_ft (no quire) ==="
+cpp/build_noquire/inference_posit \
+    $MODEL $CKPT_P32E2_NOQ posit $DATA 32 2 \
+    smallnet_p32e2_noquire_ft $INF_CSV
+# cpp/build_noquire/inference_posit \
+#     $MODEL $CKPT_P32E2_NOQ posit $DATA 16 2 \
+#     smallnet_p32e2ft_p16e2 $INF_CSV
+# cpp/build_noquire/inference_posit \
+#     $MODEL $CKPT_P32E2_NOQ posit $DATA 8 2 \
+#     smallnet_p32e2ft_p8e2 $INF_CSV
 
 echo "=== SmallNet: posit inference sweep (no quire, from fp32) ==="
 for NBITS in 8 16 32; do
@@ -98,25 +115,25 @@ cpp/build_noquire/inference_posit \
     $MODEL $CKPT_P32E2 posit $DATA 32 2 \
     smallnet_p32e2_ft $INF_CSV
 
-echo "=== SmallNet: posit inference p32e2ft_p16e2 (no quire) ==="
-cpp/build_noquire/inference_posit \
-    $MODEL $CKPT_P32E2 posit $DATA 16 2 \
-    smallnet_p32e2ft_p16e2 $INF_CSV
+# echo "=== SmallNet: posit inference p32e2ft_p16e2 (no quire) ==="
+# cpp/build_noquire/inference_posit \
+#     $MODEL $CKPT_P32E2 posit $DATA 16 2 \
+#     smallnet_p32e2ft_p16e2 $INF_CSV
 
-echo "=== SmallNet: posit inference p32e2ft_p8e2 (no quire) ==="
-cpp/build_noquire/inference_posit \
-    $MODEL $CKPT_P32E2 posit $DATA 8 2 \
-    smallnet_p32e2ft_p8e2 $INF_CSV
+# echo "=== SmallNet: posit inference p32e2ft_p8e2 (no quire) ==="
+# cpp/build_noquire/inference_posit \
+#     $MODEL $CKPT_P32E2 posit $DATA 8 2 \
+#     smallnet_p32e2ft_p8e2 $INF_CSV
 
-echo "=== SmallNet: posit inference scratch models (no quire) ==="
-for CFG in "32 2" "32 1" "16 2" "16 1" "8 2"; do
-    NBITS=$(echo $CFG | cut -d' ' -f1)
-    ES=$(echo $CFG | cut -d' ' -f2)
-    SCRATCH_CKPT=$CKPT_DIR/ckpt_smallnet_p${NBITS}e${ES}_scratch.dat
-    echo "  p${NBITS}e${ES} scratch (no quire)"
-    cpp/build_noquire/inference_posit \
-        $MODEL $SCRATCH_CKPT posit $DATA $NBITS $ES \
-        smallnet_p${NBITS}e${ES}_scratch $INF_CSV
-done
+# echo "=== SmallNet: posit inference scratch models (no quire) ==="
+# for CFG in "32 2" "32 1" "16 2" "16 1" "8 2"; do
+#     NBITS=$(echo $CFG | cut -d' ' -f1)
+#     ES=$(echo $CFG | cut -d' ' -f2)
+#     SCRATCH_CKPT=$CKPT_DIR/ckpt_smallnet_p${NBITS}e${ES}_scratch.dat
+#     echo "  p${NBITS}e${ES} scratch (no quire)"
+#     cpp/build_noquire/inference_posit \
+#         $MODEL $SCRATCH_CKPT posit $DATA $NBITS $ES \
+#         smallnet_p${NBITS}e${ES}_scratch $INF_CSV
+# done
 
 echo "=== SmallNet: done ==="
