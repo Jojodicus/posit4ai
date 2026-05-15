@@ -44,7 +44,7 @@ Run the full test suite through the HTTP endpoint and report accuracy + latency:
 
 ```sh
 cd client
-uv run eval.py --checkpoint ../../resnet/results/smallnet/checkpoints/ckpt_smallnet_p8es2_ft.dat \
+uv run eval.py --checkpoint ../../resnet/results/smallnet/checkpoints/ckpt_smallnet.pt \
                --data-dir ../../resnet/dataset/mnist
 ```
 
@@ -52,6 +52,7 @@ Options:
 - `--samples N` - limit to the first N images (quick sanity check)
 - `--skip-upload` - skip weight upload if already loaded on the server
 - `--server URL` - override server address
+- `--log-csv FILE` - append per-sample latency, predicted and actual label to a CSV file
 
 ## HTTP API
 

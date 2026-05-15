@@ -11,6 +11,7 @@ Reads raw MNIST IDX files (the same directory used by the resnet project).
 """
 
 import argparse
+import csv
 import struct
 import sys
 import time
@@ -24,9 +25,10 @@ from client import float_to_posit32, load_dat, load_pt, weights_to_bytes
 
 # -- MNIST normalization (must match training) ---------------------------------
 MNIST_MEAN = 0.1307
-MNIST_STD  = 0.3081
+MNIST_STD = 0.3081
 
 # -- MNIST IDX loader ----------------------------------------------------------
+
 
 def _read_idx_images(path: Path) -> np.ndarray:
     """Return (N, 784) float32 array, normalized to MNIST stats."""
@@ -70,14 +72,29 @@ def load_mnist_test(data_dir: str):
 
 # -- evaluation loop -----------------------------------------------------------
 
-def evaluate(server: str, images: np.ndarray, labels: np.ndarray) -> dict:
+
+def evaluate(
+    server: str, images: np.ndarray, labels: np.ndarray, csv_path: str | None = None
+) -> dict:
     """
     Run inference on every image and return a dict with accuracy and timing.
+    If *csv_path* is given, append per-sample results to that CSV file.
     """
     n = len(labels)
     correct = 0
     latencies = []
     errors = 0
+
+    csv_fh = None
+    csv_writer = None
+    if csv_path:
+        needs_header = not Path(csv_path).exists()
+        csv_fh = open(csv_path, "a", newline="")
+        csv_writer = csv.writer(csv_fh)
+        if needs_header:
+            csv_writer.writerow(
+                ["sample", "latency_ms", "predicted", "actual", "correct"]
+            )
 
     for i, (img, label) in enumerate(zip(images, labels)):
         # Encode to posit32
@@ -98,51 +115,87 @@ def evaluate(server: str, images: np.ndarray, labels: np.ndarray) -> dict:
             continue
 
         latencies.append(lat)
-        if cls == int(label):
+        ok = cls == int(label)
+        if ok:
             correct += 1
+
+        if csv_writer is not None:
+            csv_writer.writerow([i, f"{lat:.3f}", cls, int(label), int(ok)])
 
         # Progress
         done = len(latencies) + errors
-        acc  = correct / done if done else 0.0
+        acc = correct / done if done else 0.0
         mean = np.mean(latencies) if latencies else 0.0
-        print(f"\r  [{done:5d}/{n}]  acc={acc:.4f}  "
-              f"lat={mean:.1f} ms (mean)", end="", flush=True)
+        print(
+            f"\r  [{done:5d}/{n}]  acc={acc:.4f}  lat={mean:.1f} ms (mean)",
+            end="",
+            flush=True,
+        )
 
+    if csv_fh is not None:
+        csv_fh.close()
     print()  # newline after progress
 
     done = len(latencies) + errors
     lats = np.array(latencies) if latencies else np.array([0.0])
     return {
-        "n_total":   n,
-        "n_done":    done,
-        "n_errors":  errors,
-        "correct":   correct,
-        "accuracy":  correct / done if done else 0.0,
-        "lat_mean":  float(np.mean(lats)),
-        "lat_std":   float(np.std(lats)),
-        "lat_min":   float(np.min(lats)),
-        "lat_max":   float(np.max(lats)),
-        "lat_p95":   float(np.percentile(lats, 95)),
-        "total_s":   float(np.sum(lats) / 1000),
+        "n_total": n,
+        "n_done": done,
+        "n_errors": errors,
+        "correct": correct,
+        "accuracy": correct / done if done else 0.0,
+        "lat_mean": float(np.mean(lats)),
+        "lat_std": float(np.std(lats)),
+        "lat_min": float(np.min(lats)),
+        "lat_max": float(np.max(lats)),
+        "lat_p95": float(np.percentile(lats, 95)),
+        "total_s": float(np.sum(lats) / 1000),
     }
 
 
 # -- main ----------------------------------------------------------------------
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="Evaluate SmallNet on MNIST via the FPGA HTTP endpoint."
     )
-    parser.add_argument("--checkpoint", "-c", required=True,
-                        help="Path to .pt (TorchScript/state-dict) or .dat (positnn) checkpoint")
-    parser.add_argument("--data-dir",   "-d", required=True,
-                        help="Directory containing MNIST IDX test files")
-    parser.add_argument("--server",     "-s", default="http://10.42.0.2:8080",
-                        help="Inference server base URL (default: http://10.42.0.2:8080)")
-    parser.add_argument("--samples",    "-n", type=int, default=None,
-                        help="Limit evaluation to first N samples")
-    parser.add_argument("--skip-upload", action="store_true",
-                        help="Skip weight upload (weights already loaded on server)")
+    parser.add_argument(
+        "--checkpoint",
+        "-c",
+        required=True,
+        help="Path to .pt (TorchScript/state-dict) or .dat (positnn) checkpoint",
+    )
+    parser.add_argument(
+        "--data-dir",
+        "-d",
+        required=True,
+        help="Directory containing MNIST IDX test files",
+    )
+    parser.add_argument(
+        "--server",
+        "-s",
+        default="http://10.42.0.2:8080",
+        help="Inference server base URL (default: http://10.42.0.2:8080)",
+    )
+    parser.add_argument(
+        "--samples",
+        "-n",
+        type=int,
+        default=None,
+        help="Limit evaluation to first N samples",
+    )
+    parser.add_argument(
+        "--skip-upload",
+        action="store_true",
+        help="Skip weight upload (weights already loaded on server)",
+    )
+    parser.add_argument(
+        "--log-csv",
+        type=str,
+        default=None,
+        help="Append per-sample results (latency, predicted, actual) to CSV file",
+    )
     args = parser.parse_args()
 
     server = args.server.rstrip("/")
@@ -165,42 +218,49 @@ def main():
             weights = load_dat(ckpt)
         else:
             weights = load_pt(ckpt)
-        print(f"  Converted in {(time.monotonic()-t0)*1000:.0f} ms")
+        print(f"  Converted in {(time.monotonic() - t0) * 1000:.0f} ms")
 
         print("Uploading weights ...")
         t0 = time.monotonic()
-        r = requests.post(f"{server}/weights",
-                          data=weights_to_bytes(*weights), timeout=30)
+        r = requests.post(
+            f"{server}/weights", data=weights_to_bytes(*weights), timeout=30
+        )
         r.raise_for_status()
-        print(f"  Uploaded in {(time.monotonic()-t0)*1000:.0f} ms")
+        print(f"  Uploaded in {(time.monotonic() - t0) * 1000:.0f} ms")
 
     # -- load MNIST test set -----------------------------------------------
     print(f"Loading MNIST test set from: {args.data_dir}")
     images, labels = load_mnist_test(args.data_dir)
     if args.samples:
-        images = images[:args.samples]
-        labels = labels[:args.samples]
+        images = images[: args.samples]
+        labels = labels[: args.samples]
     print(f"  {len(labels)} samples.")
 
     # -- run evaluation ----------------------------------------------------
     print("\nRunning inference ...")
     t_wall = time.monotonic()
-    stats = evaluate(server, images, labels)
+    stats = evaluate(server, images, labels, csv_path=args.log_csv)
     t_wall = time.monotonic() - t_wall
 
     # -- results -----------------------------------------------------------
     print()
     print("=" * 50)
     print(f"  Checkpoint : {args.checkpoint}")
-    print(f"  Samples    : {stats['n_done']} / {stats['n_total']}"
-          + (f"  ({stats['n_errors']} errors)" if stats['n_errors'] else ""))
-    print(f"  Accuracy   : {stats['accuracy']*100:.2f}%  "
-          f"({stats['correct']}/{stats['n_done']})")
+    print(
+        f"  Samples    : {stats['n_done']} / {stats['n_total']}"
+        + (f"  ({stats['n_errors']} errors)" if stats["n_errors"] else "")
+    )
+    print(
+        f"  Accuracy   : {stats['accuracy'] * 100:.2f}%  "
+        f"({stats['correct']}/{stats['n_done']})"
+    )
     print()
-    print(f"  Latency (ms) - mean {stats['lat_mean']:.1f} "
-          f"+/- {stats['lat_std']:.1f}  "
-          f"[min {stats['lat_min']:.1f}  p95 {stats['lat_p95']:.1f}  "
-          f"max {stats['lat_max']:.1f}]")
+    print(
+        f"  Latency (ms) - mean {stats['lat_mean']:.1f} "
+        f"+/- {stats['lat_std']:.1f}  "
+        f"[min {stats['lat_min']:.1f}  p95 {stats['lat_p95']:.1f}  "
+        f"max {stats['lat_max']:.1f}]"
+    )
     print(f"  Total HW time : {stats['total_s']:.1f} s")
     print(f"  Wall time     : {t_wall:.1f} s")
     print("=" * 50)
