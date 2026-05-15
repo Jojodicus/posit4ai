@@ -241,22 +241,7 @@ module accel_axi
   end
 
   // -- AXI read channel ----------------------------------------
-  // Address pipeline (back-pressure safe), mirrors accel_axi_burst:
-  //   RD_IDLE  : accept AR handshake.
-  //   RD_ADDR  : first warmup cycle.  dbram_addr_o is already driven by
-  //              reg_dbram_addr; a phase-0 BRAM read may or may not happen.
-  //   RD_ADDR2 : second warmup cycle.  Guarantees at least one phase-0
-  //              clk_bram edge has fired with the correct DBRAM address,
-  //              and the NBA update of dbram_porta_rdata is visible.
-  //   RD_DATA  : RVALID asserts, data returned to master.
-  //
-  // Without the warmup, streaming auto-increment reads return stale BRAM
-  // data: the increment fires at RD_DATA handshake, the next AR can arrive
-  // 1 cycle later (RD_IDLE), and RD_DATA fires 1 cycle after that — only
-  // 2 clk_bram cycles from increment to data, which may not include a
-  // phase-0 edge + NBA settle.  The 2-cycle warmup adds 2 more cycles,
-  // guaranteeing the BRAM output register reflects the new address.
-  typedef enum logic [1:0] { RD_IDLE, RD_ADDR, RD_ADDR2, RD_DATA } rd_state_t;
+  typedef enum logic { RD_IDLE, RD_DATA } rd_state_t;
   rd_state_t rd_state_q, rd_state_d;
   logic [AXI_ADDR_WIDTH-1:0] rd_addr_q;
 
@@ -270,13 +255,7 @@ module accel_axi
     unique case (rd_state_q)
       RD_IDLE: begin
         s_axi_arready = 1'b1;
-        if (s_axi_arvalid) rd_state_d = RD_ADDR;
-      end
-      RD_ADDR: begin
-        rd_state_d = RD_ADDR2;
-      end
-      RD_ADDR2: begin
-        rd_state_d = RD_DATA;
+        if (s_axi_arvalid) rd_state_d = RD_DATA;
       end
       RD_DATA: begin
         s_axi_rvalid = 1'b1;
