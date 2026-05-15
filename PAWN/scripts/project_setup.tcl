@@ -213,6 +213,7 @@ set_property -dict [list \
     CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {100.000} \
     CONFIG.CLKOUT2_USED {true} \
     CONFIG.CLKOUT2_REQUESTED_OUT_FREQ {200.000} \
+    CONFIG.CLKOUT2_REQUESTED_PHASE {180.000} \
     CONFIG.USE_SAFE_CLOCK_STARTUP {true} \
 ] [get_ips clk_wiz_0]
 generate_target all [get_ips clk_wiz_0]

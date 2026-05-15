@@ -46,6 +46,7 @@ proc run_impl_at {freq_mhz root_dir} {
         CONFIG.CLKOUT1_REQUESTED_OUT_FREQ "$freq_mhz" \
         CONFIG.CLKOUT2_USED              {true} \
         CONFIG.CLKOUT2_REQUESTED_OUT_FREQ "$bram_freq" \
+        CONFIG.CLKOUT2_REQUESTED_PHASE   {180.000} \
     ] [get_ips clk_wiz_0]
     generate_target all [get_ips clk_wiz_0]
 
