@@ -97,6 +97,7 @@ static int       g_weights_loaded = 0;
 
 static uint64_t  g_combined_prog[COMBINED_PROG_MAX];
 static size_t    g_combined_prog_len;
+static int       g_prog_loaded = 0;
 
 static pawn_dev_t g_dev;
 
@@ -168,16 +169,24 @@ static size_t build_combined_prog(uint64_t *prog)
 
 /*
  * Run one SmallNet forward pass.
- * input: FC1_IN uint32_t posit32 values (pixel data, MNIST-normalized)
- * cls:   output predicted class [0..9]
- * time_us: wall-clock time in microseconds
+ * input:       FC1_IN uint32_t posit32 values (pixel data, MNIST-normalized)
+ * cls:         output predicted class [0..9]
+ * time_us:     total wall-clock time in microseconds
+ * load_us:     DBRAM write time (input + weights)
+ * compute_us:  PAWN execution time (from pawn_run_blocking return value, ns->us)
+ * read_us:     DBRAM read time (logits)
  * Returns 0 on success, -1 if no weights, -2 on PAWN timeout.
  */
-static int run_inference(const uint32_t *input, int *cls, long long *time_us)
+static int run_inference(const uint32_t *input, int *cls,
+                         long long *time_us, long long *load_us,
+                         long long *compute_us, long long *read_us)
 {
     if (!g_weights_loaded)
         return -1;
 
+    long long wall0 = now_ns();
+
+    /* ---- DBRAM load ---- */
     long long t0 = now_ns();
 
     /*
@@ -200,13 +209,27 @@ static int run_inference(const uint32_t *input, int *cls, long long *time_us)
     pawn_dbram_write32(&g_dev, FC2_BASE_W,    g_wtile,  FC2_TK * FC2_TN);
     pawn_dbram_write32(&g_dev, FC2_BASE_BIAS, g_fc2_b,  FC2_TN);
 
-    pawn_load_program(&g_dev, g_combined_prog, g_combined_prog_len);
+    *load_us = (now_ns() - t0) / 1000;
 
-    if (pawn_run_blocking(&g_dev, 30000) < 0) {
+    /* ---- program (only if IBRAM was cleared by a prior reset) ---- */
+    if (!g_prog_loaded) {
+        pawn_load_program(&g_dev, g_combined_prog, g_combined_prog_len);
+        g_prog_loaded = 1;
+    }
+
+    /* ---- compute ---- */
+    long long ns = pawn_run_blocking(&g_dev, 30000);
+    if (ns < 0) {
         pawn_reset(&g_dev);
+        g_prog_loaded = 0;
         return -2;
     }
+    *compute_us = ns / 1000;
+
+    /* ---- DBRAM readback ---- */
+    t0 = now_ns();
     pawn_dbram_read32(&g_dev, FC2_BASE_OUT, g_logits, FC2_TN);
+    *read_us = (now_ns() - t0) / 1000;
 
     /*
      * Argmax using int32_t comparison.
@@ -221,7 +244,7 @@ static int run_inference(const uint32_t *input, int *cls, long long *time_us)
         if (v > best_v) { best_v = v; best = i; }
     }
     *cls = best;
-    *time_us = (now_ns() - t0) / 1000;
+    *time_us = (now_ns() - wall0) / 1000;
     return 0;
 }
 
@@ -363,16 +386,18 @@ static void handle_request(int fd)
             return;
         }
         int cls;
-        long long time_us;
-        int rc = run_inference(input, &cls, &time_us);
+        long long time_us, load_us, compute_us, read_us;
+        int rc = run_inference(input, &cls, &time_us, &load_us, &compute_us, &read_us);
         if (rc == -1) {
             send_json(fd, 503, "{\"error\":\"weights not loaded\"}");
         } else if (rc == -2) {
             send_json(fd, 500, "{\"error\":\"pawn timeout\"}");
         } else {
-            char resp[64];
+            char resp[128];
             snprintf(resp, sizeof(resp),
-                     "{\"class\":%d,\"time_us\":%lld}", cls, time_us);
+                     "{\"class\":%d,\"time_us\":%lld"
+                     ",\"load_us\":%lld,\"compute_us\":%lld,\"read_us\":%lld}",
+                     cls, time_us, load_us, compute_us, read_us);
             send_json(fd, 200, resp);
         }
         return;
@@ -395,9 +420,12 @@ int main(int argc, char *argv[])
     pawn_reset(&g_dev);
     printf("PAWN ready.\n");
 
-    /* Pre-build combined program (addresses depend only on geometry, not weights) */
+    /* Build and load combined program once; IBRAM retains it across all inferences.
+     * g_prog_loaded is cleared to 0 if pawn_reset is called after a timeout. */
     g_combined_prog_len = build_combined_prog(g_combined_prog);
     printf("Combined program built: %zu instrs\n", g_combined_prog_len);
+    pawn_load_program(&g_dev, g_combined_prog, g_combined_prog_len);
+    g_prog_loaded = 1;
 
     int srv = socket(AF_INET, SOCK_STREAM, 0);
     if (srv < 0) { perror("socket"); pawn_close(&g_dev); return 1; }

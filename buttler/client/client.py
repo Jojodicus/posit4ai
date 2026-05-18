@@ -458,16 +458,22 @@ class InferenceClient(Gtk.Window):
             r  = requests.post(f"{url}/infer", data=body, timeout=5)
             lat_ms = (time.monotonic() - t0) * 1000
             r.raise_for_status()
-            data = r.json()
-            cls  = data["class"]
-            hw_us = data.get("time_us", 0)
-            GLib.idle_add(self._update_prediction, cls, lat_ms, hw_us)
+            data       = r.json()
+            cls        = data["class"]
+            time_us    = data.get("time_us",    0)
+            load_us    = data.get("load_us",    0)
+            compute_us = data.get("compute_us", 0)
+            read_us    = data.get("read_us",    0)
+            GLib.idle_add(self._update_prediction,
+                          cls, lat_ms, time_us, load_us, compute_us, read_us)
         except Exception as e:
             GLib.idle_add(self._update_prediction_error, str(e))
         finally:
             self._infer_busy = False
 
-    def _update_prediction(self, cls: int, lat_ms: float, hw_us: int):
+    def _update_prediction(self, cls: int, lat_ms: float,
+                           time_us: int, load_us: int,
+                           compute_us: int, read_us: int):
         self._last_lat = lat_ms
         name = DIGIT_NAMES[cls] if 0 <= cls < len(DIGIT_NAMES) else str(cls)
         self._pred_lbl.set_markup(
@@ -475,8 +481,9 @@ class InferenceClient(Gtk.Window):
         )
         fps = self._compute_fps()
         self._stats_lbl.set_text(
-            f"FPS: {fps:.1f} | Latency: {lat_ms:.0f} ms "
-            f"(HW: {hw_us / 1000:.1f} ms)"
+            f"FPS: {fps:.1f} | client {lat_ms:.0f} ms | "
+            f"HW {time_us / 1000:.1f} ms "
+            f"(load {load_us} us  compute {compute_us} us  read {read_us} us)"
         )
 
     def _update_prediction_error(self, msg: str):
