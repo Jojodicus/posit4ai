@@ -93,8 +93,10 @@ def evaluate(
         csv_writer = csv.writer(csv_fh)
         if needs_header:
             csv_writer.writerow(
-                ["sample", "latency_ms", "predicted", "actual", "correct"]
+                ["sample", "client_lat_ms", "server_lat_ms", "predicted", "actual", "correct"]
             )
+
+    server_latencies = []  # hw time_us from server response
 
     for i, (img, label) in enumerate(zip(images, labels)):
         # Encode to posit32
@@ -105,7 +107,9 @@ def evaluate(
             r = requests.post(f"{server}/infer", data=p32, timeout=10)
             lat = (time.monotonic() - t0) * 1000  # ms
             r.raise_for_status()
-            cls = r.json()["class"]
+            resp = r.json()
+            cls = resp["class"]
+            hw_us = resp.get("time_us", None)
         except Exception as e:
             errors += 1
             print(f"\n  Error on sample {i}: {e}", file=sys.stderr)
@@ -115,19 +119,25 @@ def evaluate(
             continue
 
         latencies.append(lat)
+        if hw_us is not None:
+            server_latencies.append(hw_us / 1000)  # convert to ms
         ok = cls == int(label)
         if ok:
             correct += 1
 
         if csv_writer is not None:
-            csv_writer.writerow([i, f"{lat:.3f}", cls, int(label), int(ok)])
+            csv_writer.writerow([i, f"{lat:.3f}",
+                                 f"{hw_us / 1000:.3f}" if hw_us is not None else "",
+                                 cls, int(label), int(ok)])
 
         # Progress
         done = len(latencies) + errors
         acc = correct / done if done else 0.0
-        mean = np.mean(latencies) if latencies else 0.0
+        c_mean = np.mean(latencies) if latencies else 0.0
+        s_mean = np.mean(server_latencies) if server_latencies else 0.0
         print(
-            f"\r  [{done:5d}/{n}]  acc={acc:.4f}  lat={mean:.1f} ms (mean)",
+            f"\r  [{done:5d}/{n}]  acc={acc:.4f}"
+            f"  client={c_mean:.1f} ms  server={s_mean:.1f} ms",
             end="",
             flush=True,
         )
@@ -138,17 +148,23 @@ def evaluate(
 
     done = len(latencies) + errors
     lats = np.array(latencies) if latencies else np.array([0.0])
+    slats = np.array(server_latencies) if server_latencies else np.array([0.0])
     return {
         "n_total": n,
         "n_done": done,
         "n_errors": errors,
         "correct": correct,
         "accuracy": correct / done if done else 0.0,
-        "lat_mean": float(np.mean(lats)),
-        "lat_std": float(np.std(lats)),
-        "lat_min": float(np.min(lats)),
-        "lat_max": float(np.max(lats)),
-        "lat_p95": float(np.percentile(lats, 95)),
+        "client_lat_mean": float(np.mean(lats)),
+        "client_lat_std": float(np.std(lats)),
+        "client_lat_min": float(np.min(lats)),
+        "client_lat_max": float(np.max(lats)),
+        "client_lat_p95": float(np.percentile(lats, 95)),
+        "server_lat_mean": float(np.mean(slats)),
+        "server_lat_std": float(np.std(slats)),
+        "server_lat_min": float(np.min(slats)),
+        "server_lat_max": float(np.max(slats)),
+        "server_lat_p95": float(np.percentile(slats, 95)),
         "total_s": float(np.sum(lats) / 1000),
     }
 
@@ -244,7 +260,7 @@ def main():
 
     # -- results -----------------------------------------------------------
     print()
-    print("=" * 50)
+    print("=" * 58)
     print(f"  Checkpoint : {args.checkpoint}")
     print(
         f"  Samples    : {stats['n_done']} / {stats['n_total']}"
@@ -256,14 +272,19 @@ def main():
     )
     print()
     print(
-        f"  Latency (ms) - mean {stats['lat_mean']:.1f} "
-        f"+/- {stats['lat_std']:.1f}  "
-        f"[min {stats['lat_min']:.1f}  p95 {stats['lat_p95']:.1f}  "
-        f"max {stats['lat_max']:.1f}]"
+        f"  Client lat (ms) - mean {stats['client_lat_mean']:.1f} "
+        f"+/- {stats['client_lat_std']:.1f}  "
+        f"[min {stats['client_lat_min']:.1f}  p95 {stats['client_lat_p95']:.1f}  "
+        f"max {stats['client_lat_max']:.1f}]"
     )
-    print(f"  Total HW time : {stats['total_s']:.1f} s")
-    print(f"  Wall time     : {t_wall:.1f} s")
-    print("=" * 50)
+    print(
+        f"  Server lat (ms) - mean {stats['server_lat_mean']:.1f} "
+        f"+/- {stats['server_lat_std']:.1f}  "
+        f"[min {stats['server_lat_min']:.1f}  p95 {stats['server_lat_p95']:.1f}  "
+        f"max {stats['server_lat_max']:.1f}]"
+    )
+    print(f"  Total wall time : {t_wall:.1f} s")
+    print("=" * 58)
 
 
 if __name__ == "__main__":
