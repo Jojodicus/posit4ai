@@ -393,7 +393,7 @@ static void handle_request(int fd)
         } else if (rc == -2) {
             send_json(fd, 500, "{\"error\":\"pawn timeout\"}");
         } else {
-            char resp[128];
+            char resp[192];
             snprintf(resp, sizeof(resp),
                      "{\"class\":%d,\"time_us\":%lld"
                      ",\"load_us\":%lld,\"compute_us\":%lld,\"read_us\":%lld}",
