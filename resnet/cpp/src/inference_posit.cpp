@@ -14,6 +14,7 @@
 // Appends one row to out_csv: source,format,nbits,es,val_acc,val_nll
 // format = "posit" when QUIRE_MODE==0, "positQ" when QUIRE_MODE!=0.
 
+#include <chrono>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
@@ -78,6 +79,7 @@ std::pair<float, float> run_inference_cifar(
     float  total_nll = 0.f;
     size_t seen      = 0;
 
+    auto t0 = std::chrono::steady_clock::now();
     for (auto& batch : *loader) {
         auto data   = batch.data.to(torch::kFloat32);
         auto target = batch.target;
@@ -103,7 +105,9 @@ std::pair<float, float> run_inference_cifar(
                     static_cast<float>(correct) / seen);
         std::fflush(stdout);
     }
-    std::printf("\n");
+    auto t1 = std::chrono::steady_clock::now();
+    double elapsed_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    std::printf("\n  inference time: %.1f ms\n", elapsed_ms);
 
     return {static_cast<float>(correct) / n_test, total_nll / n_test};
 }
@@ -151,6 +155,7 @@ std::pair<float, float> run_inference_mnist(
     float  total_nll = 0.f;
     size_t seen      = 0;
 
+    auto t0 = std::chrono::steady_clock::now();
     for (auto& batch : *loader) {
         auto data   = batch.data.to(torch::kFloat32);
         auto target = batch.target;
@@ -176,7 +181,9 @@ std::pair<float, float> run_inference_mnist(
                     static_cast<float>(correct) / seen);
         std::fflush(stdout);
     }
-    std::printf("\n");
+    auto t1 = std::chrono::steady_clock::now();
+    double elapsed_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    std::printf("\n  inference time: %.1f ms\n", elapsed_ms);
 
     return {static_cast<float>(correct) / n_test, total_nll / n_test};
 }
@@ -210,6 +217,7 @@ std::pair<float, float> run_inference_native_cifar(
     float  total_nll = 0.f;
     size_t seen      = 0;
 
+    auto t0 = std::chrono::steady_clock::now();
     for (auto& batch : *loader) {
         auto data   = batch.data.to(torch::kFloat32);
         auto target = batch.target;
@@ -233,7 +241,9 @@ std::pair<float, float> run_inference_native_cifar(
                     static_cast<float>(correct) / seen);
         std::fflush(stdout);
     }
-    std::printf("\n");
+    auto t1 = std::chrono::steady_clock::now();
+    double elapsed_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    std::printf("\n  inference time: %.1f ms\n", elapsed_ms);
 
     return {static_cast<float>(correct) / n_test, total_nll / n_test};
 }
@@ -267,6 +277,7 @@ std::pair<float, float> run_inference_native_mnist(
     float  total_nll = 0.f;
     size_t seen      = 0;
 
+    auto t0 = std::chrono::steady_clock::now();
     for (auto& batch : *loader) {
         auto data   = batch.data.to(torch::kFloat32);
         auto target = batch.target;
@@ -290,7 +301,9 @@ std::pair<float, float> run_inference_native_mnist(
                     static_cast<float>(correct) / seen);
         std::fflush(stdout);
     }
-    std::printf("\n");
+    auto t1 = std::chrono::steady_clock::now();
+    double elapsed_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    std::printf("\n  inference time: %.1f ms\n", elapsed_ms);
 
     return {static_cast<float>(correct) / n_test, total_nll / n_test};
 }
