@@ -1,20 +1,32 @@
 /*
- * server.c  –  SmallNet FPGA inference server
+ * server.c  --  SmallNet FPGA inference server
  *
  * HTTP API:
- *   GET  /health   → {"status":"ok"}
- *   POST /weights  → binary body: uint32_t[25450] posit32<es=2> row-major
- *                    order: fc1_weight[32×784], fc1_bias[32],
- *                           fc2_weight[10×32], fc2_bias[10]
- *   POST /infer    → binary body: uint32_t[784] posit32<es=2> pixel values
+ *   GET  /health   -> {"status":"ok"}
+ *   POST /weights  -> binary body: uint32_t[25450] posit32<es=2> row-major
+ *                    order: fc1_weight[32x784], fc1_bias[32],
+ *                           fc2_weight[10x32], fc2_bias[10]
+ *   POST /infer    -> binary body: uint32_t[784] posit32<es=2> pixel values
  *                    response: {"class":N,"time_us":T}
  *
  * All uint32_t values are posit<32,2> in native 32-bit encoding (left-aligned
  * in the BRAM word).  An 8-bit bitstream reads the top 8 bits automatically.
  * Argmax uses int32_t comparison, which is correct for all posit widths.
  *
- * Programs are built once at startup and reused across inferences.
- * Weights are loaded at runtime via POST /weights.
+ * One combined program (FC1 then FC2, single HALT) is built at startup and
+ * loaded once per inference.  FC1_BASE_OUT == FC2_BASE_IN so the hidden layer
+ * stays in DBRAM with no CPU roundtrip between layers.
+ *
+ * DBRAM layout (26276 words total, limit 32768):
+ *   [0      ] FC1 input  (784)
+ *   [784    ] FC1 weight (784x32 = 25088, transposed)
+ *   [25872  ] FC1 bias   (32)
+ *   [25904  ] FC1 output = FC2 input (32)
+ *   [25936  ] FC2 weight (32x10 = 320, transposed)
+ *   [26256  ] FC2 output / logits (10)
+ *   [26266  ] FC2 bias   (10)
+ *
+ * Combined program: 25609 instructions (limit 32768).
  *
  * Cross-compile:
  *   arm-linux-gnueabihf-gcc -O2 -Wall -std=c11 -static \
@@ -40,33 +52,31 @@
 #define FC2_IN     32
 #define FC2_OUT    10
 
-/* ---- tiling: fit entire K in a single pass ---- */
-/* Verified fits: input(784) + weight(784×16) + output(16) + bias(16) = 13360 << 32768
- * Instructions: 16*(2+784+1) + 16 ADD + 16 RELU + 1 HALT = 12625 << 32768    */
-#define FC1_TN        16
-#define FC1_TK        FC1_IN                 /* 784: no K-tiling needed */
-#define FC1_N_TILES   (FC1_OUT / FC1_TN)     /* 2 */
+/* FC1: all 32 neurons in one pass (no N-tiling), K=784 fits without K-tiling.
+ * FC2: 10 neurons, K=32. */
+#define FC1_TN        FC1_OUT    /* 32 */
+#define FC1_TK        FC1_IN     /* 784 */
 
-/* fc2 fits trivially: 32 + 320 + 10 + 10 = 372 words, 351 instrs */
-#define FC2_TN        FC2_OUT
-#define FC2_TK        FC2_IN
+#define FC2_TN        FC2_OUT    /* 10 */
+#define FC2_TK        FC2_IN     /* 32 */
 
-/* ---- DBRAM layouts ---- */
+/* ---- combined DBRAM layout ---- */
+/* Bias placed before output so FC1_BASE_OUT == FC2_BASE_IN (no CPU roundtrip). */
 #define FC1_BASE_IN    0
-#define FC1_BASE_W    (FC1_TK)
-#define FC1_BASE_OUT  (FC1_TK + FC1_TK * FC1_TN)
-#define FC1_BASE_BIAS (FC1_BASE_OUT + FC1_TN)
+#define FC1_BASE_W    (FC1_TK)                        /* 784   */
+#define FC1_BASE_BIAS (FC1_BASE_W  + FC1_TK * FC1_TN) /* 25872 */
+#define FC1_BASE_OUT  (FC1_BASE_BIAS + FC1_TN)         /* 25904 */
 
-#define FC2_BASE_IN    0
-#define FC2_BASE_W    (FC2_TK)
-#define FC2_BASE_OUT  (FC2_TK + FC2_TK * FC2_TN)
-#define FC2_BASE_BIAS (FC2_BASE_OUT + FC2_TN)
+#define FC2_BASE_IN    FC1_BASE_OUT                    /* 25904 */
+#define FC2_BASE_W    (FC2_BASE_IN + FC2_TK)           /* 25936 */
+#define FC2_BASE_OUT  (FC2_BASE_W  + FC2_TK * FC2_TN)  /* 26256 */
+#define FC2_BASE_BIAS (FC2_BASE_OUT + FC2_TN)           /* 26266 */
 
-/* ---- program size upper bounds ---- */
-/* per neuron: 2×CLEAR + TK×MADD + 1×READ = TK+3; plus TN×ADD + TN×RELU + HALT */
-#define FC1_PROG_MAX  (FC1_TN * (FC1_TK + 3) + FC1_TN * 2 + 2)
-/* per neuron: 2×CLEAR + TK×MADD + 1×READ = TK+3; plus TN×ADD + HALT */
-#define FC2_PROG_MAX  (FC2_TN * (FC2_TK + 3) + FC2_TN     + 2)
+/* ---- combined program size upper bound ---- */
+/* FC1 (no HALT): TN*(TK+3) + TN ADD + TN RELU                    = 25248 */
+/* FC2 (HALT):    TN*(TK+3) + TN ADD + HALT                       =   361 */
+#define COMBINED_PROG_MAX  (FC1_TN * (FC1_TK + 3) + FC1_TN * 2 + \
+                            FC2_TN * (FC2_TK + 3) + FC2_TN     + 2)
 
 /* ---- weight counts ---- */
 #define W_FC1_W  (FC1_OUT * FC1_IN)   /* 25088 */
@@ -85,16 +95,14 @@ static uint32_t  g_fc2_w[W_FC2_W];
 static uint32_t  g_fc2_b[W_FC2_B];
 static int       g_weights_loaded = 0;
 
-static uint64_t  g_fc1_prog[FC1_PROG_MAX];
-static size_t    g_fc1_prog_len;
-static uint64_t  g_fc2_prog[FC2_PROG_MAX];
-static size_t    g_fc2_prog_len;
+static uint64_t  g_combined_prog[COMBINED_PROG_MAX];
+static size_t    g_combined_prog_len;
 
 static pawn_dev_t g_dev;
 
-/* Scratch buffers (largest tile: FC1_TK × FC1_TN) */
+/* Scratch buffers: g_wtile is large enough for the FC1 weight transpose (25088).
+ * Reused (after the FC1 write) for the smaller FC2 weight transpose (320). */
 static uint32_t  g_wtile[FC1_TK * FC1_TN];
-static uint32_t  g_hidden[FC2_IN];
 static uint32_t  g_logits[FC2_OUT];
 
 /* ---- timing ---- */
@@ -105,15 +113,21 @@ static long long now_ns(void)
     return (long long)ts.tv_sec * 1000000000LL + ts.tv_nsec;
 }
 
-/* ---- program builders ---- */
+/* ---- program builder ---- */
 
 /*
- * fc1 tile program: GEMM (quire) + bias ADD + ReLU
- * DBRAM layout: INPUT[TK] | WEIGHT[TK×TN] | OUTPUT[TN] | BIAS[TN]
+ * Combined FC1+FC2 program.  FC1 runs without HALT; execution falls through
+ * directly into FC2, which ends with HALT.  FC1_BASE_OUT == FC2_BASE_IN so
+ * the hidden layer is consumed in-place with no CPU roundtrip.
+ *
+ * FC1: GEMM (quire) + bias ADD + ReLU  (32 neurons, K=784)
+ * FC2: GEMM (quire) + bias ADD         (10 neurons, K=32, no ReLU)
  */
-static size_t build_fc1_prog(uint64_t *prog)
+static size_t build_combined_prog(uint64_t *prog)
 {
     size_t n = 0;
+
+    /* FC1 GEMM + bias + ReLU */
     for (int j = 0; j < FC1_TN; j++) {
         prog[n++] = PAWN_INSTR(PAWN_OP_QACC_CLEAR, 0, 0, 0);
         prog[n++] = PAWN_INSTR(PAWN_OP_QACC_CLEAR, 0, 0, 0);
@@ -130,17 +144,9 @@ static size_t build_fc1_prog(uint64_t *prog)
     for (int j = 0; j < FC1_TN; j++)
         prog[n++] = PAWN_INSTR(PAWN_OP_RELU, FC1_BASE_OUT + j, 0,
                                FC1_BASE_OUT + j);
-    prog[n++] = PAWN_INSTR(PAWN_OP_HALT, 0, 0, 0);
-    return n;
-}
+    /* no HALT: fall through into FC2 */
 
-/*
- * fc2 tile program: GEMM (quire) + bias ADD (no ReLU)
- * DBRAM layout: INPUT[TK] | WEIGHT[TK×TN] | OUTPUT[TN] | BIAS[TN]
- */
-static size_t build_fc2_prog(uint64_t *prog)
-{
-    size_t n = 0;
+    /* FC2 GEMM + bias (no ReLU) */
     for (int j = 0; j < FC2_TN; j++) {
         prog[n++] = PAWN_INSTR(PAWN_OP_QACC_CLEAR, 0, 0, 0);
         prog[n++] = PAWN_INSTR(PAWN_OP_QACC_CLEAR, 0, 0, 0);
@@ -174,45 +180,29 @@ static int run_inference(const uint32_t *input, int *cls, long long *time_us)
 
     long long t0 = now_ns();
 
-    /* Write input once – reused for both fc1 n-tiles (PAWN only reads it) */
-    pawn_dbram_write32(&g_dev, FC1_BASE_IN, input, FC1_TK);
+    /*
+     * Transpose FC1 weights into DBRAM layout B[k][j] = weight[j][k].
+     * (GEMM: C[j] = sum_k A[k] * B[k][j]  where  B[k][j] = W[j][k])
+     */
+    for (int k = 0; k < FC1_TK; k++)
+        for (int j = 0; j < FC1_TN; j++)
+            g_wtile[k * FC1_TN + j] = g_fc1_w[j * FC1_IN + k];
 
-    /* Load fc1 program once; IBRAM retains it across both n-tile runs */
-    pawn_load_program(&g_dev, g_fc1_prog, g_fc1_prog_len);
+    pawn_dbram_write32(&g_dev, FC1_BASE_IN,   input,    FC1_TK);
+    pawn_dbram_write32(&g_dev, FC1_BASE_W,    g_wtile,  FC1_TK * FC1_TN);
+    pawn_dbram_write32(&g_dev, FC1_BASE_BIAS, g_fc1_b,  FC1_TN);
 
-    /* FC1: two n-tiles, each computing 16 output neurons */
-    for (int tile = 0; tile < FC1_N_TILES; tile++) {
-        int n0 = tile * FC1_TN;
-
-        /*
-         * Transpose weight tile into DBRAM layout B[k][j] = weight[n0+j][k].
-         * (GEMM: C[0][j] = Σ_k A[0][k] * B[k][j]  where  B[k][j] = W[j][k])
-         */
-        for (int k = 0; k < FC1_TK; k++)
-            for (int j = 0; j < FC1_TN; j++)
-                g_wtile[k * FC1_TN + j] = g_fc1_w[(n0 + j) * FC1_IN + k];
-
-        pawn_dbram_write32(&g_dev, FC1_BASE_W,    g_wtile,           FC1_TK * FC1_TN);
-        pawn_dbram_write32(&g_dev, FC1_BASE_BIAS, g_fc1_b + n0,      FC1_TN);
-
-        if (pawn_run_blocking(&g_dev, 10000) < 0) {
-            pawn_reset(&g_dev);
-            return -2;
-        }
-        pawn_dbram_read32(&g_dev, FC1_BASE_OUT, g_hidden + n0, FC1_TN);
-    }
-
-    /* FC2: single tile (all 10 output neurons fit at once) */
+    /* Transpose FC2 weights; reuse g_wtile (FC1 data already written to DBRAM). */
     for (int k = 0; k < FC2_TK; k++)
         for (int j = 0; j < FC2_TN; j++)
             g_wtile[k * FC2_TN + j] = g_fc2_w[j * FC2_IN + k];
 
-    pawn_dbram_write32(&g_dev, FC2_BASE_IN,   g_hidden,   FC2_TK);
-    pawn_dbram_write32(&g_dev, FC2_BASE_W,    g_wtile,    FC2_TK * FC2_TN);
-    pawn_dbram_write32(&g_dev, FC2_BASE_BIAS, g_fc2_b,    FC2_TN);
-    pawn_load_program(&g_dev, g_fc2_prog, g_fc2_prog_len);
+    pawn_dbram_write32(&g_dev, FC2_BASE_W,    g_wtile,  FC2_TK * FC2_TN);
+    pawn_dbram_write32(&g_dev, FC2_BASE_BIAS, g_fc2_b,  FC2_TN);
 
-    if (pawn_run_blocking(&g_dev, 10000) < 0) {
+    pawn_load_program(&g_dev, g_combined_prog, g_combined_prog_len);
+
+    if (pawn_run_blocking(&g_dev, 30000) < 0) {
         pawn_reset(&g_dev);
         return -2;
     }
@@ -405,11 +395,9 @@ int main(int argc, char *argv[])
     pawn_reset(&g_dev);
     printf("PAWN ready.\n");
 
-    /* Pre-build programs (addresses only depend on tile geometry, not weights) */
-    g_fc1_prog_len = build_fc1_prog(g_fc1_prog);
-    g_fc2_prog_len = build_fc2_prog(g_fc2_prog);
-    printf("Programs built: fc1=%zu instrs, fc2=%zu instrs\n",
-           g_fc1_prog_len, g_fc2_prog_len);
+    /* Pre-build combined program (addresses depend only on geometry, not weights) */
+    g_combined_prog_len = build_combined_prog(g_combined_prog);
+    printf("Combined program built: %zu instrs\n", g_combined_prog_len);
 
     int srv = socket(AF_INET, SOCK_STREAM, 0);
     if (srv < 0) { perror("socket"); pawn_close(&g_dev); return 1; }
