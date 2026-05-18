@@ -13,8 +13,8 @@ Weight upload accepts:
 """
 
 import collections
-import io
-import math
+import ctypes
+import pathlib
 import struct
 import threading
 import time
@@ -32,87 +32,27 @@ from gi.repository import GLib, GdkPixbuf, Gtk
 MNIST_MEAN = 0.1307
 MNIST_STD  = 0.3081
 
-# -- posit<32,2> encoding -----------------------------------------------------
+# -- posit<32,2> encoding via stillwater/universal ----------------------------
 
-def _encode_posit32_es2_scalar(x: float) -> int:
-    """
-    Encode a single float as posit<32,2> and return the raw uint32.
-
-    posit<32,2>:  bit 31 = sign, followed by variable-length regime,
-                  2-bit exponent, fractional mantissa.
-
-    The encoding uses the property that any IEEE-754 normal float with
-    binary exponent e maps to  k = e//4,  exp2 = e - 4*k  (0..3).
-    """
-    if math.isnan(x):
-        return 0x80000000        # NaR
-    if x == 0.0:
-        return 0x00000000
-    if math.isinf(x):
-        return 0xFF800001 if x < 0 else 0x7FFFFFFF  # +/-maxpos
-
-    sign = 0
-    if x < 0:
-        sign = 1
-        x = -x
-
-    # Extract components from float32 bit pattern
-    bits32 = struct.unpack("<I", struct.pack("<f", float(np.float32(x))))[0]
-    biased_exp = (bits32 >> 23) & 0xFF
-    mant23     = bits32 & 0x7FFFFF
-
-    if biased_exp == 0:
-        # Subnormal: approximate as minpos
-        raw = 1
-        return (~raw + 1) & 0xFFFFFFFF if sign else raw
-
-    ieee_exp = biased_exp - 127  # true exponent, [-126, 127]
-
-    # Posit decomposition
-    k    = ieee_exp // 4          # floor division (correct for negatives)
-    exp2 = ieee_exp - 4 * k       # always 0..3
-
-    k = max(-30, min(30, k))
-
-    # Build 31-bit magnitude (bit 30 downward)
-    raw = 0
-    pos = 30
-
-    if k >= 0:
-        ones = min(k + 1, pos + 1)
-        for _ in range(ones):
-            raw |= (1 << pos); pos -= 1
-        if pos >= 0:
-            pos -= 1                   # terminating 0
-    else:
-        pos -= min(-k, pos + 1)        # skip zeros
-        if pos >= 0:
-            raw |= (1 << pos); pos -= 1  # terminating 1
-
-    # 2-bit exponent
-    if pos >= 0: raw |= ((exp2 >> 1) & 1) << pos; pos -= 1
-    if pos >= 0: raw |= ( exp2       & 1) << pos; pos -= 1
-
-    # Mantissa: fill remaining bits from top of float23 mantissa.
-    # frac_bits may exceed 23 (posit has more precision than float32 for small
-    # k values) -- clamp and leave the lower bits as 0.
-    if pos >= 0:
-        frac_bits = min(pos + 1, 23)
-        raw |= (mant23 >> (23 - frac_bits)) << (pos + 1 - frac_bits)
-
-    if sign:
-        raw = (~raw + 1) & 0xFFFFFFFF
-    return raw
-
-
-# Vectorise once, reuse for all calls
-_encode_posit32_vec = np.vectorize(_encode_posit32_es2_scalar,
-                                   otypes=[np.uint32])
+_lib = ctypes.CDLL(pathlib.Path(__file__).parent / "posit_convert.so")
+_lib.float_to_posit32_array.argtypes = [
+    ctypes.POINTER(ctypes.c_float),
+    ctypes.POINTER(ctypes.c_uint32),
+    ctypes.c_size_t,
+]
+_lib.float_to_posit32_array.restype = None
 
 
 def float_to_posit32(arr: np.ndarray) -> np.ndarray:
     """Convert float32 array to posit<32,2> uint32 array."""
-    return _encode_posit32_vec(arr.astype(np.float32).ravel()).reshape(arr.shape)
+    flat = np.ascontiguousarray(arr.ravel(), dtype=np.float32)
+    out  = np.empty(flat.size, dtype=np.uint32)
+    _lib.float_to_posit32_array(
+        flat.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+        out.ctypes.data_as(ctypes.POINTER(ctypes.c_uint32)),
+        ctypes.c_size_t(flat.size),
+    )
+    return out.reshape(arr.shape)
 
 
 # -- checkpoint loading --------------------------------------------------------
@@ -196,17 +136,13 @@ def load_pt(path: str):
 
 def weights_to_bytes(fc1_w, fc1_b, fc2_w, fc2_b) -> bytes:
     """Concatenate weight arrays into a flat uint32 byte string."""
-    return b"".join(a.ravel().astype(np.uint32).tobytes()
-                    for a in (fc1_w, fc1_b, fc2_w, fc2_b))
+    return b"".join(a.ravel().tobytes() for a in (fc1_w, fc1_b, fc2_w, fc2_b))
 
 
 # -- image processing ----------------------------------------------------------
 
-def preprocess(frame_bgr: np.ndarray, invert: bool) -> tuple:
-    """
-    Crop to square, resize to 28x28 grayscale.
-    Returns (small_uint8 [28,28], posit32_bytes).
-    """
+def crop_and_gray(frame_bgr: np.ndarray, invert: bool) -> np.ndarray:
+    """Crop to square, resize to 28x28 grayscale. Returns uint8 [28,28]."""
     h, w = frame_bgr.shape[:2]
     s    = min(h, w)
     y0   = (h - s) // 2
@@ -214,14 +150,15 @@ def preprocess(frame_bgr: np.ndarray, invert: bool) -> tuple:
     crop = frame_bgr[y0:y0 + s, x0:x0 + s]
     gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     small = cv2.resize(gray, (28, 28), interpolation=cv2.INTER_AREA)
-
     if invert:
         small = 255 - small
+    return small
 
-    # Normalize as MNIST and encode to posit32
-    norm  = (small.astype(np.float32) / 255.0 - MNIST_MEAN) / MNIST_STD
-    p32   = float_to_posit32(norm.ravel())
-    return small, p32.tobytes()
+
+def encode_for_infer(small: np.ndarray) -> bytes:
+    """Normalize as MNIST and encode 28x28 uint8 to posit<32,2> bytes."""
+    norm = (small.astype(np.float32) / 255.0 - MNIST_MEAN) / MNIST_STD
+    return float_to_posit32(norm.ravel()).tobytes()
 
 
 # -- numpy array -> GdkPixbuf ---------------------------------------------------
@@ -253,12 +190,13 @@ class InferenceClient(Gtk.Window):
         self.set_border_width(8)
         self.connect("destroy", Gtk.main_quit)
 
-        self._cap        = None
-        self._running    = False
-        self._infer_busy = False
-        self._last_pred  = "-"
-        self._last_lat   = 0.0
+        self._cap            = None
+        self._running        = False
+        self._infer_busy     = False
+        self._last_lat       = 0.0
+        self._latest_frame   = None
         self._frame_ts: collections.deque = collections.deque(maxlen=30)
+        self._frame_timer_id = None
         self._infer_timer_id = None
 
         self._build_ui()
@@ -379,14 +317,18 @@ class InferenceClient(Gtk.Window):
                 return
             self._running = True
             btn.set_label("Stop")
-            # Webcam at ~30 fps
-            GLib.timeout_add(33, self._update_frame)
-            # Inference loop
+            self._frame_timer_id = GLib.timeout_add(33, self._update_frame)
             self._infer_timer_id = GLib.timeout_add(INFER_INTERVAL_MS,
                                                      self._trigger_infer)
         else:
             self._running = False
             btn.set_label("Start")
+            if self._frame_timer_id is not None:
+                GLib.source_remove(self._frame_timer_id)
+                self._frame_timer_id = None
+            if self._infer_timer_id is not None:
+                GLib.source_remove(self._infer_timer_id)
+                self._infer_timer_id = None
             if self._cap:
                 self._cap.release()
                 self._cap = None
@@ -412,7 +354,7 @@ class InferenceClient(Gtk.Window):
 
         # Processed 28x28 view
         invert = self._invert_chk.get_active()
-        small, _ = preprocess(frame, invert)
+        small = crop_and_gray(frame, invert)
         scaled = cv2.resize(small, (28 * SMALL_SCALE, 28 * SMALL_SCALE),
                             interpolation=cv2.INTER_NEAREST)
         scaled_rgb = cv2.cvtColor(scaled, cv2.COLOR_GRAY2RGB)
@@ -441,7 +383,7 @@ class InferenceClient(Gtk.Window):
             return False
         if self._infer_busy:
             return True
-        frame = getattr(self, "_latest_frame", None)
+        frame = self._latest_frame
         if frame is None:
             return True
         self._infer_busy = True
@@ -453,7 +395,7 @@ class InferenceClient(Gtk.Window):
 
     def _infer_worker(self, frame: np.ndarray, url: str, invert: bool):
         try:
-            _, body = preprocess(frame, invert)
+            body = encode_for_infer(crop_and_gray(frame, invert))
             t0 = time.monotonic()
             r  = requests.post(f"{url}/infer", data=body, timeout=5)
             lat_ms = (time.monotonic() - t0) * 1000

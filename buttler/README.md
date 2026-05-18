@@ -9,8 +9,16 @@ The server exposes an HTTP API; the client captures webcam frames and sends them
 ./build.sh
 ```
 
-Requires `arm-linux-gnueabihf-gcc` for the server and `uv` for the client.
-To build natively on the board: `make -C server CROSS=""`
+Requires:
+- `arm-linux-gnueabihf-gcc` for the server (cross-compile)
+- `g++` with C++20 support for `client/posit_convert.so`
+- `uv` for the Python client venv
+
+To build the server natively on the board: `make -C server CROSS=""`
+
+The posit conversion library (`client/posit_convert.so`) is built against the
+stillwater/universal headers in `../spike-xposit/universal/include` and must be
+rebuilt whenever that path changes. Run `make -C client` to rebuild it manually.
 
 ## Server (FPGA)
 

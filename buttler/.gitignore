@@ -1,4 +1,7 @@
 __pycache__
+*.pyc
 server/server
 server/server.emu*
+client/posit_convert.so
+client/.venv/
 *.csv
