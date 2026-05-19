@@ -23,22 +23,24 @@ BIN="${BIT}.bin"
 echo "==> Pushing to ${REMOTE}:${DEST}"
 ssh "${REMOTE}" "mkdir -p ${DEST}/examples"
 
-# Bitstream: convert .bit -> .bit.bin (byte-swapped raw binary required by
+# Bitstream: convert .bit -> .bin (byte-swapped raw binary required by
 # the Zynq fpga_manager sysfs interface).
-if [ -f "${BIT}" ]; then
-    # Source Vivado env so bootgen is on PATH
-    source "${ROOT}/scripts/vivado_env.sh" >/dev/null 2>&1
+if [ ! -f ${BIN} ]; then
+    if [ -f "${BIT}" ]; then
+        # Source Vivado env so bootgen is on PATH
+        source "${ROOT}/scripts/vivado_env.sh" >/dev/null 2>&1
 
-    BIF="${ROOT}/vivado_proj/posit_research.runs/impl_1/convert.bif"
-    echo "all: { ${BIT} }" > "${BIF}"
-    bootgen -image "${BIF}" -arch zynq -process_bitstream bin -w on
-    rm -f "${BIF}"
-
+        BIF="${ROOT}/vivado_proj/posit_research.runs/impl_1/convert.bif"
+        echo "all: { ${BIT} }" > "${BIF}"
+        bootgen -image "${BIF}" -arch zynq -process_bitstream bin -w on
+        rm -f "${BIF}"
+    else
+        echo "    WARNING: bitstream not found at ${BIT}"
+        echo "             Run ./impl.sh first."
+        exit 1
+    fi
     scp "${BIN}" "${REMOTE}:${DEST}/zynq_accel_top.bin"
     echo "    bitstream (.bin): ok"
-else
-    echo "    WARNING: bitstream not found at ${BIT}"
-    echo "             Run ./impl.sh first."
 fi
 
 # Binaries
