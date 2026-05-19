@@ -74,7 +74,8 @@ def load_mnist_test(data_dir: str):
 
 
 def evaluate(
-    server: str, images: np.ndarray, labels: np.ndarray, csv_path: str | None = None
+    server: str, images: np.ndarray, labels: np.ndarray,
+    csv_path: str | None = None, use_float: bool = False,
 ) -> dict:
     """
     Run inference on every image and return a dict with accuracy and timing.
@@ -104,7 +105,10 @@ def evaluate(
     hw_read_us    = []
 
     for i, (img, label) in enumerate(zip(images, labels)):
-        p32 = float_to_posit32(img).tobytes()
+        if use_float:
+            p32 = np.ascontiguousarray(img, dtype=np.float32).tobytes()
+        else:
+            p32 = float_to_posit32(img).tobytes()
 
         t0 = time.monotonic()
         try:
@@ -230,6 +234,12 @@ def main():
         default=None,
         help="Append per-sample results (latency, predicted, actual) to CSV file",
     )
+    parser.add_argument(
+        "--float",
+        action="store_true",
+        dest="use_float",
+        help="Send raw float32 inputs instead of posit<32,2>",
+    )
     args = parser.parse_args()
 
     server = args.server.rstrip("/")
@@ -247,11 +257,14 @@ def main():
     if not args.skip_upload:
         ckpt = args.checkpoint
         print(f"Loading checkpoint: {ckpt}")
+        if args.use_float and ckpt.endswith(".dat"):
+            print("Error: --float is not supported with .dat checkpoints", file=sys.stderr)
+            sys.exit(1)
         t0 = time.monotonic()
         if ckpt.endswith(".dat"):
             weights = load_dat(ckpt)
         else:
-            weights = load_pt(ckpt)
+            weights = load_pt(ckpt, use_float=args.use_float)
         print(f"  Converted in {(time.monotonic() - t0) * 1000:.0f} ms")
 
         print("Uploading weights ...")
@@ -273,7 +286,7 @@ def main():
     # -- run evaluation ----------------------------------------------------
     print("\nRunning inference ...")
     t_wall = time.monotonic()
-    stats = evaluate(server, images, labels, csv_path=args.log_csv)
+    stats = evaluate(server, images, labels, csv_path=args.log_csv, use_float=args.use_float)
     t_wall = time.monotonic() - t_wall
 
     # -- results -----------------------------------------------------------
@@ -284,6 +297,7 @@ def main():
     print()
     print("=" * 62)
     print(f"  Checkpoint : {args.checkpoint}")
+    print(f"  Input fmt  : {'float32' if args.use_float else 'posit<32,2>'}")
     print(
         f"  Samples    : {stats['n_done']} / {stats['n_total']}"
         + (f"  ({stats['n_errors']} errors)" if stats["n_errors"] else "")
