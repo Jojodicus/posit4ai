@@ -111,12 +111,18 @@ set_property library flo_mac32 [get_files positmac32.vhd]
 # 8/16/32-bit Add and Mult share some sub-entity names within each pair -- same pattern
 # as 8 vs 16 bit; Vivado accepts identical duplicate declarations in 'work'.
 # PERCIVAL uses _F50_ frequency suffix; FloPoCo uses _F0_ -- no cross-library conflict.
-add_files -norecurse $root_dir/rtl/Flo-Posit/PositAdd/sign_magnitude/PositAdd_8_2/flopoco.vhdl
-add_files -norecurse $root_dir/rtl/Flo-Posit/PositAdd/sign_magnitude/PositAdd_16_2/flopoco.vhdl
-add_files -norecurse $root_dir/rtl/Flo-Posit/PositAdd/sign_magnitude/PositAdd_32_2/flopoco.vhdl
-add_files -norecurse $root_dir/rtl/Flo-Posit/PositMult/sign_magnitude/PositMult_8_2/flopoco.vhdl
-add_files -norecurse $root_dir/rtl/Flo-Posit/PositMult/sign_magnitude/PositMult_16_2/flopoco.vhdl
-add_files -norecurse $root_dir/rtl/Flo-Posit/PositMult/sign_magnitude/PositMult_32_2/flopoco.vhdl
+add_files -norecurse $root_dir/harness/arith/posit_add8_tc.vhdl
+add_files -norecurse $root_dir/harness/arith/posit_add16_tc.vhdl
+add_files -norecurse $root_dir/harness/arith/posit_add32_tc.vhdl
+add_files -norecurse $root_dir/harness/arith/posit_mult8_tc.vhdl
+add_files -norecurse $root_dir/harness/arith/posit_mult16_tc.vhdl
+add_files -norecurse $root_dir/harness/arith/posit_mult32_tc.vhdl
+set_property library flo_tc_add8  [get_files posit_add8_tc.vhdl]
+set_property library flo_tc_add16 [get_files posit_add16_tc.vhdl]
+set_property library flo_tc_add32 [get_files posit_add32_tc.vhdl]
+set_property library flo_tc_mul8  [get_files posit_mult8_tc.vhdl]
+set_property library flo_tc_mul16 [get_files posit_mult16_tc.vhdl]
+set_property library flo_tc_mul32 [get_files posit_mult32_tc.vhdl]
 add_files -norecurse $root_dir/rtl/Flo-Posit/PositDiv/8_bit/flopoco.vhdl
 add_files -norecurse $root_dir/rtl/Flo-Posit/PositDiv/16_bit/flopoco.vhdl
 add_files -norecurse $root_dir/rtl/Flo-Posit/PositDiv/32_bit/flopoco.vhdl
