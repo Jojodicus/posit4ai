@@ -20,6 +20,13 @@ echo ""
 mkdir -p reports
 run_vivado_batch scripts/find_fmax.tcl
 
+BIT="vivado_proj/posit_research.runs/impl_1/zynq_accel_top.bit"
+BIF="vivado_proj/posit_research.runs/impl_1/convert.bif"
+echo "all: { ${BIT} }" > "${BIF}"
+bootgen -image "${BIF}" -arch zynq -process_bitstream bin -w on
+rm -f "${BIF}"
+cp ${BIT}.bin reports/zynq_accel_top.bin
+
 echo ""
 echo "Detailed log: reports/fmax_search.log"
 echo "========================================"
