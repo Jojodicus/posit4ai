@@ -6,14 +6,20 @@ import torch
 import torch.nn.functional as F
 
 
-def evaluate(model, loader, device, dtype=torch.float32):
-    """Returns (accuracy, mean NLL). Logits are cast to fp32 before metric computation."""
+def evaluate(model, loader, device, dtype=torch.float32, quant_dtype=None):
+    """Returns (accuracy, mean NLL). Logits are cast to fp32 before metric computation.
+
+    quant_dtype: if set, inputs are round-tripped through this dtype before the forward
+    pass (quantize-dequantize), used to simulate FP8 activation quantization.
+    """
     model.eval()
     correct = total = 0
     total_nll = 0.0
     with torch.no_grad():
         for x, y in loader:
             x = x.to(device=device, dtype=dtype)
+            if quant_dtype is not None:
+                x = x.to(quant_dtype).to(dtype)
             y = y.to(device)
             log_probs = F.log_softmax(model(x).float(), dim=1)
             total_nll += F.nll_loss(log_probs, y, reduction='sum').item()
