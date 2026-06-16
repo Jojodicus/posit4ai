@@ -212,6 +212,9 @@ class InferenceClient(Gtk.Window):
         self._infer_timer_id = None
         self._cam_pixbuf     = None
         self._proc_pixbuf    = None
+        self._ui_scale       = 1.0
+        self._pred_text      = "-"
+        self._pred_color     = None
 
         self._build_ui()
 
@@ -234,44 +237,38 @@ class InferenceClient(Gtk.Window):
         btn_upload.connect("clicked", self._on_upload_weights)
         bar.pack_start(btn_upload, False, False, 0)
 
-        self._status_lbl = Gtk.Label(label="No weights loaded.")
-        self._status_lbl.set_xalign(0.0)
-        bar.pack_start(self._status_lbl, True, True, 0)
-
         # -- image area ---------------------------------------------------
         img_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         root.pack_start(img_box, True, True, 0)
 
         cam_frame = Gtk.Frame(label="Webcam")
         self._cam_da = Gtk.DrawingArea()
-        self._cam_da.set_size_request(160, 120)
+        self._cam_da.set_size_request(320, 240)
         self._cam_da.connect("draw", self._on_cam_draw)
         cam_frame.add(self._cam_da)
         img_box.pack_start(cam_frame, True, True, 0)
 
         # Right column: "What model sees" + big prediction number below
         right_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        img_box.pack_start(right_col, True, True, 0)
+        img_box.pack_start(right_col, False, False, 0)
 
         proc_frame = Gtk.Frame(label="What model sees")
         self._proc_da = Gtk.DrawingArea()
-        self._proc_da.set_size_request(112, 112)
+        self._proc_da.set_size_request(200, 200)
         self._proc_da.connect("draw", self._on_proc_draw)
         proc_frame.add(self._proc_da)
         right_col.pack_start(proc_frame, True, True, 0)
 
+        pred_frame = Gtk.Frame(label="Prediction")
+        self._pred_box = Gtk.Box()
+        self._pred_box.set_size_request(200, 200)
         self._pred_lbl = Gtk.Label()
-        self._pred_lbl.set_markup("<span font_desc='Sans Bold 72'>-</span>")
+        self._pred_lbl.set_markup("<span font_desc='Monospace Bold 72'>-</span>")
         self._pred_lbl.set_halign(Gtk.Align.CENTER)
         self._pred_lbl.set_valign(Gtk.Align.CENTER)
-        self._pred_lbl.set_size_request(-1, -1)
-        right_col.pack_start(self._pred_lbl, True, True, 0)
-
-        # -- stats row ----------------------------------------------------
-        self._stats_lbl = Gtk.Label(label="FPS: - | Latency: -")
-        self._stats_lbl.set_xalign(0.0)
-        self._stats_lbl.set_margin_start(2)
-        root.pack_start(self._stats_lbl, False, False, 0)
+        self._pred_box.pack_start(self._pred_lbl, True, True, 0)
+        pred_frame.add(self._pred_box)
+        right_col.pack_start(pred_frame, False, False, 0)
 
         # -- controls -----------------------------------------------------
         ctrl = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -305,6 +302,41 @@ class InferenceClient(Gtk.Window):
         self._contrast_scale.set_digits(1)
         sliders.pack_start(self._contrast_scale, True, True, 0)
 
+        # -- stats grid ---------------------------------------------------
+        def _stat_row(grid, row, desc, unit, w=7):
+            d = Gtk.Label(label=desc)
+            d.set_xalign(1.0)
+            grid.attach(d, 0, row, 1, 1)
+            v = Gtk.Label(label="-")
+            v.set_xalign(1.0)
+            v.set_width_chars(w)
+            grid.attach(v, 1, row, 1, 1)
+            u = Gtk.Label(label=unit)
+            u.set_xalign(0.0)
+            grid.attach(u, 2, row, 1, 1)
+            return v
+
+        sg = Gtk.Grid()
+        sg.set_column_spacing(6)
+        sg.set_row_spacing(2)
+        sg.set_margin_start(2)
+        root.pack_start(sg, False, False, 0)
+
+        self._v_cam_fps   = _stat_row(sg, 0, "Cam FPS",  "fps")
+        self._v_infer_fps = _stat_row(sg, 1, "Infer",    "/s")
+        self._v_client    = _stat_row(sg, 2, "Latency",  "ms")
+        self._v_hw        = _stat_row(sg, 3, "HW",       "ms")
+        self._v_load      = _stat_row(sg, 4, "Load",     "µs")
+        self._v_compute   = _stat_row(sg, 5, "Compute",  "µs")
+        self._v_read      = _stat_row(sg, 6, "Read",     "µs")
+
+        # -- status line --------------------------------------------------
+        self._status_lbl = Gtk.Label(label="No weights loaded.")
+        self._status_lbl.set_xalign(0.0)
+        self._status_lbl.set_margin_top(2)
+        root.pack_start(self._status_lbl, False, False, 0)
+
+        self.connect("key-press-event", self._on_key_press)
         self.show_all()
 
     # -- draw callbacks (letterbox into DrawingArea) -----------------------
@@ -436,17 +468,52 @@ class InferenceClient(Gtk.Window):
         self._proc_pixbuf = ndarray_to_pixbuf(cv2.cvtColor(small, cv2.COLOR_GRAY2RGB))
         self._proc_da.queue_draw()
 
-        # FPS label (use previous latency value)
-        fps = self._compute_fps()
-        self._stats_lbl.set_text(
-            f"FPS: {fps:.1f} | Latency: {self._last_lat:.0f} ms"
-        )
+        self._v_cam_fps.set_text(f"{self._compute_frame_fps():.1f}")
 
         # Store frame for inference worker
         self._latest_frame = frame.copy()
         return True
 
-    def _compute_fps(self) -> float:
+    def _set_pred(self, text: str, color: str | None = None):
+        self._pred_text  = text
+        self._pred_color = color
+        size = int(72 * self._ui_scale)
+        col  = f" foreground='{color}'" if color else ""
+        self._pred_lbl.set_markup(
+            f"<span font_desc='Monospace Bold {size}'{col}>{text}</span>"
+        )
+
+    def _apply_scale(self, scale: float):
+        self._ui_scale = scale
+        sz_cam  = (int(320 * scale), int(240 * scale))
+        sz_proc = int(200 * scale)
+        self._cam_da.set_size_request(*sz_cam)
+        self._proc_da.set_size_request(sz_proc, sz_proc)
+        self._pred_box.set_size_request(sz_proc, sz_proc)
+        self._set_pred(self._pred_text, self._pred_color)
+        self.resize(1, 1)
+
+    def _on_key_press(self, _widget, event):
+        if not (event.state & Gdk.ModifierType.CONTROL_MASK):
+            return False
+        if event.keyval in (Gdk.KEY_plus, Gdk.KEY_equal, Gdk.KEY_KP_Add):
+            self._apply_scale(min(3.0, round(self._ui_scale + 0.25, 2)))
+            return True
+        if event.keyval in (Gdk.KEY_minus, Gdk.KEY_KP_Subtract):
+            self._apply_scale(max(0.5, round(self._ui_scale - 0.25, 2)))
+            return True
+        if event.keyval in (Gdk.KEY_0, Gdk.KEY_KP_0):
+            self._apply_scale(1.0)
+            return True
+        return False
+
+    def _compute_frame_fps(self) -> float:
+        ts = self._frame_ts
+        if len(ts) < 2:
+            return 0.0
+        return (len(ts) - 1) / (ts[-1] - ts[0])
+
+    def _compute_infer_fps(self) -> float:
         ts = self._infer_ts
         if len(ts) < 2:
             return 0.0
@@ -500,21 +567,18 @@ class InferenceClient(Gtk.Window):
         self._infer_ts.append(time.monotonic())
         self._last_lat = lat_ms
         name = DIGIT_NAMES[cls] if 0 <= cls < len(DIGIT_NAMES) else str(cls)
-        self._pred_lbl.set_markup(
-            f"<span font_desc='Sans Bold 72'>{name}</span>"
-        )
-        fps = self._compute_fps()
-        self._stats_lbl.set_text(
-            f"FPS: {fps:.1f} | client {lat_ms:.0f} ms | "
-            f"HW {time_us / 1000:.1f} ms "
-            f"(load {load_us} us  compute {compute_us} us  read {read_us} us)"
-        )
+        self._set_pred(name)
+        self._v_infer_fps.set_text(f"{self._compute_infer_fps():.1f}")
+        self._v_client.set_text(f"{lat_ms:.0f}")
+        self._v_hw.set_text(f"{time_us / 1000:.1f}")
+        self._v_load.set_text(str(load_us))
+        self._v_compute.set_text(str(compute_us))
+        self._v_read.set_text(str(read_us))
+        self._status_lbl.set_text("Weights loaded.")
 
     def _update_prediction_error(self, msg: str):
-        self._pred_lbl.set_markup(
-            "<span font_desc='Sans Bold 72' foreground='red'>!</span>"
-        )
-        self._stats_lbl.set_text(msg[:80])
+        self._set_pred("!", color="red")
+        self._status_lbl.set_text(f"Error: {msg[:120]}")
 
 
 # -- entry point ---------------------------------------------------------------
