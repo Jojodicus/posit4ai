@@ -189,8 +189,7 @@ def ndarray_to_pixbuf(arr: np.ndarray) -> GdkPixbuf.Pixbuf:
 
 PREVIEW_W = 320
 PREVIEW_H = 240
-SMALL_SCALE = 8          # 28 x 8 = 224 px for "what model sees"
-INFER_INTERVAL_MS = 50   # target inference rate (~20 fps max)
+SMALL_SCALE = 8   # 28 x 8 = 224 px for "what model sees"
 
 DIGIT_NAMES = [str(i) for i in range(10)]
 
@@ -203,18 +202,22 @@ class InferenceClient(Gtk.Window):
 
         self._cap            = None
         self._running        = False
-        self._infer_busy     = False
         self._last_lat       = 0.0
         self._latest_frame   = None
         self._frame_ts: collections.deque = collections.deque(maxlen=30)
         self._infer_ts: collections.deque = collections.deque(maxlen=30)
-        self._frame_timer_id = None
-        self._infer_timer_id = None
         self._cam_pixbuf     = None
         self._proc_pixbuf    = None
         self._ui_scale       = 1.0
         self._pred_text      = "-"
         self._pred_color     = None
+
+        # Cached widget state — written on GTK thread, read on worker threads
+        self._cfg_invert    = False
+        self._cfg_use_float = False
+        self._cfg_zoom      = 1.0
+        self._cfg_contrast  = 1.0
+        self._cfg_url       = "http://10.42.0.2:8080"
 
         self._build_ui()
 
@@ -231,6 +234,7 @@ class InferenceClient(Gtk.Window):
         bar.pack_start(Gtk.Label(label="Server:"), False, False, 0)
         self._url_entry = Gtk.Entry()
         self._url_entry.set_text("http://10.42.0.2:8080")
+        self._url_entry.connect("changed", lambda w: setattr(self, "_cfg_url", w.get_text().rstrip("/")))
         bar.pack_start(self._url_entry, True, True, 0)
 
         btn_upload = Gtk.Button(label="Upload Weights")
@@ -275,9 +279,11 @@ class InferenceClient(Gtk.Window):
         root.pack_start(ctrl, False, False, 0)
 
         self._invert_chk = Gtk.CheckButton(label="Invert colors")
+        self._invert_chk.connect("toggled", lambda w: setattr(self, "_cfg_invert", w.get_active()))
         ctrl.pack_start(self._invert_chk, False, False, 0)
 
         self._float_chk = Gtk.CheckButton(label="Send floats")
+        self._float_chk.connect("toggled", lambda w: setattr(self, "_cfg_use_float", w.get_active()))
         ctrl.pack_start(self._float_chk, False, False, 0)
 
         self._start_btn = Gtk.ToggleButton(label="Start")
@@ -293,6 +299,7 @@ class InferenceClient(Gtk.Window):
             Gtk.Orientation.HORIZONTAL, 1.0, 8.0, 0.1)
         self._zoom_scale.set_value(1.0)
         self._zoom_scale.set_digits(1)
+        self._zoom_scale.connect("value-changed", lambda w: setattr(self, "_cfg_zoom", w.get_value()))
         sliders.pack_start(self._zoom_scale, True, True, 0)
 
         sliders.pack_start(Gtk.Label(label="Contrast:"), False, False, 0)
@@ -300,6 +307,7 @@ class InferenceClient(Gtk.Window):
             Gtk.Orientation.HORIZONTAL, 0.5, 4.0, 0.1)
         self._contrast_scale.set_value(1.0)
         self._contrast_scale.set_digits(1)
+        self._contrast_scale.connect("value-changed", lambda w: setattr(self, "_cfg_contrast", w.get_value()))
         sliders.pack_start(self._contrast_scale, True, True, 0)
 
         # -- stats grid ---------------------------------------------------
@@ -391,9 +399,8 @@ class InferenceClient(Gtk.Window):
             return
 
         self._status_lbl.set_text("Converting...")
-        url = self._url_entry.get_text().rstrip("/")
-        use_float = self._float_chk.get_active()
-        threading.Thread(target=self._upload_worker, args=(path, url, use_float),
+        threading.Thread(target=self._upload_worker,
+                         args=(path, self._cfg_url, self._cfg_use_float),
                          daemon=True).start()
 
     def _upload_worker(self, path: str, url: str, use_float: bool = False):
@@ -423,56 +430,52 @@ class InferenceClient(Gtk.Window):
                 btn.set_active(False)
                 self._status_lbl.set_text("Cannot open webcam.")
                 return
+            self._cap.set(cv2.CAP_PROP_FPS, 60)
             self._running = True
             btn.set_label("Stop")
-            self._frame_timer_id = GLib.timeout_add(33, self._update_frame)
-            self._infer_timer_id = GLib.timeout_add(INFER_INTERVAL_MS,
-                                                     self._trigger_infer)
+            threading.Thread(target=self._capture_loop, daemon=True).start()
+            threading.Thread(target=self._infer_loop,   daemon=True).start()
         else:
             self._running = False
             btn.set_label("Start")
-            if self._frame_timer_id is not None:
-                GLib.source_remove(self._frame_timer_id)
-                self._frame_timer_id = None
-            if self._infer_timer_id is not None:
-                GLib.source_remove(self._infer_timer_id)
-                self._infer_timer_id = None
-            if self._cap:
-                self._cap.release()
-                self._cap = None
+            # Threads check _running and exit; cap released by capture thread
 
-    # -- frame update -------------------------------------------------------
+    # -- capture thread -----------------------------------------------------
 
-    def _update_frame(self):
-        if not self._running:
-            return False
+    def _capture_loop(self):
+        cap = self._cap
+        while self._running:
+            ret, frame = cap.read()
+            if not ret:
+                continue
 
-        ret, frame = self._cap.read()
-        if not ret:
-            return True
+            now = time.monotonic()
+            self._frame_ts.append(now)
 
-        # Track FPS
-        now = time.monotonic()
-        self._frame_ts.append(now)
+            preview_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            cam_pb = ndarray_to_pixbuf(preview_rgb)
 
-        # Webcam preview — store full-res pixbuf; draw callback handles scaling
-        preview_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        self._cam_pixbuf = ndarray_to_pixbuf(preview_rgb)
+            small = crop_and_gray(frame,
+                                  self._cfg_invert,
+                                  self._cfg_zoom,
+                                  self._cfg_contrast)
+            proc_pb = ndarray_to_pixbuf(cv2.cvtColor(small, cv2.COLOR_GRAY2RGB))
+
+            self._latest_frame = frame  # atomic enough for our use
+
+            GLib.idle_add(self._apply_cam_frame, cam_pb, proc_pb,
+                          self._compute_frame_fps())
+
+        cap.release()
+        self._cap = None
+
+    def _apply_cam_frame(self, cam_pb, proc_pb, fps: float):
+        self._cam_pixbuf  = cam_pb
+        self._proc_pixbuf = proc_pb
         self._cam_da.queue_draw()
-
-        # Processed 28x28 view — store at native resolution; draw callback scales
-        invert   = self._invert_chk.get_active()
-        zoom     = self._zoom_scale.get_value()
-        contrast = self._contrast_scale.get_value()
-        small = crop_and_gray(frame, invert, zoom, contrast)
-        self._proc_pixbuf = ndarray_to_pixbuf(cv2.cvtColor(small, cv2.COLOR_GRAY2RGB))
         self._proc_da.queue_draw()
-
-        self._v_cam_fps.set_text(f"{self._compute_frame_fps():.1f}")
-
-        # Store frame for inference worker
-        self._latest_frame = frame.copy()
-        return True
+        self._v_cam_fps.set_text(f"{fps:.1f}")
+        return False  # don't repeat
 
     def _set_pred(self, text: str, color: str | None = None):
         self._pred_text  = text
@@ -519,47 +522,36 @@ class InferenceClient(Gtk.Window):
             return 0.0
         return (len(ts) - 1) / (ts[-1] - ts[0])
 
-    # -- inference ----------------------------------------------------------
+    # -- inference thread ---------------------------------------------------
 
-    def _trigger_infer(self):
-        if not self._running:
-            return False
-        if self._infer_busy:
-            return True
-        frame = self._latest_frame
-        if frame is None:
-            return True
-        self._infer_busy = True
-        url      = self._url_entry.get_text().rstrip("/")
-        invert   = self._invert_chk.get_active()
-        use_float = self._float_chk.get_active()
-        zoom     = self._zoom_scale.get_value()
-        contrast = self._contrast_scale.get_value()
-        threading.Thread(target=self._infer_worker,
-                         args=(frame, url, invert, use_float, zoom, contrast),
-                         daemon=True).start()
-        return True
-
-    def _infer_worker(self, frame: np.ndarray, url: str, invert: bool,
-                      use_float: bool = False, zoom: float = 1.0, contrast: float = 1.0):
-        try:
-            body = encode_for_infer(crop_and_gray(frame, invert, zoom, contrast), use_float)
-            t0 = time.monotonic()
-            r  = requests.post(f"{url}/infer", data=body, timeout=5)
-            lat_ms = (time.monotonic() - t0) * 1000
-            r.raise_for_status()
-            data       = r.json()
-            cls        = data["class"]
-            time_us    = data.get("time_us",    0)
-            load_us    = data.get("load_us",    0)
-            compute_us = data.get("compute_us", 0)
-            read_us    = data.get("read_us",    0)
-            GLib.idle_add(self._update_prediction,
-                          cls, lat_ms, time_us, load_us, compute_us, read_us)
-        except Exception as e:
-            GLib.idle_add(self._update_prediction_error, str(e))
-        finally:
-            self._infer_busy = False
+    def _infer_loop(self):
+        while self._running:
+            frame = self._latest_frame
+            if frame is None:
+                time.sleep(0.001)
+                continue
+            url       = self._cfg_url
+            use_float = self._cfg_use_float
+            try:
+                body = encode_for_infer(
+                    crop_and_gray(frame, self._cfg_invert,
+                                  self._cfg_zoom, self._cfg_contrast),
+                    use_float,
+                )
+                t0 = time.monotonic()
+                r  = requests.post(f"{url}/infer", data=body, timeout=5)
+                lat_ms = (time.monotonic() - t0) * 1000
+                r.raise_for_status()
+                data       = r.json()
+                cls        = data["class"]
+                time_us    = data.get("time_us",    0)
+                load_us    = data.get("load_us",    0)
+                compute_us = data.get("compute_us", 0)
+                read_us    = data.get("read_us",    0)
+                GLib.idle_add(self._update_prediction,
+                              cls, lat_ms, time_us, load_us, compute_us, read_us)
+            except Exception as e:
+                GLib.idle_add(self._update_prediction_error, str(e))
 
     def _update_prediction(self, cls: int, lat_ms: float,
                            time_us: int, load_us: int,
@@ -575,10 +567,12 @@ class InferenceClient(Gtk.Window):
         self._v_compute.set_text(str(compute_us))
         self._v_read.set_text(str(read_us))
         self._status_lbl.set_text("Weights loaded.")
+        return False
 
     def _update_prediction_error(self, msg: str):
         self._set_pred("!", color="red")
         self._status_lbl.set_text(f"Error: {msg[:120]}")
+        return False
 
 
 # -- entry point ---------------------------------------------------------------
